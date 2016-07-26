@@ -545,8 +545,8 @@ class ServerInstallInterface(client.ClientInstallInterface,
                         "You must specify at least one of --forwarder, "
                         "--auto-forwarders, or --no-forwarders options")
 
-        # Automatically disable pkinit w/ dogtag until that is supported
-        self.no_pkinit = True
+        # Automatically enable pkinit w/ dogtag
+        self.no_pkinit = not self.setup_ca
 
 
 class ServerMasterInstall(installs_master(ServerInstallInterface)):

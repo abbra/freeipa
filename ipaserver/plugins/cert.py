@@ -144,11 +144,12 @@ http://www.ietf.org/rfc/rfc5280.txt
 
 """)
 
-USER, HOST, SERVICE = range(3)
+USER, HOST, KRBTGT, SERVICE = range(4)
 
 PRINCIPAL_TYPE_STRING_MAP = {
     USER: _('user'),
     HOST: _('host'),
+    KRBTGT: _('krbtgt'),
     SERVICE: _('service'),
 }
 
@@ -215,6 +216,16 @@ def caacl_check(principal_type, principal, ca, profile_id):
             )
         )
 
+
+def ca_kdc_check(ldap, basedn, hostname):
+    kdc_master_dn = DN(('cn', 'KDC'), ('cn', hostname),
+                       ('cn', 'masters'), ('cn', 'ipa'), ('cn', 'etc'),
+                       basedn)
+    try:
+        ldap.get_entry(kdc_master_dn, ['objectclass'])
+    except errors.NotFound:
+        raise errors.ACIError(info=_(
+                "Host '%(hostname)s' is not a KDC") % dict(hostname=hostname))
 
 def validate_certificate(value):
     return x509.validate_certificate(value, x509.DER)
@@ -533,6 +544,8 @@ class cert_request(Create, BaseCertMethod, VirtualCommand):
         ca_enabled_check()
 
         ldap = self.api.Backend.ldap2
+        basedn = self.api.env.basedn
+        realm = unicode(self.api.env.realm)
         add = kw.get('add')
         request_type = kw.get('request_type')
         profile_id = kw.get('profile_id', self.Backend.ra.DEFAULT_PROFILE)
@@ -563,6 +576,12 @@ class cert_request(Create, BaseCertMethod, VirtualCommand):
             principal_type = USER
         elif principal.is_host:
             principal_type = HOST
+        elif principal.service_name == 'krbtgt':
+            principal_type = KRBTGT
+            if profile_id != self.Backend.ra.KDC_PROFILE:
+                raise errors.ACIError(
+                    info=_("krbtgt certs can use only the %s profile") % (
+                           self.Backend.ra.KDC_PROFILE))
         else:
             principal_type = SERVICE
 
@@ -589,7 +608,10 @@ class cert_request(Create, BaseCertMethod, VirtualCommand):
             bypass_caacl = False
 
         if not bypass_caacl:
-            caacl_check(principal_type, principal, ca, profile_id)
+            if principal_type == KRBTGT:
+                ca_kdc_check(ldap, basedn, bind_principal.hostname)
+            else:
+                caacl_check(principal_type, principal, ca, profile_id)
 
         try:
             csr_obj = pkcs10.load_certificate_request(csr)
@@ -616,6 +638,11 @@ class cert_request(Create, BaseCertMethod, VirtualCommand):
         try:
             if principal_type == SERVICE:
                 principal_obj = api.Command['service_show'](principal_string, all=True)
+            elif principal_type == KRBTGT:
+                # Allow only our own realm krbtgt for now, no trusted realm's.
+                if principal != kerberos.Principal((u'krbtgt', realm),
+                                                   realm=realm):
+                    raise errors.NotFound("Not our realm's krbtgt")
             elif principal_type == HOST:
                 principal_obj = api.Command['host_show'](
                     principal.hostname, all=True)
@@ -635,8 +662,9 @@ class cert_request(Create, BaseCertMethod, VirtualCommand):
             else:
                 raise errors.NotFound(
                     reason=_("The principal for this request doesn't exist."))
-        principal_obj = principal_obj['result']
-        dn = principal_obj['dn']
+        if principal_obj:
+            principal_obj = principal_obj['result']
+            dn = principal_obj['dn']
 
         # Ensure that the DN in the CSR matches the principal
         #
@@ -654,6 +682,13 @@ class cert_request(Create, BaseCertMethod, VirtualCommand):
                     info=_("hostname in subject of request '%(cn)s' "
                         "does not match principal hostname '%(hostname)s'")
                         % dict(cn=cn, hostname=principal.hostname))
+        elif principal_type == KRBTGT and not bypass_caacl:
+            if cn.lower() != bind_principal.hostname.lower():
+                raise errors.ACIError(
+                    info=_("hostname in subject of request '%(cn)s' "
+                           "does not match principal hostname "
+                           "'%(hostname)s'") % dict(
+                                cn=cn, hostname=bind_principal.hostname))
         elif principal_type == USER:
             # check user name
             if cn != principal.username:
@@ -675,10 +710,12 @@ class cert_request(Create, BaseCertMethod, VirtualCommand):
                         "any of user's email addresses")
                 )
 
-        # We got this far so the principal entry exists, can we write it?
-        if not ldap.can_write(dn, "usercertificate"):
-            raise errors.ACIError(info=_("Insufficient 'write' privilege "
-                "to the 'userCertificate' attribute of entry '%s'.") % dn)
+        if principal_type != KRBTGT:
+            # We got this far so the principal entry exists, can we write it?
+            if not ldap.can_write(dn, "usercertificate"):
+                raise errors.ACIError(
+                    info=_("Insufficient 'write' privilege to the "
+                           "'userCertificate' attribute of entry '%s'.") % dn)
 
         # Validate the subject alt name, if any
         generalnames = []
@@ -694,6 +731,9 @@ class cert_request(Create, BaseCertMethod, VirtualCommand):
                         alt_principal = kerberos.Principal(
                             (u'host', name), principal.realm)
                         alt_principal_obj = api.Command['host_show'](name, all=True)
+                    elif principal_type == KRBTGT:
+                        alt_principal = kerberos.Principal(
+                            (u'host', name), principal.realm)
                     elif principal_type == SERVICE:
                         alt_principal = kerberos.Principal(
                             (principal.service_name, name), principal.realm)
@@ -720,7 +760,11 @@ class cert_request(Create, BaseCertMethod, VirtualCommand):
                             "Insufficient privilege to create a certificate "
                             "with subject alt name '%s'.") % name)
                 if alt_principal is not None and not bypass_caacl:
-                    caacl_check(principal_type, alt_principal, ca, profile_id)
+                    if principal_type == KRBTGT:
+                        ca_kdc_check(ldap, basedn, alt_principal.hostname)
+                    else:
+                        caacl_check(principal_type, alt_principal, ca,
+                                    profile_id)
             elif isinstance(gn, (x509.KRB5PrincipalName, x509.UPN)):
                 if gn.name != principal_string:
                     raise errors.ACIError(
@@ -780,6 +824,9 @@ class cert_request(Create, BaseCertMethod, VirtualCommand):
                 api.Command['host_mod'](principal.hostname, **kwargs)
             elif principal_type == USER:
                 api.Command['user_mod'](principal.username, **kwargs)
+            elif principal_type == KRBTGT:
+                root_logger.error("Profiles used to store cert should't be "
+                                  "used for krbtgt certificates")
 
         return dict(
             result=result,

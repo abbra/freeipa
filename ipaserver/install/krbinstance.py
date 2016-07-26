@@ -32,6 +32,8 @@ from ipaserver.install import installutils
 from ipapython import ipautil
 from ipapython import kernel_keyring
 from ipalib import api
+from ipapython import certmonger
+from ipalib.constants import CACERT
 from ipapython.ipa_log_manager import root_logger
 from ipapython.dn import DN
 
@@ -153,11 +155,13 @@ class KrbInstance(service.Service):
         self.step("creating a keytab for the directory", self.__create_ds_keytab)
         self.step("creating a keytab for the machine", self.__create_host_keytab)
         self.step("adding the password extension to the directory", self.__add_pwd_extop_module)
-        if setup_pkinit:
-            self.step("creating X509 Certificate for PKINIT", self.__setup_pkinit)
-            self.step("creating principal for anonymous PKINIT", self.__add_anonymous_pkinit_principal)
 
         self.__common_post_setup()
+
+        if setup_pkinit:
+            self.step("installing X509 Certificate for PKINIT", self.__setup_pkinit)
+            self.step("creating principal for anonymous PKINIT",
+                      self.__add_anonymous_pkinit_principal)
 
         self.start_creation(runtime=30)
 
@@ -214,7 +218,8 @@ class KrbInstance(service.Service):
                              KRB5KDC_KADM5_ACL=paths.KRB5KDC_KADM5_ACL,
                              DICT_WORDS=paths.DICT_WORDS,
                              KRB5KDC_KADM5_KEYTAB=paths.KRB5KDC_KADM5_KEYTAB,
-                             KDC_PEM=paths.KDC_PEM,
+                             KDC_CERT=paths.KDC_CERT,
+                             KDC_KEY=paths.KDC_KEY,
                              CACERT_PEM=paths.CACERT_PEM)
 
         # IPA server/KDC is not a subdomain of default domain
@@ -339,15 +344,29 @@ class KrbInstance(service.Service):
         self.move_service_to_host(host_principal)
 
     def __setup_pkinit(self):
+        shutil.copyfile(CACERT, paths.CACERT_PEM)
+
         ca_db = certs.CertDB(self.realm, host_name=self.fqdn,
                                 subject_base=self.subject_base)
 
         if self.pkcs12_info:
             ca_db.install_pem_from_p12(self.pkcs12_info[0],
                                        self.pkcs12_info[1],
-                                       paths.KDC_PEM)
+                                       paths.KDC_CERT)
+            ca_db.install_key_from_p12(self.pkcs12_info[0],
+                                       self.pkcs12_info[1],
+                                       paths.KDC_KEY)
         else:
-            raise RuntimeError("PKI not supported yet\n")
+            subject = str(DN(('cn', self.fqdn), self.subject_base))
+            krbtgt = "krbtgt/" + self.realm + "@" + self.realm
+            reqid = certmonger.request_cert((paths.KDC_CERT, paths.KDC_KEY),
+                                            u'KDC-Cert', subject, krbtgt,
+                                            dns=self.fqdn, storage='FILE',
+                                            profile='KDCs_PKINIT_Certs')
+            try:
+                certmonger.wait_for_request(reqid)
+            except RuntimeError as e:
+                root_logger.error("Failed to wait for request: %s", e)
 
         # Finally copy the cacert in the krb directory so we don't
         # have any selinux issues with the file context
@@ -364,6 +383,9 @@ class KrbInstance(service.Service):
         entry['nsAccountlock'] = ['TRUE']
         api.Backend.ldap2.update_entry(entry)
 
+    def setup_pkinit(self):
+        self.__setup_pkinit()
+
     def __convert_to_gssapi_replication(self):
         repl = replication.ReplicationManager(self.realm,
                                               self.fqdn,
@@ -371,6 +393,9 @@ class KrbInstance(service.Service):
         repl.convert_to_gssapi_replication(self.master_fqdn,
                                            r_binddn=DN(('cn', 'Directory Manager')),
                                            r_bindpw=self.dm_password)
+
+    def stop_tracking_certs(self):
+        certmonger.stop_tracking(certfile=paths.KDC_CERT)
 
     def uninstall(self):
         if self.is_configured():
@@ -393,6 +418,12 @@ class KrbInstance(service.Service):
         # disabled by default, by ldap_enable()
         if enabled:
             self.enable()
+
+        # stop tracking and remove certificates
+        self.stop_tracking_certs()
+        installutils.remove_file(paths.CACERT_PEM)
+        installutils.remove_file(paths.KDC_CERT)
+        installutils.remove_file(paths.KDC_KEY)
 
         if running:
             self.restart()

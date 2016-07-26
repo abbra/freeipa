@@ -317,23 +317,29 @@ def request_and_wait_for_cert(
 
 
 def request_cert(
-        nssdb, nickname, subject, principal, passwd_fname=None,
-        dns=None, ca='IPA', profile=None, pre_command=None, post_command=None):
+        certpath, nickname, subject, principal, passwd_fname=None,
+        dns=None, ca='IPA', profile=None,
+        pre_command=None, post_command=None, storage='NSSDB'):
     """
     Execute certmonger to request a server certificate.
 
     ``dns``
         A sequence of DNS names to appear in SAN request extension.
     """
+    if storage == 'FILE':
+        certfile, keyfile = certpath
+    else:
+        certfile = certpath
+        keyfile = certpath
+
     cm = _certmonger()
     ca_path = cm.obj_if.find_ca_by_nickname(ca)
     if not ca_path:
         raise RuntimeError('{} CA not found'.format(ca))
-    request_parameters = dict(KEY_STORAGE='NSSDB', CERT_STORAGE='NSSDB',
-                              CERT_LOCATION=nssdb, CERT_NICKNAME=nickname,
-                              KEY_LOCATION=nssdb, KEY_NICKNAME=nickname,
-                              SUBJECT=subject,
-                              CA=ca_path)
+    request_parameters = dict(KEY_STORAGE=storage, CERT_STORAGE=storage,
+                              CERT_LOCATION=certfile, CERT_NICKNAME=nickname,
+                              KEY_LOCATION=keyfile, KEY_NICKNAME=nickname,
+                              SUBJECT=subject, CA=ca_path)
     if principal:
         request_parameters['PRINCIPAL'] = [principal]
     if dns is not None and len(dns) > 0:
@@ -408,20 +414,27 @@ def start_tracking(nickname, secdir, password_file=None, command=None):
     return request.prop_if.Get(DBUS_CM_REQUEST_IF, 'nickname')
 
 
-def stop_tracking(secdir, request_id=None, nickname=None):
+def stop_tracking(secdir=None, request_id=None, nickname=None, certfile=None):
     """
     Stop tracking the current request using either the request_id or nickname.
 
     Returns True or False
     """
-    if request_id is None and nickname is None:
-        raise RuntimeError('Both request_id and nickname are missing.')
+    if request_id is None and nickname is None and certfile is None:
+        raise RuntimeError('One of request_id, nickname and certfile is'
+                           ' required.')
+    if secdir is not None and certfile is not None:
+        raise RuntimeError("Can't specify both secdir and certfile.")
 
-    criteria = {'cert-database': secdir}
+    criteria = dict()
+    if secdir:
+        criteria['cert-database'] = secdir
     if request_id:
         criteria['nickname'] = request_id
     if nickname:
         criteria['cert-nickname'] = nickname
+    if certfile:
+        criteria['cert-file'] = certfile
     try:
         request = _get_request(criteria)
     except RuntimeError as e:
