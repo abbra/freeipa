@@ -288,7 +288,7 @@ def install_master(host, setup_dns=True, setup_kra=False, setup_adtrust=False,
     if result.returncode == 0:
         enable_replication_debugging(host)
         setup_sssd_debugging(host)
-        kinit_admin(host)
+        kinit_admin(host, raiseonerr=raiseonerr)
     return result
 
 
