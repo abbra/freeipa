@@ -344,7 +344,13 @@ class WSGIExecutioner(Executioner):
         e = None
         if not 'HTTP_REFERER' in environ:
             return self.marshal(result, RefererError(referer='missing'), _id)
-        if not environ['HTTP_REFERER'].startswith('https://%s/ipa' % self.api.env.host) and not self.env.in_tree:
+        try:
+            host_aliases = [self.api.env.host] + self.api.env.host_aliases.split()
+        except AttributeError as e:
+            host_aliases = [self.api.env.host]
+        referers = ['https://%s/ipa' % s for s in host_aliases]
+        is_any = any(environ['HTTP_REFERER'].startswith(s) for s in referers)
+        if not is_any and not self.env.in_tree:
             return self.marshal(result, RefererError(referer=environ['HTTP_REFERER']), _id)
         try:
             if ('HTTP_ACCEPT_LANGUAGE' in environ):
