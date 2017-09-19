@@ -864,6 +864,12 @@ class DsInstance(service.Service):
                 prev_helper = None
             try:
                 cmd = 'restart_dirsrv %s' % self.serverid
+
+                dns_san_record = [self.fqdn]
+                if 'host_aliases' in api.env is not None:
+                    dns_san_record += ipautil.split_string(
+                        api.env['host_aliases'])
+
                 certmonger.request_and_wait_for_cert(
                     certpath=dirname,
                     storage='NSSDB',
@@ -873,7 +879,7 @@ class DsInstance(service.Service):
                     subject=str(DN(('CN', self.fqdn), self.subject_base)),
                     ca='IPA',
                     profile=dogtag.DEFAULT_PROFILE,
-                    dns=[self.fqdn],
+                    dns=dns_san_record,
                     post_command=cmd,
                     resubmit_timeout=api.env.certmonger_wait_timeout
                 )
