@@ -1,0 +1,4 @@
+dn: cn=config
+changetype: modify
+add: nsslapd-ignore-time-skew
+nsslapd-ignore-time-skew: on
