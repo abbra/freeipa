@@ -162,8 +162,6 @@ AC_DEFUN([AM_CHECK_WRAPPER],
     AM_CONDITIONAL($2, [ test x$FOUND_WRAPPER = x1])
 ])
 
-AM_CHECK_WRAPPER(nss_wrapper, HAVE_NSS_WRAPPER)
-
 dnl ---------------------------------------------------------------------------
 dnl - Check for POPT
 dnl ---------------------------------------------------------------------------

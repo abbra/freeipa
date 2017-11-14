@@ -35,6 +35,13 @@ AC_CHECK_LIB([sss_nss_idmap],
              [AC_MSG_ERROR([Required sss_nss_getlistbycert symbol in sss_nss_idmap not found])],
              [])
 
+dnl --- if sss_nss_idmap provides _timeout() API, use it
+AC_CHECK_LIB([sss_nss_idmap], [sss_nss_getpwnam_timeout])
+if test "x$ac_cv_lib_sss_nss_idmap_sss_nss_getpwnam_timeout" = xyes ; then
+    AC_DEFINE(USE_SSS_NSS_TIMEOUT,1,[Use extended NSS API provided by SSSD])
+fi
+AM_CONDITIONAL([USE_SSS_NSS_TIMEOUT], [test "x$ac_cv_lib_sss_nss_idmap_sss_nss_getpwnam_timeout" = xyes])
+
 dnl -- sss_certmap and certauth.h are needed by the IPA KDB certauth plugin --
 PKG_CHECK_EXISTS([sss_certmap],
                  [PKG_CHECK_MODULES([SSSCERTMAP], [sss_certmap])],
