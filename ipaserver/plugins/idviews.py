@@ -715,8 +715,12 @@ class baseidoverride(LDAPObject):
                 self.backend,
                 self.override_object,
                 keys[-1],
-                fallback_to_ldap=options['fallback_to_ldap']
+                fallback_to_ldap=options.get('fallback_to_ldap', False)
             )
+            if (len(keys[:-1]) == 0 and
+                    self.override_object is 'user' and
+                    anchor.startswith(SID_ANCHOR_PREFIX)):
+                keys = (DEFAULT_TRUST_VIEW_NAME, ) + keys
 
         keys = keys[:-1] + (anchor, )
         return super(baseidoverride, self).get_dn(*keys, **options)
