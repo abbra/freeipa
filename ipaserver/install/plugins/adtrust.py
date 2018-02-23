@@ -357,25 +357,45 @@ class update_tdo_gidnumber(Updater):
                          ADTRUSTInstance.FALLBACK_GROUP_NAME)
             return False, ()
 
-        # For each trusted domain object, add gidNumber
+        # For each trusted domain object, add posix attributes
+        # to allow use of a trusted domain account by AD DCs
+        # to authenticate against our Samba instance
         try:
             tdos = ldap.get_entries(
                 DN(self.api.env.container_adtrusts, self.api.env.basedn),
                 scope=ldap.SCOPE_ONELEVEL,
-                filter="(objectclass=ipaNTTrustedDomain)",
-                attrs_list=['gidnumber'])
+                filter="(&(objectclass=ipaNTTrustedDomain)"
+                       "(objectclass=ipaIDObject))",
+                attrs_list=['gidnumber', 'uidnumber',
+                            'ipantsecurityidentifier',
+                            'ipaNTTrustDirection'
+                            'uid', 'cn', 'ipantflatname'])
             for tdo in tdos:
                 # if the trusted domain object does not contain gidnumber,
                 # add the default fallback group gidnumber
                 if not tdo.get('gidnumber'):
-                    try:
-                        tdo['gidnumber'] = gidNumber
-                        ldap.update_entry(tdo)
-                        logger.debug("Added gidnumber %s to %s",
-                                     gidNumber, tdo.dn)
-                    except Exception:
-                        logger.warning(
-                            "Failed to add gidnumber to %s", tdo.dn)
+                    tdo['gidnumber'] = gidNumber
+
+                # Generate uidNumber and ipaNTSecurityIdentifier if
+                # uidNumber is missing. We rely on sidgen plugin here
+                # to generate ipaNTSecurityIdentifier.
+                if not tdo.get('uidnumber'):
+                    tdo['uidnumber'] = ['-1']
+
+                # Based on the flat name of a TDO,
+                # add user name FLATNAME$ (note dollar sign)
+                # to allow SSSD to map this TDO to a POSIX account
+                if not tdo.get('uid'):
+                    tdo['uid'] = ["{flatname}$".format(
+                                  flatname=tdo.single_value['ipantflatname'])]
+
+                # Store resulted entry
+                try:
+                    ldap.update_entry(tdo)
+                    logger.debug("Updated trusted domain object %s", tdo.dn)
+                except Exception:
+                    logger.warning(
+                        "Failed to update trusted domain object %s", tdo.dn)
 
         except errors.NotFound:
             logger.debug("No trusted domain object to update")
