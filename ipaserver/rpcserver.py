@@ -23,6 +23,8 @@ RPC server.
 Also see the `ipalib.rpc` module.
 """
 
+from __future__ import absolute_import
+
 import logging
 from xml.sax.saxutils import escape
 import os
@@ -30,6 +32,8 @@ import traceback
 
 import gssapi
 import requests
+import dbus
+import dbus.mainloop.glib
 
 import ldap.controls
 from pyasn1.type import univ, namedtype
@@ -295,7 +299,28 @@ class wsgi_dispatch(Executioner, HTTP_Status):
         self.__apps[key] = app
 
 
+def send_audit_event(principal, cmd, params, result, version):
+    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 
+    bus = dbus.SystemBus()
+    obj = bus.get_object('org.freeipa.server', '/',
+                         follow_name_owner_changes=True)
+    server = dbus.Interface(obj, 'org.freeipa.server')
+
+    data = dict(
+        principal=principal,
+        command=cmd,
+        params=params,
+        result=result,
+    )
+    dump = json_encode_binary(
+        data, version, pretty_print=False
+    )
+    ret = server.audit_event(dump)
+    if ret[0] != 0:
+        logger.info('[audit] unable to send audit event for %s: %s()',
+                    principal,
+                    cmd)
 
 
 class WSGIExecutioner(Executioner):
@@ -380,6 +405,7 @@ class WSGIExecutioner(Executioner):
                 delattr(context, "languages")
 
         principal = getattr(context, 'principal', 'UNKNOWN')
+        version = options.get('version', VERSION_WITHOUT_CAPABILITIES)
         if command is not None:
             try:
                 params = command.args_options_2_params(*args, **options)
@@ -401,14 +427,21 @@ class WSGIExecutioner(Executioner):
                         name,
                         ', '.join(command._repr_iter(**params)),
                         result_string)
+            if getattr(self.api.env, 'audit', None):
+                send_audit_event(principal,
+                                 name, params,
+                                 result_string, version)
         else:
             logger.info('[%s] %s: %s: %s',
                         type(self).__name__,
                         principal,
                         name,
                         type(error).__name__)
+            if getattr(self.api.env, 'audit', None):
+                send_audit_event(principal,
+                                 name, params,
+                                 type(error).__name__, version)
 
-        version = options.get('version', VERSION_WITHOUT_CAPABILITIES)
         return self.marshal(result, error, _id, version)
 
     def simple_unmarshal(self, environ):

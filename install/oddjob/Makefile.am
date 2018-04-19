@@ -7,6 +7,7 @@ dbusconfdir = $(sysconfdir)/dbus-1/system.d
 dist_oddjob_SCRIPTS =				\
 	com.redhat.idm.trust-fetch-domains	\
 	org.freeipa.server.conncheck		\
+	org.freeipa.server.audit_event		\
 	$(NULL)
 
 dist_dbusconf_DATA =					\
