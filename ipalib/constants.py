@@ -299,6 +299,8 @@ LDAP_GENERALIZED_TIME_FORMAT = "%Y%m%d%H%M%SZ"
 
 IPA_ANCHOR_PREFIX = ':IPA:'
 SID_ANCHOR_PREFIX = ':SID:'
+SID_AUTHENTICATED_USERS = 'S-1-5-11'
+RID_DOMAIN_ALIAS_USERS = '545'
 
 # When an entry does not contain ipantsecurityidentifier (for instance a
 # non posix group), IPA will generate a special SID using the following
