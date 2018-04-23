@@ -24,6 +24,9 @@ Search for an User ID override.
 * homedirectory : :ref:`Str<Str>`
 * loginshell : :ref:`Str<Str>`
 * ipaoriginaluid : :ref:`Str<Str>`
+* global_template : :ref:`Bool<Bool>`
+ * Default: False
+* template : :ref:`Str<Str>`
 * timelimit : :ref:`Int<Int>`
 * sizelimit : :ref:`Int<Int>`
 * fallback_to_ldap : :ref:`Flag<Flag>`
