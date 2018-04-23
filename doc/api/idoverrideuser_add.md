@@ -25,6 +25,9 @@ Add a new User ID override.
 * ipaoriginaluid : :ref:`Str<Str>`
 * ipasshpubkey : :ref:`Str<Str>`
 * usercertificate : :ref:`Certificate<Certificate>`
+* global_template : :ref:`Flag<Flag>`
+ * Default: False
+* template : :ref:`Str<Str>`
 * setattr : :ref:`Str<Str>`
 * addattr : :ref:`Str<Str>`
 * fallback_to_ldap : :ref:`Flag<Flag>`
