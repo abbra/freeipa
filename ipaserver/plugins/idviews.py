@@ -35,6 +35,8 @@ from ipalib.parameters import Certificate
 from ipalib.constants import (
     IPA_ANCHOR_PREFIX,
     SID_ANCHOR_PREFIX,
+    SID_AUTHENTICATED_USERS,
+    RID_DOMAIN_ALIAS_USERS,
     PATTERN_GROUPUSER_NAME,
 )
 from ipalib.plugable import Registry
@@ -638,6 +640,23 @@ def resolve_anchor_to_object_name(ldap, obj_type, anchor):
         # Parse the SID out from the anchor
         sid = anchor[len(SID_ANCHOR_PREFIX):].strip()
 
+        if sid == SID_AUTHENTICATED_USERS:
+            return "global template"
+
+        if sid.endswith("-{}".format(RID_DOMAIN_ALIAS_USERS)):
+            # Retrieve domain name by removing -RID from the SID
+            # and resolving domain sid to the domain name
+            entry = ldap.find_entry_by_attr(
+                attr='ipaNTSecurityIdentifier',
+                value=sid[:-len(RID_DOMAIN_ALIAS_USERS)-1],
+                object_class='ipaNTTrustedDomain',
+                attrs_list=['cn'],
+                base_dn=DN(api.Object.trust.container_dn, api.env.basedn))
+
+            # Return the name of the object, which is either cn for
+            # groups or uid for users
+            return "Template for {}".format(entry.single_value['cn'])
+
         if _dcerpc_bindings_installed:
             domain_validator = ipaserver.dcerpc.DomainValidator(api)
             if domain_validator.is_configured():
@@ -654,6 +673,43 @@ def resolve_anchor_to_object_name(ldap, obj_type, anchor):
     raise errors.NotFound(
         reason=_("Anchor '%(anchor)s' could not be resolved.")
                % dict(anchor=anchor))
+
+
+def resolve_template_to_anchor(ldap, obj):
+    """
+    Resolves the trusted domain name to the anchor uuid:
+        - empty object name means a global template (S-1-5-11)
+        - otherwise it is a trusted domain name which will be resolved
+          into a <domain-sid>-545 SID.
+
+    Takes options:
+        ldap - the backend
+        obj - the name of the trusted domain -- either
+              fully qualified or NetBIOS
+    """
+
+    if len(obj) == 0:
+        # Empty object name means we are dealing with the global template
+        return "{}:{}".format(SID_ANCHOR_PREFIX, SID_AUTHENTICATED_USERS)
+
+    try:
+        filter = '(&(|(cn={domain})(ipantflatname={domain}))' \
+                   '(objectclass=ipanttrusteddomain)' \
+                 ')'.format(domain=obj)
+        entries = ldap.get_entries(
+            base_dn=DN(api.Object.trust.container_dn, api.env.basedn),
+            scope=ldap.SCOPE_SUBTREE,
+            filter=filter,
+            attrs_list=['ipantsecurityidentifier'])
+
+        if len(entries) == 1:
+            return "{}:{}-{}".format(
+                SID_ANCHOR_PREFIX,
+                entries[0].single_value('ipantsecurityidentifier'),
+                RID_DOMAIN_ALIAS_USERS)
+    except errors.NotFound:
+        # No acceptable object was found
+        raise api.Object.trustdomain.handle_not_found(obj)
 
 
 def remove_ipaobject_overrides(ldap, api, dn):
@@ -718,12 +774,28 @@ class baseidoverride(LDAPObject):
         # Otherwise, translate object into a
         # legitimate object anchor.
         else:
-            anchor = resolve_object_to_anchor(
-                self.backend,
-                self.override_object,
-                keys[-1],
-                fallback_to_ldap=options['fallback_to_ldap']
-            )
+            if 'global_template' in options:
+                # We have no second key, add a temporary one
+                # keys[:-1] will remove 'template' below
+                # and replace it by the anchor
+                keys = keys + ['template']
+                anchor = "{}:{}".format(
+                    SID_ANCHOR_PREFIX, SID_AUTHENTICATED_USERS)
+            elif 'template' in options:
+                # We have no second key, add a temporary one
+                # keys[:-1] will remove 'template' below
+                # and replace it by the anchor
+                keys = keys + ['template']
+                anchor = resolve_template_to_anchor(
+                    self.backend,
+                    options.get('template'))
+            else:
+                anchor = resolve_object_to_anchor(
+                    self.backend,
+                    self.override_object,
+                    keys[-1],
+                    fallback_to_ldap=options['fallback_to_ldap']
+                )
 
         keys = keys[:-1] + (anchor, )
         return super(baseidoverride, self).get_dn(*keys, **options)
@@ -970,6 +1042,16 @@ class idoverrideuser(baseidoverride):
               doc=_('Base-64 encoded user certificate'),
               flags=['no_search',],
         ),
+        Flag('global_template?',
+             label=_('Create global template entry'),
+             doc=_('A global entry that applies to all trusted users'),
+             ),
+        Str('template?',
+            cli_name='template',
+            label=_('Create template entry for a domain'),
+            doc=_('A domain-specific entry that applies '
+                  'to all users from the trusted domain'),
+            ),
     )
 
     override_object = 'user'
