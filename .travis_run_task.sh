@@ -31,7 +31,7 @@ function truncate_log_to_test_failures() {
 
 if [[ "$TASK_TO_RUN" == "lint" ]]
 then
-    if [[ "$TRAVIS_EVENT_TYPE" == "pull_request" ]]
+    if [[ "$TRAVIS_EVENT_TYPE" == "pull_request" || "$TRAVIS_EVENT_TYPE" == "PullRequest" ]]
     then
         git diff origin/$TRAVIS_BRANCH -U0 | \
             pycodestyle --ignore=W504 --diff &> $PEP8_ERROR_LOG ||:
@@ -47,7 +47,7 @@ fi
 
 docker pull $TEST_RUNNER_IMAGE
 
-ipa-docker-test-runner -l $CI_RESULTS_LOG \
+ipa-docker-test-runner -d -l $CI_RESULTS_LOG \
     -c $TEST_RUNNER_CONFIG \
     $developer_mode_opt \
     --container-environment "RPMBUILD_OPTS=$env_opt" \
