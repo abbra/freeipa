@@ -522,6 +522,19 @@ If your network uses IPA for authentication, this package should be
 installed on every client machine.
 This package provides command-line tools for IPA administrators.
 
+%package client-samba
+Summary: Tools to configure Samba on IPA client
+Group: System Environment/Base
+Requires: %{name}-client = %{version}-%{release}
+Requires: python3-samba
+Requires: samba-client
+Requires: samba-winbind
+Requires: samba-common-tools
+Requires: samba
+Requires: tdb-tools
+
+%description client-samba
+This package provides command-line tools to deploy Samba on IPA client
 
 %package -n python3-ipaclient
 Summary: Python libraries used by IPA client
@@ -1206,6 +1219,10 @@ fi
 %{_mandir}/man1/ipa-certupdate.1*
 %{_mandir}/man1/ipa-join.1*
 
+%files client-samba
+%doc README.md Contributors.txt
+%license COPYING
+%{_sbindir}/ipa-client-samba
 
 %files -n python3-ipaclient
 %doc README.md Contributors.txt
