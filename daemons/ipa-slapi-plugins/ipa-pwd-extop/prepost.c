@@ -528,8 +528,8 @@ static int ipapwd_pre_mod(Slapi_PBlock *pb)
                     (strncmp(NTHASH_REGEN_VAL,
                              bv->bv_val, bv->bv_len) == 0)) {
                     is_magic_regen = 1;
-                    /* make sure the database will later ignore this mod */
-                    slapi_mods_remove(smods);
+		    /* We do not remove the mod from the list due to
+		     * https://pagure.io/389-ds-base/issue/387#comment-120145 */
                 }
             default:
                 break;
@@ -1009,7 +1009,9 @@ static int ipapwd_regen_nthash(Slapi_PBlock *pb, Slapi_Mods *smods,
         bval.bv_len = 16;
         ntvals[0] = &bval;
 
-        slapi_mods_add_modbvps(smods, LDAP_MOD_ADD, "ipaNTHash", ntvals);
+	/* add the change as a replace operation due to
+	 * https://pagure.io/389-ds-base/issue/387#comment-120145 */
+        slapi_mods_add_modbvps(smods, LDAP_MOD_REPLACE, "ipaNTHash", ntvals);
 
         ret = LDAP_SUCCESS;
         break;
