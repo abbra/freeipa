@@ -30,12 +30,16 @@ import gssapi
 import pytest
 
 from ipalib import api
+from ipalib.request import context
 from ipaplatform.paths import paths
 from ipapython import ipautil, ipaldap
 from ipaserver.plugins.ldap2 import ldap2
 from ipatests.test_cmdline.cmdline import cmdline_test
 from ipatests.test_xmlrpc.tracker import host_plugin, service_plugin
+from contextlib import contextmanager
 
+
+@contextmanager
 def use_keytab(principal, keytab):
     try:
         tmpdir = tempfile.mkdtemp(prefix = "tmp-")
@@ -43,15 +47,14 @@ def use_keytab(principal, keytab):
         name = gssapi.Name(principal, gssapi.NameType.kerberos_principal)
         store = {'ccache': ccache_file,
                  'client_keytab': keytab}
-        os.environ['KRB5CCNAME'] = ccache_file
         gssapi.Credentials(name=name, usage='initiate', store=store)
         conn = ldap2(api)
-        conn.connect(autobind=ipaldap.AUTOBIND_DISABLED)
+        conn.connect(ccache=ccache_file, autobind=ipaldap.AUTOBIND_DISABLED)
+        yield conn
         conn.disconnect()
     except gssapi.exceptions.GSSError as e:
         raise Exception('Unable to bind to LDAP. Error initializing principal %s in %s: %s' % (principal, keytab, str(e)))
     finally:
-        os.environ.pop('KRB5CCNAME', None)
         if tmpdir:
             shutil.rmtree(tmpdir)
 
@@ -98,7 +101,7 @@ class KeytabRetrievalTest(cmdline_test):
             pass
 
     def run_ipagetkeytab(self, service_principal, args=tuple(),
-                         raiseonerr=False):
+                         raiseonerr=False, stdin=None):
         new_args = [self.command,
                     "-p", service_principal,
                     "-k", self.keytabname]
@@ -110,7 +113,7 @@ class KeytabRetrievalTest(cmdline_test):
 
         return ipautil.run(
             new_args,
-            stdin=None,
+            stdin=stdin,
             raiseonerr=raiseonerr,
             capture_error=True)
 
@@ -162,7 +165,9 @@ class test_ipagetkeytab(KeytabRetrievalTest):
         """
         Try to use the service keytab.
         """
-        use_keytab(test_service.name, self.keytabname)
+        with use_keytab(test_service.name, self.keytabname) as conn:
+            assert conn.can_read(test_service.dn, 'objectclass') is True
+            assert getattr(context, 'principal') == test_service.name
 
     def test_4_disable(self, test_service):
         """
@@ -186,7 +191,9 @@ class test_ipagetkeytab(KeytabRetrievalTest):
         Try to use the disabled keytab
         """
         try:
-            use_keytab(test_service.name, self.keytabname)
+            with use_keytab(test_service.name, self.keytabname) as conn:
+                assert conn.can_read(test_service.dn, 'objectclass') is True
+                assert getattr(context, 'principal') == test_service.name
         except Exception as errmsg:
             assert('Unable to bind to LDAP. Error initializing principal' in str(errmsg))
 
