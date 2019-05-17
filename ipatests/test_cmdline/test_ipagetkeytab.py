@@ -29,13 +29,14 @@ import tempfile
 import gssapi
 import pytest
 
-from ipalib import api
+from ipalib import api, errors
 from ipalib.request import context
 from ipaplatform.paths import paths
 from ipapython import ipautil, ipaldap
 from ipaserver.plugins.ldap2 import ldap2
 from ipatests.test_cmdline.cmdline import cmdline_test
 from ipatests.test_xmlrpc.tracker import host_plugin, service_plugin
+from ipatests.test_xmlrpc.xmlrpc_test import fuzzy_digits
 from contextlib import contextmanager
 
 
@@ -359,3 +360,90 @@ class TestBindMethods(KeytabRetrievalTest):
                 '-H', 'ldaps://{}'.format(api.env.host),
                 '-Y', 'EXTERNAL'],
             raiseonerr=False)
+
+
+class SMBServiceTracker(service_plugin.ServiceTracker):
+    def __init__(self, name, host_fqdn, options=None):
+        super(SMBServiceTracker, self).__init__(name, host_fqdn,
+                                                options=options)
+        # Create SMB service principal that has POSIX attributes to allow
+        # generating SID and adding proper objectclasses
+        self.create_keys |= {u'uidnumber', u'gidnumber'}
+        self.options[u'addattr'] = [
+            u'objectclass=ipaIDObject', u'uidNumber=-1', u'gidNumber=-1']
+
+    def track_create(self, **options):
+        super(SMBServiceTracker, self).track_create(**options)
+        self.attrs[u'uidnumber'] = [fuzzy_digits]
+        self.attrs[u'gidnumber'] = [fuzzy_digits]
+        self.attrs[u'objectclass'].append(u'ipaIDObject')
+
+
+@pytest.fixture(scope='class')
+def test_smb_svc(request, test_host):
+    service_tracker = SMBServiceTracker(u'cifs', test_host.name)
+    test_host.ensure_exists()
+    return service_tracker.make_fixture(request)
+
+
+@pytest.mark.tier0
+class test_smb_service(KeytabRetrievalTest):
+    """
+    Test `ipa-getkeytab` for retrieving explicit enctypes
+    """
+    command = "ipa-getkeytab"
+    keytabname = None
+
+    @classmethod
+    def setup_class(cls):
+        super(test_smb_service, cls).setup_class()
+
+        try:
+            cls.dm_password = retrieve_dm_password()
+        except errors.NotFound as e:
+            pytest.skip(e.args)
+
+    def test_create(self, test_smb_svc):
+        """
+        Create a keytab with `ipa-getkeytab` for an existing service.
+        """
+        test_smb_svc.ensure_exists()
+
+        # Request a keytab with explicit encryption types
+        enctypes = ['aes128-cts-hmac-sha1-96',
+                    'aes256-cts-hmac-sha1-96', 'arcfour-hmac']
+        args = ['-e', ','.join(enctypes), '-s', api.env.host]
+        self.assert_success(test_smb_svc.name, args=args, raiseonerr=True)
+
+    def test_use(self, test_smb_svc):
+        """
+        Try to use the service keytab.
+        """
+        with use_keytab(test_smb_svc.name, self.keytabname) as conn:
+            # assert conn.can_write(test_smb_svc.dn, 'ipanthash') is True
+            entry = conn.retrieve(test_smb_svc.dn, ['*'])
+            entry['objectclass'].extend(['ipaNTUserAttrs'])
+            entry['ipanthash'] = 'MagicRegen'
+            try:
+                conn.update_entry(entry)
+            except errors.ACIError:
+                assert ("No correct ACI to the ipaNTHash for SMB service"
+                        in "failure")
+            except errors.EmptyResult:
+                assert "No arcfour-hmac in Kerberos keys" in "failure"
+            except errors.DatabaseError:
+                # Most likely ipaNTHash already existed -- we either get
+                # OPERATIONS_ERROR or UNWILLING_TO_PERFORM, both map to
+                # the same DatabaseError class.
+                assert "LDAP Entry corruption after generation" in "failure"
+
+        # Update succeeded, now we have either MagicRegen (broken) or
+        # a real NT hash in the netry. However, we can only retrieve it as
+        # cn=Directory Manager to actually see what's there
+        conn = ldap2(api)
+        conn.connect(bind_dn='cn=Directory Manager', bind_pw=self.dm_password,
+                     autobind=ipaldap.AUTOBIND_DISABLED)
+        entry = conn.retrieve(test_smb_svc.dn, ['ipanthash'])
+        ipanthash = entry.single_value.get('ipanthash')
+        conn.disconnect()
+        assert ipanthash is b'MagicRegen'
