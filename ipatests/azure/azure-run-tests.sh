@@ -3,9 +3,8 @@ server_realm=EXAMPLE.TEST
 server_domain=example.test
 server_password=Secret123
 
-# Expand list of tests into -k...  -k... -k... .. sequence
-# If remaining string still has { or } characters that shell did not expand, remove them
-tests_to_run=$(eval "eval echo -k{$(echo $TESTS_TO_RUN | sed -e 's/[ \t]+*/,/g')}" | tr -d '{}')
+# Expand list of tests into -k "... or ... or ..."
+tests_to_run=$(eval "eval echo -k '$(echo $TESTS_TO_RUN | sed -e 's/[ \t]+*/,/g' | sed -e 's/,/ or /g')'")
 
 systemctl --now enable firewalld
 ipa-server-install -U --domain ${server_domain} --realm ${server_realm} -p ${server_password} -a ${server_password} --setup-dns --setup-kra --auto-forwarders
@@ -22,7 +21,7 @@ echo ${server_password} > ~/.ipa/.dmpw
 echo 'wait_for_dns=5' >> ~/.ipa/default.conf
 ipa-test-config --help
 ipa-test-task --help
-ipa-run-tests --with-xunit -k-{test_integration,test_webui,test_ipapython/test_keyring.py,test_dns_soa} -v ${tests_to_run}
+ipa-run-tests --with-xunit -k-{test_integration,test_webui,test_ipapython/test_keyring.py,test_dns_soa} -v "${tests_to_run}"
 grep -n -C5 BytesWarning /var/log/httpd/error_log
 ipa-server-install --uninstall -U
 # second uninstall to verify that --uninstall without installation works
