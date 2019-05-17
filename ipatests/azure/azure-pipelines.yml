@@ -128,13 +128,9 @@ jobs:
         Base_tests:
           TEST_TITLE: 'Base'
           TASK_TO_RUN: run-tests
-          TESTS_TO_RUN: "test_cmdline
-                test_install
-                test_ipaclient
-                test_ipalib
-                test_ipaplatform
-                test_ipapython
-                test_ipaserver"
+          TESTS_TO_RUN: "test_cmdline or test_install or
+                test_ipaclient test_ipalib or test_ipaplatform
+                test_ipapython or test_ipaserver and not test_xmlrpc"
         XMLRPC_tests:
           TEST_TITLE: 'XMLRPC'
           TASK_TO_RUN: run-tests
