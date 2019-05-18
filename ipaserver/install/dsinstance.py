@@ -923,7 +923,13 @@ class DsInstance(service.Service):
             conn.add_entry(entry)
         except errors.DuplicateEntry:
             # 389-DS >= 1.4.0 has a default entry, update it.
-            conn.update_entry(entry)
+            old_entry = conn.get_entry(entry.dn)
+            old_entry.update(entry)
+            try:
+                conn.update_entry(old_entry)
+            except errors.EmptyModlist:
+                logger.debug("RSA encryption entry already has "
+                             "the token activated")
 
         conn.unbind()
 
