@@ -1,0 +1,476 @@
+@PYTHONSHEBANG@
+#
+# Copyright (C) 2019  FreeIPA Contributors see COPYING for license
+#
+# Configure the Samba suite to operate as domain member in IPA domain
+
+from __future__ import print_function
+
+import logging
+import sys
+import os
+import tempfile
+import gssapi
+from urllib.parse import urlsplit
+
+from optparse import OptionParser  # pylint: disable=deprecated-module
+
+from ipaclient import discovery
+from ipaclient.install.client import (CLIENT_NOT_CONFIGURED,
+    CLIENT_ALREADY_CONFIGURED)
+from ipalib import api, errors
+from ipalib.install import sysrestore
+from ipalib.install.kinit import kinit_keytab
+from ipalib.util import check_client_configuration
+from ipapython import ipautil
+from ipapython.ipa_log_manager import standard_logging_setup
+from ipapython.dnsutil import DNSName
+from ipaplatform.tasks import tasks
+from ipaplatform.paths import paths
+from ipapython.admintool import ScriptError
+from samba import generate_random_password
+
+logger = logging.getLogger(os.path.basename(__file__))
+logger.setLevel(logging.DEBUG)
+
+def parse_options():
+    usage = "%prog [options]\n"
+    parser = OptionParser(usage=usage)
+    parser.add_option("--server", dest="server", help="FQDN of IPA server")
+    parser.add_option("--netbios", dest="netbiosname", help="NetBIOS name of the machine",
+        default=None)
+    parser.add_option("--debug", dest="debug", action="store_true",
+        default=False, help="enable debugging")
+    parser.add_option("-U", "--unattended", dest="unattended",
+        action="store_true", default=False,
+        help="unattended installation never prompts the user")
+
+    options, args = parser.parse_args()
+    return options, args
+
+
+domain_information_template = """
+ Domain name: {domain_name}
+NetBIOS name: {netbios_name}
+         SID: {domain_sid}
+    ID range: {range_id_min} - {range_id_max}
+"""
+
+
+def pretty_print_domain_information(info):
+    result = []
+    for d in info:
+        result.append(domain_information_template.format(**d))
+    return '\n'.join(result)
+
+
+def retrieve_domain_information(api):
+    # Pull down default domain configuration
+    result = api.Command.trustconfig_show()['result']
+    l_domain = dict()
+    for key, value in (
+        ('netbios_name', 'ipantflatname'),
+        ('domain_sid', 'ipantsecurityidentifier'),
+        ('domain_name', 'cn')):
+
+        l_domain[key] = result[value][0]
+
+    # Pull down ID range and other details of our domain
+    #
+    # TODO: make clear how to handle multiple ID ranges for ipa-local range
+    # In Samba only one range can belong to the same idmap domain,
+    # otherwise winbindd's _wbint_Sids2UnixIDs function will not be able
+    # to accept that a mapped Unix ID belongs to the specified domain
+    idrange_local = "{realm}_id_range".format(realm=api.env.realm)
+    result = api.Command.idrange_show(idrange_local)['result']
+    l_domain['range_id_min'] = int(result['ipabaseid'][0])
+    l_domain['range_id_max'] = int(
+        result['ipabaseid'][0]) + int(result['ipaidrangesize'][0]) - 1
+
+    domains = [l_domain]
+
+    # Retrieve list of trusted domains, if they exist
+    #
+    # We flatten the whole trust list because it should be non-overlapping
+    result = api.Command.trust_find()['result']
+    for forest in result:
+        r = api.Command.trustdomain_find(forest['cn'][0],
+                                         all=True, raw=True)['result']
+        # We don't need to process forest root info separately
+        # as trustdomain_find() returns it as well
+        for dom in r:
+            r_dom = dict()
+            for key, value in (
+                ('netbios_name', 'ipantflatname'),
+                ('domain_sid', 'ipanttrusteddomainsid'),
+                ('domain_name', 'cn')):
+                r_dom[key] = dom[value][0]
+
+            r_idrange_name = "{realm}_id_range".format(
+                realm=r_dom['domain_name'].upper())
+
+            # TODO: support ipa-ad-trust-posix range as well
+            r_idrange = api.Command.idrange_show(r_idrange_name)['result']
+            r_dom['range_id_min'] = int(r_idrange['ipabaseid'][0])
+            r_dom['range_id_max'] = int(r_idrange['ipabaseid'][0]) +\
+                int(r_idrange['ipaidrangesize'][0]) - 1
+            domains.append(r_dom)
+    return domains
+
+
+smb_conf_template = """
+[global]
+        # Limit number of forked processes to avoid SMBLoris attack
+        max smbd processes = 1000
+        # Use dedicated Samba keytab. The key there must be synchronized
+        # with Samba tdb databases or nothing will work
+        dedicated keytab file = FILE:${samba_keytab}
+        kerberos method = dedicated keytab
+        # Set up logging per machine and Samba process
+        log file = /var/log/samba/log.%m
+        log level = 1
+        # We force 'member server' role and security=domain
+        # to make sure winbind only does what we support on DC side
+        server role = member server
+        security = domain
+        realm = ${realm}
+        netbios name = ${machine_name}
+        workgroup = ${netbios_name}
+        # Local writable range for IDs not coming from IPA or trusted domains
+        idmap config * : range = 0 - 0
+        idmap config * : backend = tdb
+"""
+
+idmap_conf_domain_snippet = """
+        idmap config ${netbios_name} : range = ${range_id_min} - ${range_id_max}
+        idmap config ${netbios_name} : backend = sss
+"""
+
+homes_conf_snippet = """
+# Default homes share
+[homes]
+	read only = no
+"""
+
+def configure_smb_conf(fstore, statestore, options, domains):
+    sub_dict = {
+        'samba_keytab': paths.SAMBA_KEYTAB,
+        'realm': api.env.realm,
+        'machine_name': options.netbiosname,
+    }
+
+    # First domain in the list is ours, pull our domain name from there
+    sub_dict['netbios_name'] = domains[0]['netbios_name']
+
+    # Construct elements of smb.conf by pre-rendering idmap configuration
+    template = [smb_conf_template]
+    for dom in domains:
+        template.extend([ipautil.template_str(
+            idmap_conf_domain_snippet, dom)])
+
+    # Add default homes share so that users can log into Samba
+    template.extend([homes_conf_snippet])
+
+    fstore.backup_file(paths.SMB_CONF)
+    with open(paths.SMB_CONF, "w") as f:
+        f.write(ipautil.template_str("\n".join(template), sub_dict))
+    tasks.restore_context(paths.SMB_CONF)
+
+def generate_smb_machine_account(fstore, statestore, options, domain):
+    # Ideally, we should be using generate_random_machine_password()
+    # from samba but it uses munged UTF-16 which is not decodable
+    # by the code called from 'net changesecretpw -f'. Thus, we'd limit
+    # password to ASCII only.
+    password = generate_random_password(128, 255)
+    return password
+
+def retrieve_service_principal(fstore, statestore, options, domain, principal, password):
+    # Use explicit encryption types. SMB service must have arcfour-hmac generated
+    # to allow domain member to authenticate to the domain controller
+    args = [paths.IPA_GETKEYTAB, '-p', principal, '-k', paths.SAMBA_KEYTAB, '-P',
+            '-e', 'aes128-cts-hmac-sha1-96,aes256-cts-hmac-sha1-96,arcfour-hmac']
+    try:
+        ipautil.run(args, stdin=password + '\n' + password, encoding='utf-8')
+    except ipautil.CalledProcessError as e:
+        logger.error('Cannot set machine account password at IPA DC. '
+                     'Error: %s', str(e))
+        raise
+
+    # Once we fetched the keytab, we also need to set ipaNTHash attribute
+    # Use ipa-pwd-extop plugin to regenerate it from the Kerberos key
+    value = 'ipaNTHash=MagicRegen'
+    try:
+        api.Command.service_mod(principal, addattr=value)
+    except errors.PublicError as e:
+        logger.error('Cannot update %s principal NT hash value '
+                     'due to an error: %s', principal, str(e))
+        raise
+
+def populate_samba_databases(fstore, statestore, options, domain, password):
+    # First, set domain SID in Samba
+    args = [paths.NET, 'setdomainsid', domain['domain_sid']]
+    try:
+        ipautil.run(args)
+    except ipautil.CalledProcessError as e:
+        logger.error('Cannot set domain SID in Samba. '
+                     'Error: %s', str(e))
+        raise
+
+    # Next, make sure we can set machine account credentials
+    # the workaround with tdbtool is temporary until 'net' utility
+    # will not provide us a way to perform 'offline join' procedure
+    secrets_key = 'SECRETS/MACHINE_LAST_CHANGE_TIME/{}'.format(
+        domain['netbios_name'])
+    args = [paths.TDBTOOL, paths.SECRETS_TDB, 'store', secrets_key, '2\\00']
+    try:
+        ipautil.run(args)
+    except ipautil.CalledProcessError as e:
+        logger.error('Cannot prepare machine account creds in Samba. '
+                     'Error: %s', str(e))
+        raise
+
+    secrets_key = 'SECRETS/MACHINE_PASSWORD/{}'.format(
+        domain['netbios_name'])
+    args = [paths.TDBTOOL, paths.SECRETS_TDB, 'store', secrets_key, '2\\00']
+    try:
+        ipautil.run(args)
+    except ipautil.CalledProcessError as e:
+        logger.error('Cannot prepare machine account creds in Samba. '
+                     'Error: %s', str(e))
+        raise
+
+    # Finally, set actual machine account's password
+    args = [paths.NET, 'changesecretpw', '-f']
+    try:
+        ipautil.run(args, stdin=password, encoding='utf-8')
+    except ipautil.CalledProcessError as e:
+        logger.error('Cannot set machine account creds in Samba. '
+                     'Error: %s', str(e))
+        raise
+
+def configure_default_groupmap(fstore, statestore, options, domain):
+    args = [paths.NET, 'groupmap', 'add',
+            'sid=S-1-5-32-546', 'unixgroup=nobody', 'type=builtin']
+
+    logger.info("Map BUILTIN\\Guests to a group 'nobody'")
+    try:
+        ipautil.run(args)
+    except ipautil.CalledProcessError as e:
+        if 'already mapped to SID S-1-5-32-546' not in e.stdout:
+            logger.error('Cannot map BUILTIN\\Guests to a group "nobody". '
+                         'Error: %s', str(e))
+            raise
+
+def main():
+    try:
+        check_client_configuration()
+    except ScriptError as e:
+        print(e.msg)
+        sys.exit(e.rval)
+
+    fstore = sysrestore.FileStore(paths.IPA_CLIENT_SYSRESTORE)
+    statestore = sysrestore.StateFile(paths.IPA_CLIENT_SYSRESTORE)
+
+    options, _args = parse_options()
+
+    standard_logging_setup(
+        paths.IPACLIENT_INSTALL_LOG, verbose=False, debug=options.debug,
+        filemode='a', console_format='%(message)s')
+
+    cfg = dict(
+        context='cli_installer',
+        confdir=paths.ETC_IPA,
+        in_server=False,
+        debug=options.debug,
+        verbose=0,
+    )
+
+    # Bootstrap API early so that env object is available
+    api.bootstrap(**cfg)
+
+    ca_cert_path = None
+    if os.path.exists(paths.IPA_CA_CRT):
+        ca_cert_path = paths.IPA_CA_CRT
+
+    if statestore.has_state('domain_member'):
+        print('Samba domain member is already configured')
+        sys.exit(CLIENT_ALREADY_CONFIGURED)
+
+    if not os.path.exists(paths.SMBD):
+        print('Samba suite is not installed')
+        sys.exit(CLIENT_NOT_CONFIGURED)
+
+    autodiscover = False
+    ds = discovery.IPADiscovery()
+    if not options.server:
+        print("Searching for IPA server...")
+        ret = ds.search(ca_cert_path=ca_cert_path)
+        logger.debug('Executing DNS discovery')
+        if ret == discovery.NO_LDAP_SERVER:
+            logger.debug('Autodiscovery did not find LDAP server')
+            s = urlsplit(api.env.xmlrpc_uri)
+            server = [s.netloc]
+            logger.debug('Setting server to %s', s.netloc)
+        else:
+            autodiscover = True
+            if not ds.servers:
+                sys.exit('Autodiscovery was successful but didn\'t '
+                         'return a server')
+            logger.debug('Autodiscovery success, possible servers %s',
+                         ','.join(ds.servers))
+            server = ds.servers[0]
+    else:
+        server = options.server
+        logger.debug("Verifying that %s is an IPA server", server)
+        ldapret = ds.ipacheckldap(server, api.env.realm, ca_cert_path)
+        if ldapret[0] == discovery.NO_ACCESS_TO_LDAP:
+            print("Anonymous access to the LDAP server is disabled.")
+            print("Proceeding without strict verification.")
+            print("Note: This is not an error if anonymous access has been "
+                  "explicitly restricted.")
+        elif ldapret[0] == discovery.NO_TLS_LDAP:
+            logger.warning("Unencrypted access to LDAP is not supported.")
+        elif ldapret[0] != 0:
+            sys.exit('Unable to confirm that %s is an IPA server' % server)
+
+    if not autodiscover:
+        print("IPA server: %s" % server)
+        logger.debug('Using fixed server %s', server)
+    else:
+        print("IPA server: DNS discovery")
+        logger.debug('Configuring to use DNS discovery')
+
+    if api.env.host == server:
+        logger.debug('Cannot run on IPA master')
+        sys.exit('Cannot configure Samba as a domain member on a domain '
+                 'controller. Please use ipa-adtrust-install for that!')
+
+    smb_princ = str('cifs/%s@%s' % (api.env.host, api.env.realm))
+
+    if not options.netbiosname:
+        options.netbiosname = DNSName.from_text(api.env.host)[0].decode()
+    options.netbiosname = options.netbiosname.upper()
+
+    ccache_dir = tempfile.mkdtemp()
+    ccache_name = os.path.join(ccache_dir, 'ccache')
+    try:
+        try:
+            host_princ = str('host/%s@%s' % (api.env.host, api.env.realm))
+            kinit_keytab(host_princ, paths.KRB5_KEYTAB, ccache_name)
+            os.environ['KRB5CCNAME'] = ccache_name
+        except gssapi.exceptions.GSSError as e:
+            sys.exit("Failed to obtain host TGT: %s" % e)
+
+        # Finalize API when TGT obtained using host keytab exists
+        api.finalize()
+
+        # Now we have a TGT, connect to IPA
+        try:
+            api.Backend.rpcclient.connect()
+        except errors.KerberosError as e:
+            sys.exit('Cannot connect to the server due to ' + str(e))
+        try:
+            # Try to access 'service_add_smb' command, if it throws
+            # AttributeError exception, the IPA server doesn't support
+            # setting up Samba as a domain member.
+            service_add_smb = api.Command.service_add_smb
+
+            # Now try to see if SMB principal already exists
+            api.Command.service_show(smb_princ)
+
+            # If no exception was raised, the object exists.
+            # We cannot continue because we would break existing configuration
+            sys.exit('SMB service principal %s already exists. '
+                     'Please remove it before proceeding.' % (smb_princ))
+        except AttributeError:
+            sys.exit('Chosen IPA master %s does not have support to'
+                     'set up Samba domain members' % (server))
+        except errors.VersionError as e:
+            sys.exit('This client is incompatible: ' + str(e))
+        except errors.NotFound:
+            logger.debug('No SMB service principal exists, OK to proceed')
+        except errors.PublicError as e:
+            sys.exit("Cannot connect to the server due to "
+                     "generic error: %s" % str(e))
+
+        # At this point we have proper setup:
+        # - we connected to IPA API end-point as a host principal
+        # - no cifs/... principal exists so we can create it
+        print("Chosen IPA master: %s" % server)
+        print("SMB principal to be created: %s" % smb_princ)
+        print("NetBIOS name to be used: %s" % options.netbiosname)
+        logger.info("Chosen IPA master: %s", server)
+        logger.info("SMB principal to be created: %s", smb_princ)
+        logger.info("NetBIOS name to be used: %s", options.netbiosname)
+
+        # 1. Pull down ID range and other details of known domains
+        domains = retrieve_domain_information(api)
+        str_info = pretty_print_domain_information(domains)
+        logger.info("Discovered domains to use:\n%s", str_info)
+        print("Discovered domains to use:\n%s" % str_info)
+
+        if not options.unattended and not ipautil.user_input(
+               "Continue to configure the system with these values?", False):
+            sys.exit("Installation aborted")
+
+        # 2. Create SMB service principal, if we are here, the command exists
+        if statestore.get_state('domain_member', 'service.principal') == None:
+            service_add_smb(api.env.host, options.netbiosname)
+            statestore.backup_state('domain_member',
+                                    'service.principal', 'configured')
+
+        # 3. Generate machine account password for reuse
+        password = generate_smb_machine_account(fstore, statestore,
+                                                options, domains[0])
+
+        # 4. Now that we have all domains retrieved, we can generate smb.conf
+        if statestore.get_state('domain_member', 'smb.conf') == None:
+            configure_smb_conf(fstore, statestore, options, domains)
+            statestore.backup_state('domain_member', 'smb.conf', 'configured')
+
+        # 5. Create SMB service
+        if statestore.get_state('domain_member',
+                                'service.principal') == 'configured':
+            retrieve_service_principal(fstore, statestore, options,
+                                       domains[0], smb_princ, password)
+            statestore.backup_state('domain_member',
+                                    'service.principal', 'configured')
+
+        # 6. Configure databases to contain proper details
+        if statestore.get_state('domain_member', 'tdb') == None:
+            populate_samba_databases(fstore, statestore, options,
+                                     domains[0], password)
+            statestore.backup_state('domain_member', 'tdb', 'configured')
+
+        # 7. Configure default group mapping
+        if statestore.get_state('domain_member', 'groupmap') == None:
+            configure_default_groupmap(fstore, statestore, options, domains[0])
+            statestore.backup_state('domain_member', 'groupmap', 'configured')
+
+        # X. Finally, store the state of upgrade
+        statestore.backup_state('domain_member', 'configured', True)
+
+        # Suggest service start only after validating smb.conf
+        print('Samba domain member is configured. '
+              'Please check configuration at %s and '
+              'start smb and winbind services' % paths.SMB_CONF)
+        logger.info('Samba domain member is configured. '
+                    'Please check configuration at %s and '
+                    'start smb and winbind services', paths.SMB_CONF)
+
+    finally:
+        os.remove(ccache_name)
+        os.rmdir(ccache_dir)
+    return 0
+
+try:
+    if not os.geteuid()==0:
+        sys.exit("\nMust be run as root\n")
+
+    sys.exit(main())
+except SystemExit as e:
+    sys.exit(e)
+except RuntimeError as e:
+    sys.exit(e)
+except (KeyboardInterrupt, EOFError):
+    sys.exit(1)

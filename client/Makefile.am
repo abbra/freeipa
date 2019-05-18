@@ -43,6 +43,7 @@ sbin_SCRIPTS =			\
 	ipa-certupdate		\
 	ipa-client-automount	\
 	ipa-client-install	\
+	ipa-client-samba	\
 	$(NULL)
 
 ipa_getkeytab_SOURCES =		\
@@ -101,6 +102,7 @@ EXTRA_DIST =			\
 	ipa-certupdate.in	\
 	ipa-client-automount.in	\
 	ipa-client-install.in	\
+	ipa-client-samba.in	\
 	$(NULL)
 
 install-data-hook:
