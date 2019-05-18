@@ -474,7 +474,9 @@ class update_managed_permissions(Updater):
             ldap.add_entry(entry)
         else:
             try:
-                ldap.update_entry(entry)
+                old_entry = ldap.get_entry(entry.dn)
+                old_entry.update(entry)
+                ldap.update_entry(old_entry)
             except errors.EmptyModlist:
                 logger.debug('No changes to permission: %s', name)
                 update_aci = False
