@@ -563,6 +563,7 @@ class LDAPEntry(MutableMapping):
                 modlist.append((ldap.MOD_DELETE, name, None))
                 continue
             if not old and new:
+                # modlist.append((ldap.MOD_ADD, name, new))
                 modlist.append((ldap.MOD_REPLACE, name, new))
                 continue
 
