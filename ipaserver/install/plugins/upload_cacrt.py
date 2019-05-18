@@ -99,7 +99,13 @@ class update_upload_cacrt(Updater):
             except errors.DuplicateEntry:
                 if nickname == ca_nickname and ca_enabled:
                     try:
-                        ldap.update_entry(entry)
+                        old_entry = ldap.get_entry(dn)
+                        old_entry.update(entry)
+                        if len(old_entry.generate_modlist()) == 0:
+                            logger.debug('No changes to CA entry %s',
+                                         old_entry.dn)
+                            continue
+                        ldap.update_entry(old_entry)
                     except errors.EmptyModlist:
                         pass
 
