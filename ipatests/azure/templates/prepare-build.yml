@@ -9,6 +9,9 @@ steps:
     timeout = 8
     retries = 20
     EOF
+    sudo tee -a /etc/dnf/vars/releasever <<EOF > /dev/null
+    31
+    EOF
     echo 'Disable modular repositories'
     sudo dnf config-manager '*modular*' --set-disabled
     echo "Fedora mirror metalink content:"
