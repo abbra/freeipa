@@ -81,6 +81,18 @@ static struct {
     {NULL, 0}
 };
 
+static struct {
+    char *sid;
+    char *authind;
+} asserted_sids[] = {
+    {"S-1-18-1", "spake"},
+    {"S-1-18-1", "fast"},
+    {"S-1-18-3", "pkinit"},
+    {"S-1-18-4", "pkinit"},
+    {"S-1-18-5", "otp"},
+    {NULL, NULL},
+}
+
 
 #define SID_ID_AUTHS 6
 #define SID_SUB_AUTHS 15
@@ -90,6 +102,11 @@ static struct {
 #define AUTHZ_DATA_TYPE_PAC "MS-PAC"
 #define AUTHZ_DATA_TYPE_PAD "PAD"
 #define AUTHZ_DATA_TYPE_NONE "NONE"
+
+static int add_groups(TALLOC_CTX *memctx,
+                      struct PAC_LOGON_INFO_CTR *logon_info,
+                      size_t ipa_group_sids_count,
+                      struct dom_sid2 *ipa_group_sids);
 
 int string_to_sid(const char *str, struct dom_sid *sid)
 {
@@ -798,7 +815,8 @@ static krb5_error_code ipadb_fill_info3(struct ipadb_context *ipactx,
 static krb5_error_code ipadb_get_pac(krb5_context kcontext,
                                      krb5_db_entry *client,
                                      krb5_pac *pac,
-                                     krb5_timestamp authtime)
+                                     krb5_timestamp authtime,
+                                     krb5_data ***indicators)
 {
     TALLOC_CTX *tmpctx;
     struct ipadb_e_data *ied;
@@ -863,6 +881,34 @@ static krb5_error_code ipadb_get_pac(krb5_context kcontext,
                             &pac_info.logon_info.info->info3);
     if (kerr) {
         goto done;
+    }
+
+    if (indicators != NULL && *indicators != NULL) {
+        struct dom_sid asserted_sid;
+        for (size_t i = 0; (*indicators)[i] != NULL; i++) {
+            for (size_t j = 0; asserted_sids[j].authind != NULL; j++) {
+                int result = strncmp(asserted_sids[j].authind,
+                                     (*indicators[i])->data,
+                                     strlen(asserted_sids[j].authind));
+                if (result == 0) {
+                    kerr = string_to_sid(asserted_sids[j], &asserted_sid);
+                    kerr = add_groups(tmpctx, &pac_info.logon_info, 1, &asserted_sid);
+                    if (kerr != 0) {
+                        krb5_klog_syslog(LOG_ERR, "add_groups failed for %s", asserted_sids[j].authind);
+                        goto done;
+                    }
+
+                    break;
+                }
+            }
+        }
+    } else {
+        kerr = string_to_sid("S-1-18-1", &asserted_sid);
+        kerr = add_groups(tmpctx, &pac_info.logon_info, 1, &asserted_sid);
+        if (kerr != 0) {
+            krb5_klog_syslog(LOG_ERR, "add_groups failed for S-1-18-1");
+            goto done;
+        }
     }
 
     /* == Package PAC == */
@@ -1082,6 +1128,9 @@ static int add_groups(TALLOC_CTX *memctx,
 
     logon_info->info->info3.sidcount += ipa_group_sids_count;
     logon_info->info->info3.sids = sids;
+    if (logon_info->info->info3.sidcount > 0) {
+        logon_info->info->info3.base.user_flags |= NETLOGON_EXTRA_SIDS;
+    }
 
 
     return 0;
@@ -1807,7 +1856,8 @@ static krb5_error_code ipadb_verify_pac(krb5_context context,
                                         krb5_keyblock *krbtgt_key,
                                         krb5_timestamp authtime,
                                         krb5_authdata **authdata,
-                                        krb5_pac *pac)
+                                        krb5_pac *pac,
+                                        krb5_data ***indicators)
 {
     krb5_keyblock *srv_key = NULL;
     krb5_keyblock *priv_key = NULL;
@@ -2166,6 +2216,9 @@ krb5_error_code ipadb_sign_authdata(krb5_context context,
                                     krb5_keyblock *session_key,
                                     krb5_timestamp authtime,
                                     krb5_authdata **tgt_auth_data,
+#if (KRB5_KDB_DAL_MAJOR_VERSION == 8)
+                                    krb5_data ***auth_indicators,
+#endif
                                     krb5_authdata ***signed_auth_data)
 {
     krb5_const_principal ks_client_princ;
@@ -2184,6 +2237,7 @@ krb5_error_code ipadb_sign_authdata(krb5_context context,
     krb5_db_entry *client_entry = NULL;
     krb5_boolean is_equal;
     bool force_reinit_mspac = false;
+    krb5_data ***indicators = NULL;
 
 
     is_as_req = ((flags & KRB5_KDB_FLAG_CLIENT_REFERRALS_ONLY) != 0);
@@ -2236,6 +2290,10 @@ krb5_error_code ipadb_sign_authdata(krb5_context context,
         make_ad = true;
     }
 
+#if (KRB5_KDB_DAL_MAJOR_VERSION == 8)
+    indicators = auth_indicators;
+#endif
+
     if (with_pac && make_ad) {
 
         ipactx = ipadb_get_context(context);
@@ -2261,7 +2319,7 @@ krb5_error_code ipadb_sign_authdata(krb5_context context,
 
         (void)ipadb_reinit_mspac(ipactx, force_reinit_mspac);
 
-        kerr = ipadb_get_pac(context, client, &pac, authtime);
+        kerr = ipadb_get_pac(context, client, &pac, authtime, indicators);
         if (kerr != 0 && kerr != ENOENT) {
             goto done;
         }
@@ -2275,7 +2333,7 @@ krb5_error_code ipadb_sign_authdata(krb5_context context,
         /* check or generate pac data */
         if ((pac_auth_data == NULL) || (pac_auth_data[0] == NULL)) {
             if (flags & KRB5_KDB_FLAG_CONSTRAINED_DELEGATION) {
-                kerr = ipadb_get_pac(context, client_entry, &pac, authtime);
+                kerr = ipadb_get_pac(context, client_entry, &pac, authtime, indicators);
                 if (kerr != 0 && kerr != ENOENT) {
                     goto done;
                 }
@@ -2288,7 +2346,7 @@ krb5_error_code ipadb_sign_authdata(krb5_context context,
 
             kerr = ipadb_verify_pac(context, flags, ks_client_princ, client,
                                     server, krbtgt, server_key, krbtgt_key,
-                                    authtime, pac_auth_data, &pac);
+                                    authtime, pac_auth_data, &pac, indicators);
             if (kerr != 0) {
                 goto done;
             }

@@ -300,6 +300,9 @@ krb5_error_code ipadb_sign_authdata(krb5_context context,
                                     krb5_keyblock *session_key,
                                     krb5_timestamp authtime,
                                     krb5_authdata **tgt_auth_data,
+#if (KRB5_KDB_DAL_MAJOR_VERSION == 8)
+                                    krb5_data ***auth_indicators,
+#endif
                                     krb5_authdata ***signed_auth_data);
 
 krb5_error_code ipadb_reinit_mspac(struct ipadb_context *ipactx, bool force_reinit);
@@ -328,7 +331,7 @@ krb5_error_code ipadb_check_allowed_to_delegate(krb5_context kcontext,
 
 void ipadb_audit_as_req(krb5_context kcontext,
                         krb5_kdc_req *request,
-#if (KRB5_KDB_DAL_MAJOR_VERSION == 7)
+#if (KRB5_KDB_DAL_MAJOR_VERSION >= 7)
                         const krb5_address *local_addr,
                         const krb5_address *remote_addr,
 #endif
