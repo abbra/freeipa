@@ -81,6 +81,19 @@ static struct {
     {NULL, 0}
 };
 
+#if 0
+static struct {
+    char *sid;
+    char *authind;
+} asserted_sids[] = {
+    {"S-1-18-1", ""},
+    {"S-1-18-3", "pkinit"},
+    {"S-1-18-4", "pkinit"},
+    {"S-1-18-5", "otp"},
+    {NULL, NULL},
+}
+#endif
+
 
 #define SID_ID_AUTHS 6
 #define SID_SUB_AUTHS 15
@@ -90,6 +103,11 @@ static struct {
 #define AUTHZ_DATA_TYPE_PAC "MS-PAC"
 #define AUTHZ_DATA_TYPE_PAD "PAD"
 #define AUTHZ_DATA_TYPE_NONE "NONE"
+
+static int add_groups(TALLOC_CTX *memctx,
+                      struct PAC_LOGON_INFO_CTR *logon_info,
+                      size_t ipa_group_sids_count,
+                      struct dom_sid2 *ipa_group_sids);
 
 int string_to_sid(const char *str, struct dom_sid *sid)
 {
@@ -865,6 +883,16 @@ static krb5_error_code ipadb_get_pac(krb5_context kcontext,
         goto done;
     }
 
+    {
+        struct dom_sid asserted_sid;
+        kerr = string_to_sid("S-1-18-1", &asserted_sid);
+        kerr = add_groups(tmpctx, &pac_info.logon_info, 1, &asserted_sid);
+        if (kerr != 0) {
+            krb5_klog_syslog(LOG_ERR, "add_groups failed for S-1-18-1");
+            goto done;
+        }
+    }
+
     /* == Package PAC == */
     ndr_err = ndr_push_union_blob(&pac_data, tmpctx, &pac_info,
                                   PAC_TYPE_LOGON_INFO,
@@ -1082,6 +1110,9 @@ static int add_groups(TALLOC_CTX *memctx,
 
     logon_info->info->info3.sidcount += ipa_group_sids_count;
     logon_info->info->info3.sids = sids;
+    if (logon_info->info->info3.sidcount > 0) {
+        logon_info->info->info3.base.user_flags |= NETLOGON_EXTRA_SIDS;
+    }
 
 
     return 0;
