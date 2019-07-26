@@ -805,6 +805,7 @@ static krb5_error_code ipadb_get_pac(krb5_context kcontext,
     struct ipadb_context *ipactx;
     LDAPMessage *results = NULL;
     LDAPMessage *lentry;
+    char *value = NULL;
     DATA_BLOB pac_data;
     krb5_data data;
     union PAC_INFO pac_info;
@@ -883,6 +884,48 @@ static krb5_error_code ipadb_get_pac(krb5_context kcontext,
     data.length = pac_data.length;
 
     kerr = krb5_pac_add_buffer(kcontext, *pac, KRB5_PAC_LOGON_INFO, &data);
+
+    /* add KRB5_PAC_UPN_DNS_INFO that says a user UPN is constructed
+     * out of user name and DNS domain name of the account domain provided */
+    memset(&pac_info, 0, sizeof(pac_info));
+    pac_info.upn_dns_info.flags = PAC_UPN_DNS_FLAG_CONSTRUCTED;
+
+    value = talloc_strdup(tmpctx, ipactx->realm);
+    if (NULL == value) {
+        kerr = KRB5_KDB_INTERNAL_ERROR;
+	goto done;
+    }
+    pac_info.upn_dns_info.dns_domain_name = value;
+    pac_info.upn_dns_info.dns_domain_name_size = 2 * strlen_m(value);
+
+    kerr = ipadb_ldap_attr_to_str(ipactx->lcontext, lentry,
+                                  "krbCanonicalName", &value);
+    if (kerr) {
+	goto done;
+    }
+
+    pac_info.upn_dns_info.upn_name = strlower_talloc(tmpctx, value);
+    if (NULL == pac_info.upn_dns_info.upn_name) {
+        kerr = KRB5_KDB_INTERNAL_ERROR;
+	goto done;
+    }
+    pac_info.upn_dns_info.upn_name_size =
+                         2 * strlen_m(pac_info.upn_dns_info.upn_name);
+
+    /* == Package PAC buffer == */
+    ndr_err = ndr_push_union_blob(&pac_data, tmpctx, &pac_info,
+                                  PAC_TYPE_UPN_DNS_INFO,
+                                  (ndr_push_flags_fn_t)ndr_push_PAC_INFO);
+    if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+        kerr = KRB5_KDB_INTERNAL_ERROR;
+        goto done;
+    }
+
+    data.magic = KV5M_DATA;
+    data.data = (char *)pac_data.data;
+    data.length = pac_data.length;
+
+    kerr = krb5_pac_add_buffer(kcontext, *pac, KRB5_PAC_UPN_DNS_INFO, &data);
 
 done:
     ldap_msgfree(results);
