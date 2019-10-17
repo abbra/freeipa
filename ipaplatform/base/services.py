@@ -59,6 +59,7 @@ wellknownservices = [
     'nfs-utils', 'sssd', 'NetworkManager', 'ipa-custodia',
     'ipa-dnskeysyncd', 'ipa-otpd', 'ipa-ods-exporter',
     'systemd-resolved',
+    'globalcatalog'
 ]
 
 # The common ports for these services. This is used to wait for the
@@ -68,6 +69,7 @@ wellknownports = {
     'pki-tomcatd@pki-tomcat.service': [8080, 8443],
     'pki-tomcat': [8080, 8443],
     'pki-tomcatd': [8080, 8443],  # used if the incoming instance name is blank
+    'dirsrv@GLOBAL-CATALOG.service': [3268],
 }
 
 SERVICE_POLL_INTERVAL = 0.1 # seconds
