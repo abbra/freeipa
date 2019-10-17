@@ -1508,6 +1508,9 @@ fi
 %license COPYING
 %{_sbindir}/ipa-adtrust-install
 %{_usr}/share/ipa/smb.conf.empty
+# We need the whole subtree in both cases below
+%{_usr}/share/ipa/gc
+%{_libexecdir}/ipa/gc
 %attr(755,root,root) %{_libdir}/samba/pdb/ipasam.so
 %attr(755,root,root) %{plugin_dir}/libipa_cldap.so
 %{_datadir}/ipa/ipa-cldap-conf.ldif
