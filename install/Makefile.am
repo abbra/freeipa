@@ -17,6 +17,7 @@ SUBDIRS =			\
         restart_scripts		\
         wsgi			\
         oddjob			\
+	gc                      \
 	$(NULL)
 
 install-exec-local:
