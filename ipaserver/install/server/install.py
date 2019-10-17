@@ -39,7 +39,7 @@ from ipalib.util import (
 )
 from ipalib.facts import IPA_MODULES
 from ipaserver.install import (
-    adtrust, adtrustinstance, bindinstance, ca, dns, dsinstance,
+    adtrust, adtrustinstance, bindinstance, ca, dns, dsinstance, gc,
     httpinstance, installutils, kra, krbinstance,
     otpdinstance, custodiainstance, replication, service,
     sysupgrade, cainstance)
@@ -1111,6 +1111,7 @@ def uninstall_check(installer):
                 "procedure?", False)):
             raise ScriptError("Aborting uninstall operation.")
     else:
+        gc.uninstall_check()
         dns.uninstall_check(options)
 
         ca.uninstall_check(options)
@@ -1158,6 +1159,9 @@ def uninstall(installer):
     sstore = installer._sstore
 
     rv = 0
+
+    print("Removing Global Catalog")
+    gc.uninstall(fstore)
 
     print("Shutting down all IPA services")
     try:
