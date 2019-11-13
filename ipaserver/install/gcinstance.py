@@ -47,8 +47,6 @@ from lib389.idm.ipadomain import IpaDomain
 from lib389.instance.options import General2Base, Slapd2Base
 from lib389.instance.setup import SetupDs
 
-from samba.dcerpc.security import dom_sid
-from samba.ndr import ndr_pack, ndr_unpack, ndr_print
 
 logger = logging.getLogger(__name__)
 
@@ -263,6 +261,9 @@ class GCInstance(service.Service):
         self.disable()
 
     def __setup_sub_dict(self):
+        from samba.dcerpc.security import dom_sid
+        from samba.ndr import ndr_pack, ndr_unpack, ndr_print
+
         server_root = find_server_root()
         trustconfig = api.Command.trustconfig_show()['result']
         domainguid = base64.b64encode(
