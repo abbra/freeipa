@@ -48,7 +48,13 @@ if __name__ == '__main__':
             'ipaserver.install',
             'ipaserver.install.plugins',
             'ipaserver.install.server',
+            'ipaserver.globalcatalog',
         ],
+        package_data={
+            "ipaserver": [
+                "globalcatalog/templates/*.tmpl",
+            ]
+        },
         install_requires=[
             "cryptography",
             "dbus-python",
@@ -94,5 +100,6 @@ if __name__ == '__main__':
             "hbactest": ["pyhbac"],
             "install": ["SSSDConfig"],
             "trust": ["pysss_murmur", "pysss_nss_idmap"],
+            "globalcatalog": ["jinja2"]
         }
     )
