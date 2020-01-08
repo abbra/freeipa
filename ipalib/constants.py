@@ -167,6 +167,7 @@ DEFAULT_CONFIG = (
     ('container_subids', DN(('cn', 'subids'), ('cn', 'accounts'))),
     ('container_idp', DN(('cn', 'idp'))),
     ('container_passkey', DN(('cn', 'passkeyconfig'), ('cn', 'etc'))),
+    ('container_fsp', DN(('cn', 'ForeignSecurityPrincipals'))),
 
     # Ports, hosts, and URIs:
     # Following values do not have any reasonable default.
@@ -299,6 +300,11 @@ LDAP_GENERALIZED_TIME_FORMAT = "%Y%m%d%H%M%SZ"
 IPA_ANCHOR_PREFIX = ':IPA:'
 SID_ANCHOR_PREFIX = ':SID:'
 
+# When an entry does not contain ipantsecurityidentifier (for instance a
+# non posix group), IPA will generate a special SID using the following
+# prefix, based on the entry ipauniqueid
+IPA_SID_FAMILY_PREFIX = 'S-1-738065-'
+
 # domains levels
 DOMAIN_LEVEL_0 = 0  # compat
 DOMAIN_LEVEL_1 = 1  # replica promotion, topology plugin
@@ -392,3 +398,9 @@ VAULT_WRAPPING_DEFAULT_ALGO = VAULT_WRAPPING_AES128_CBC
 if backend.cipher_supported(TripleDES(
                             b"\x00" * 8), modes.CBC(b"\x00" * 8)):
     VAULT_WRAPPING_SUPPORTED_ALGOS += (VAULT_WRAPPING_3DES,)
+
+GC_SERVER_ID = "GLOBAL-CATALOG"
+GC_SERVICE_NAME = "globalcatalog"
+GC_REALM_NAME = "GLOBAL.CATALOG"
+GC_PORT = 3268
+GC_SECURE_PORT = 3269
