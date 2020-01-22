@@ -148,7 +148,7 @@ class LDAPUpdate:
     )
 
     def __init__(self, dm_password=_sentinel, sub_dict=None,
-                 online=_sentinel, ldapi=_sentinel, api=api):
+                 online=_sentinel, ldapi=_sentinel, api=api, serverid=None):
         '''
         :parameters:
             dm_password
@@ -274,7 +274,11 @@ class LDAPUpdate:
         self.sub_dict = sub_dict if sub_dict is not None else {}
         self.conn = None
         self.modified = False
-        self.ldapuri = ipaldap.realm_to_ldapi_uri(api.env.realm)
+        self.realm = None
+        if serverid is None:
+            self.serverid = ipaldap.realm_to_serverid(api.env.realm)
+        else:
+            self.serverid = serverid
 
         default_sub = dict(
             REALM=api.env.realm,
@@ -299,6 +303,11 @@ class LDAPUpdate:
         )
         for k, v in default_sub.items():
             self.sub_dict.setdefault(k, v)
+
+        if serverid:
+            self.ldapuri = ipaldap.serverid_to_ldapi_uri(serverid)
+        else:
+            self.ldapuri = ipaldap.realm_to_ldapi_uri(self.sub_dict["REALM"])
 
         self.api = create_api(mode=None)
         self.api.bootstrap(
