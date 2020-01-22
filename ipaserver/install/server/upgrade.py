@@ -42,6 +42,7 @@ from ipaplatform.paths import paths
 from ipaserver import servroles
 from ipaserver.install import installutils
 from ipaserver.install import dsinstance
+from ipaserver.install import gcinstance
 from ipaserver.install import httpinstance
 from ipaserver.install import bindinstance
 from ipaserver.install import service
@@ -382,6 +383,15 @@ def upgrade_adtrust_config():
         # and we don't need to do anything
         if e.returncode != 255:
             logger.warning("Error updating Samba registry: %s", e)
+
+def upgrade_global_catalog(fstore):
+    logger.info('[Upgrading Global Catalog]')
+
+    if not gcinstance.is_gc_configured():
+        logger.info('Global Catalog is not configured')
+        return
+    gcinstance.GCInstance(fstore=fstore).apply_updates()
+
 
 def ca_configure_profiles_acl(ca):
     logger.info('[Authorizing RA Agent to modify profiles]')
@@ -1900,6 +1910,7 @@ def upgrade_configuration():
     cleanup_adtrust(fstore)
     cleanup_dogtag()
     upgrade_adtrust_config()
+    upgrade_global_catalog(fstore)
 
     upgrade_bind(fstore)
 
