@@ -4,6 +4,9 @@ server_realm=IPA.TEST
 server_domain=ipa.test
 server_password=Secret123
 
+echo "[libdefaults]" >> /etc/krb5.conf.d/defaults_ipa_test
+echo "default_ccache_name = /tmp/krb5cc_%{uid}" >> /etc/krb5.conf.d/defaults_ipa_test
+
 # Normalize spacing and expand the list afterwards. Remove {} for the single list element case
 tests_to_run=$(eval "echo {$(echo $TESTS_TO_RUN | sed -e 's/[ \t]+*/,/g')}" | tr -d '{}')
 tests_to_ignore=
