@@ -19,6 +19,8 @@ import os
 import re
 import time
 
+import pytest
+
 from ipatests.test_integration.base import IntegrationTest
 from ipatests.pytest_ipa.integration import tasks
 
@@ -127,6 +129,8 @@ class TestNFS(IntegrationTest):
         nfssrv = self.clients[0]
         nfsclt = self.clients[1]
 
+        # for journalctl --since
+        since = time.strftime('%H:%M:%S')
         nfsclt.run_command(["systemctl", "restart", "rpc-gssd"])
         time.sleep(WAIT_AFTER_INSTALL)
         mountpoints = ("/mnt/krb", "/mnt/std", "/home")
@@ -146,6 +150,11 @@ class TestNFS(IntegrationTest):
             "mount", "-t", "nfs4", "-o", "sec=krb5p,vers=4.0",
             "%s:/exports/home" % nfssrv.hostname, "/home", "-v"
         ])
+        error = "Unspecified GSS failure"
+        check_log = [
+            'journalctl', '-u', 'gssproxy', '--since={}'.format(since)]
+        result = nfsclt.run_command(check_log)
+        assert error not in (result.stdout_text, result.stderr_text)
 
     def test_automount(self):
         """
@@ -273,8 +282,11 @@ class TestIpaClientAutomountFileRestore(IntegrationTest):
     def install(cls, mh):
         tasks.install_master(cls.master, setup_dns=True)
 
-    def teardown_method(self, method):
-        tasks.uninstall_client(self.clients[0])
+    @pytest.fixture(autouse=True)
+    def automountfile_restore_setup(self, request):
+        def fin():
+            tasks.uninstall_client(self.clients[0])
+        request.addfinalizer(fin)
 
     def nsswitch_backup_restore(
         self,

@@ -20,8 +20,6 @@
 Test the `ipaserver/plugins/dns.py` module.
 """
 
-import unittest
-
 from ipalib import api, errors
 from ipalib.util import normalize_zone
 from ipapython.dnsutil import DNSName
@@ -426,18 +424,16 @@ if have_ldap2:
 @pytest.mark.tier1
 class test_dns(Declarative):
 
-    @classmethod
-    def setup_class(cls):
-        super(test_dns, cls).setup_class()
-
+    @pytest.fixture(autouse=True, scope="class")
+    def dns_setup(self, declarative_setup):
         if not api.Backend.rpcclient.isconnected():
             api.Backend.rpcclient.connect()
 
         if not have_ldap2:
-            raise unittest.SkipTest('server plugin not available')
+            pytest.skip('server plugin not available')
 
         if get_nameservers_error is not None:
-            raise unittest.SkipTest(
+            pytest.skip(
                 'unable to get list of nameservers (%s)' %
                 get_nameservers_error
             )
@@ -448,7 +444,7 @@ class test_dns(Declarative):
            )
            api.Command['dnszone_del'](zone1)
         except errors.NotFound:
-            raise unittest.SkipTest('DNS is not configured')
+            pytest.skip('DNS is not configured')
         except errors.DuplicateEntry:
             pass
 
@@ -708,6 +704,11 @@ class test_dns(Declarative):
                     'idnssoaexpire': [fuzzy_digits],
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowtransfer': [u'none;'],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                     'idnsallowquery': [u'any;'],
                 },
             },
@@ -732,6 +733,11 @@ class test_dns(Declarative):
                     'idnssoaexpire': [fuzzy_digits],
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowtransfer': [u'none;'],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                     'idnsallowquery': [u'any;'],
                 },
             },
@@ -812,6 +818,11 @@ class test_dns(Declarative):
                     'idnssoaexpire': [fuzzy_digits],
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowtransfer': [u'none;'],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                     'idnsallowquery': [u'any;'],
                     'nsec3paramrecord': [u'0 0 0 -'],
                 },
@@ -837,6 +848,11 @@ class test_dns(Declarative):
                     'idnssoaexpire': [fuzzy_digits],
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowtransfer': [u'none;'],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                     'idnsallowquery': [u'any;'],
                 },
             },
@@ -908,6 +924,12 @@ class test_dns(Declarative):
                     'idnssoaretry': [fuzzy_digits],
                     'idnssoaexpire': [fuzzy_digits],
                     'idnssoaminimum': [fuzzy_digits],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy':
+                        [u'grant %(realm)s krb5-subdomain %(zone)s PTR;'
+                            % dict(
+                                realm=api.env.realm, zone=revzone1_dnsname
+                            )],
                     'idnsallowtransfer': [u'none;'],
                     'idnsallowquery': [u'any;'],
                 },
@@ -925,6 +947,11 @@ class test_dns(Declarative):
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowtransfer': [u'none;'],
                     'idnsallowquery': [u'any;'],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                 }],
             },
         ),
@@ -951,6 +978,11 @@ class test_dns(Declarative):
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowtransfer': [u'none;'],
                     'idnsallowquery': [u'any;'],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                 }],
             },
         ),
@@ -1843,6 +1875,11 @@ class test_dns(Declarative):
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowquery': [allowquery_restricted_out],
                     'idnsallowtransfer': [u'none;'],
+                    'idnsallowdynupdate': ('FALSE',),
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                 },
             },
         ),
@@ -1856,7 +1893,7 @@ class test_dns(Declarative):
         ),
 
         dict(
-            desc='Add allow-transer ACL to zone %r' % zone1,
+            desc='Add allow-transfer ACL to zone %r' % zone1,
             command=('dnszone_mod', [zone1], {'idnsallowtransfer': fwd_ip}),
             expected={
                 'value': zone1_absolute_dnsname,
@@ -1876,6 +1913,11 @@ class test_dns(Declarative):
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowquery': [allowquery_restricted_out],
                     'idnsallowtransfer': [allowtransfer_tofwd],
+                    'idnsallowdynupdate': ('FALSE',),
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                 },
             },
         ),
@@ -1902,6 +1944,11 @@ class test_dns(Declarative):
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowquery': [allowquery_restricted_out],
                     'idnsallowtransfer': [allowtransfer_tofwd],
+                    'idnsallowdynupdate': ('FALSE',),
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                 },
             },
         ),
@@ -2347,6 +2394,11 @@ class test_dns(Declarative):
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowtransfer': [u'none;'],
                     'idnsallowquery': [u'any;'],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                 },
             },
         ),
@@ -2373,6 +2425,11 @@ class test_dns(Declarative):
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowtransfer': [u'none;'],
                     'idnsallowquery': [u'any;'],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                 },
             },
         ),
@@ -2401,6 +2458,13 @@ class test_dns(Declarative):
                         'idnssoaminimum': [fuzzy_digits],
                         'idnsallowtransfer': [u'none;'],
                         'idnsallowquery': [u'any;'],
+                        'idnsallowdynupdate': [u'FALSE'],
+                        'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                             u'grant %(realm)s krb5-self '
+                                             u'* AAAA; '
+                                             u'grant %(realm)s krb5-self '
+                                             u'* SSHFP;'
+                                             % dict(realm=api.env.realm)],
                     },
                 ],
             },
@@ -2430,6 +2494,13 @@ class test_dns(Declarative):
                         'idnssoaminimum': [fuzzy_digits],
                         'idnsallowtransfer': [u'none;'],
                         'idnsallowquery': [u'any;'],
+                        'idnsallowdynupdate': [u'FALSE'],
+                        'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                             u'grant %(realm)s krb5-self '
+                                             u'* AAAA; '
+                                             u'grant %(realm)s krb5-self '
+                                             u'* SSHFP;'
+                                             % dict(realm=api.env.realm)],
                     },
                 ],
             },
@@ -2454,6 +2525,11 @@ class test_dns(Declarative):
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowtransfer': [u'none;'],
                     'idnsallowquery': [u'any;'],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                 },
             },
         ),
@@ -2521,6 +2597,11 @@ class test_dns(Declarative):
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowtransfer': [u'none;'],
                     'idnsallowquery': [u'any;'],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                 }],
             },
         ),
@@ -3096,6 +3177,11 @@ class test_dns(Declarative):
                     'idnssoaexpire': [fuzzy_digits],
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowtransfer': [u'172.16.31.80;'],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                     'idnsallowquery': [allowquery_restricted_out],
                     'mxrecord': [u'0 ns1.dnszone.test.'],
                     'locrecord': [u"49 11 42.400 N 16 36 29.600 E 227.64 10.00 10.00 0.10"],
@@ -3134,6 +3220,11 @@ class test_dns(Declarative):
                     'idnssoaexpire': [fuzzy_digits],
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowtransfer': [u'172.16.31.80;'],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                     'idnsallowquery': [allowquery_restricted_out],
                     'mxrecord': [u'0 ns1.dnszone.test.'],
                     'locrecord': [u"49 11 42.400 N 16 36 29.600 E 227.64 10.00 10.00 0.10"],
@@ -3171,6 +3262,11 @@ class test_dns(Declarative):
                     'idnssoaexpire': [fuzzy_digits],
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowtransfer': [u'none;'],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                     'idnsallowquery': [u'any;'],
                     'mxrecord': [u"0 %s" % idnzone1_mname],
                     'kxrecord': [u"0 %s" % idnzone1_mname],
@@ -3209,6 +3305,11 @@ class test_dns(Declarative):
                     'idnssoaexpire': [fuzzy_digits],
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowtransfer': [u'none;'],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                     'idnsallowquery': [u'any;'],
                     'mxrecord': [u"0 %s" % idnzone1_mname],
                     'kxrecord': [u"0 %s" % idnzone1_mname],
@@ -3233,18 +3334,16 @@ class test_dns(Declarative):
 @pytest.mark.tier1
 class test_root_zone(Declarative):
 
-    @classmethod
-    def setup_class(cls):
-        super(test_root_zone, cls).setup_class()
-
+    @pytest.fixture(autouse=True, scope="class")
+    def root_zone_setup(self, declarative_setup):
         if not api.Backend.rpcclient.isconnected():
             api.Backend.rpcclient.connect()
 
         if not have_ldap2:
-            raise unittest.SkipTest('server plugin not available')
+            pytest.skip('server plugin not available')
 
         if get_nameservers_error is not None:
-            raise unittest.SkipTest(
+            pytest.skip(
                 'unable to get list of nameservers (%s)' %
                 get_nameservers_error
             )
@@ -3253,7 +3352,7 @@ class test_root_zone(Declarative):
             api.Command['dnszone_add'](zone1, idnssoarname=zone1_rname,)
             api.Command['dnszone_del'](zone1)
         except errors.NotFound:
-            raise unittest.SkipTest('DNS is not configured')
+            pytest.skip('DNS is not configured')
         except errors.DuplicateEntry:
             pass
 
@@ -3319,21 +3418,19 @@ class test_root_zone(Declarative):
 class test_forward_zones(Declarative):
     # https://fedorahosted.org/freeipa/ticket/4750
 
-    @classmethod
-    def setup_class(cls):
-        super(test_forward_zones, cls).setup_class()
-
+    @pytest.fixture(autouse=True, scope="class")
+    def forward_zone_setup(self, declarative_setup):
         if not api.Backend.rpcclient.isconnected():
             api.Backend.rpcclient.connect()
 
         if not have_ldap2:
-            raise unittest.SkipTest('server plugin not available')
+            pytest.skip('server plugin not available')
 
         try:
             api.Command['dnszone_add'](zone1, idnssoarname=zone1_rname,)
             api.Command['dnszone_del'](zone1)
         except errors.NotFound:
-            raise unittest.SkipTest('DNS is not configured')
+            pytest.skip('DNS is not configured')
         except errors.DuplicateEntry:
             pass
 
@@ -4528,21 +4625,19 @@ class test_forward_zones(Declarative):
 class test_forward_master_zones_mutual_exlusion(Declarative):
     # https://fedorahosted.org/freeipa/ticket/4750
 
-    @classmethod
-    def setup_class(cls):
-        super(test_forward_master_zones_mutual_exlusion, cls).setup_class()
-
+    @pytest.fixture(autouse=True, scope="class")
+    def forward_master_zone_setup(self, declarative_setup):
         if not api.Backend.rpcclient.isconnected():
             api.Backend.rpcclient.connect()
 
         if not have_ldap2:
-            raise unittest.SkipTest('server plugin not available')
+            pytest.skip('server plugin not available')
 
         try:
             api.Command['dnszone_add'](zone1, idnssoarname=zone1_rname,)
             api.Command['dnszone_del'](zone1)
         except errors.NotFound:
-            raise unittest.SkipTest('DNS is not configured')
+            pytest.skip('DNS is not configured')
         except errors.DuplicateEntry:
             pass
 
@@ -4841,6 +4936,11 @@ class test_forward_master_zones_mutual_exlusion(Declarative):
                     'idnssoaexpire': [fuzzy_digits],
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowtransfer': [u'none;'],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                     'idnsallowquery': [u'any;'],
                 }],
             },
@@ -4903,21 +5003,19 @@ class test_forward_master_zones_mutual_exlusion(Declarative):
 @pytest.mark.tier1
 class test_forwardzone_delegation_warnings(Declarative):
 
-    @classmethod
-    def setup_class(cls):
-        super(test_forwardzone_delegation_warnings, cls).setup_class()
-
+    @pytest.fixture(autouse=True, scope="class")
+    def forw_zone_deleg_warn_setup(self, declarative_setup):
         if not api.Backend.rpcclient.isconnected():
             api.Backend.rpcclient.connect()
 
         if not have_ldap2:
-            raise unittest.SkipTest('server plugin not available')
+            pytest.skip('server plugin not available')
 
         try:
             api.Command['dnszone_add'](zone1, idnssoarname=zone1_rname,)
             api.Command['dnszone_del'](zone1)
         except errors.NotFound:
-            raise unittest.SkipTest('DNS is not configured')
+            pytest.skip('DNS is not configured')
         except errors.DuplicateEntry:
             pass
 
@@ -5414,25 +5512,23 @@ class test_forwardzone_delegation_warnings(Declarative):
 @pytest.mark.tier1
 class test_dns_soa(Declarative):
 
-    @classmethod
-    def setup_class(cls):
-        super(test_dns_soa, cls).setup_class()
-
+    @pytest.fixture(autouse=True, scope="class")
+    def dns_soa_setup(self, declarative_setup):
         if not api.Backend.rpcclient.isconnected():
             api.Backend.rpcclient.connect()
 
         if not have_ldap2:
-            raise unittest.SkipTest('server plugin not available')
+            pytest.skip('server plugin not available')
 
         if get_nameservers_error is not None:
-            raise unittest.SkipTest('unable to get list of nameservers (%s)' %
+            pytest.skip('unable to get list of nameservers (%s)' %
                                 get_nameservers_error)
         try:
             api.Command['dnszone_add'](zone1,
                                        idnssoarname=zone1_rname,)
             api.Command['dnszone_del'](zone1)
         except errors.NotFound:
-            raise unittest.SkipTest('DNS is not configured')
+            pytest.skip('DNS is not configured')
         except errors.DuplicateEntry:
             pass
 
@@ -5554,6 +5650,11 @@ class test_dns_soa(Declarative):
                     'idnssoaexpire': [fuzzy_digits],
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowtransfer': [u'none;'],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                     'idnsallowquery': [u'any;'],
                 },
             },
@@ -5583,6 +5684,11 @@ class test_dns_soa(Declarative):
                     'idnssoaexpire': [fuzzy_digits],
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowtransfer': [u'none;'],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                     'idnsallowquery': [u'any;'],
                 },
             },
@@ -5611,6 +5717,11 @@ class test_dns_soa(Declarative):
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowtransfer': [u'none;'],
                     'idnsallowquery': [u'any;'],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                 },
             },
         ),
@@ -5638,6 +5749,11 @@ class test_dns_soa(Declarative):
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowtransfer': [u'none;'],
                     'idnsallowquery': [u'any;'],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                 },
                 'messages': [{
                     'message': u"Semantic of setting Authoritative nameserver "
@@ -5700,6 +5816,11 @@ class test_dns_soa(Declarative):
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowtransfer': [u'none;'],
                     'idnsallowquery': [u'any;'],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                 },
                 'messages': [{
                     'message': u"Semantic of setting Authoritative nameserver "
@@ -5748,6 +5869,11 @@ class test_dns_soa(Declarative):
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowtransfer': [u'none;'],
                     'idnsallowquery': [u'any;'],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                 },
                 'messages': [{
                     'message': u"Semantic of setting Authoritative nameserver "
@@ -5796,6 +5922,11 @@ class test_dns_soa(Declarative):
                     'idnssoaminimum': [fuzzy_digits],
                     'idnsallowtransfer': [u'none;'],
                     'idnsallowquery': [u'any;'],
+                    'idnsallowdynupdate': [u'FALSE'],
+                    'idnsupdatepolicy': [u'grant %(realm)s krb5-self * A; '
+                                         u'grant %(realm)s krb5-self * AAAA; '
+                                         u'grant %(realm)s krb5-self * SSHFP;'
+                                         % dict(realm=api.env.realm)],
                 },
                 'messages': [{
                     'message': u"Semantic of setting Authoritative nameserver "
@@ -6168,9 +6299,8 @@ class test_dns_soa(Declarative):
 class test_dns_type_uri(test_dns):
     """Test behavior specific for URI RR type."""
 
-    @classmethod
-    def setup_class(cls):
-        super(test_dns_type_uri, cls).setup_class()
+    @pytest.fixture(autouse=True, scope="class")
+    def dns_type_uri_setup(self, dns_setup):
         try:
             api.Command['dnszone_add'](zone1, idnssoarname=zone1_rname)
         except errors.DuplicateEntry:

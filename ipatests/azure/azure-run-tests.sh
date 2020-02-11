@@ -1,15 +1,16 @@
 #!/bin/bash -ex
 
-# Setup DNS
-echo -e '127.0.0.1 localhost\n::1 localhost\n' > /etc/hosts
-echo 'nameserver 8.8.8.8' > /etc/resolv.conf
-
-server_realm=EXAMPLE.TEST
-server_domain=example.test
+server_realm=IPA.TEST
+server_domain=ipa.test
 server_password=Secret123
+
+echo "[libdefaults]" >> /etc/krb5.conf.d/defaults_ipa_test
+echo "default_ccache_name = /tmp/krb5cc_%{uid}" >> /etc/krb5.conf.d/defaults_ipa_test
 
 # Normalize spacing and expand the list afterwards. Remove {} for the single list element case
 tests_to_run=$(eval "echo {$(echo $TESTS_TO_RUN | sed -e 's/[ \t]+*/,/g')}" | tr -d '{}')
+tests_to_ignore=
+[[ -n "$TESTS_TO_IGNORE" ]] && \
 tests_to_ignore=$(eval "echo --ignore\ {$(echo $TESTS_TO_IGNORE | sed -e 's/[ \t]+*/,/g')}" | tr -d '{}')
 tests_to_dedicate=
 [[ -n "$TESTS_TO_DEDICATE" ]] && \
@@ -19,7 +20,8 @@ systemctl --now enable firewalld
 echo "Installing FreeIPA master for the domain ${server_domain} and realm ${server_realm}"
 ipa-server-install -U --domain ${server_domain} --realm ${server_realm} \
                    -p ${server_password} -a ${server_password} \
-                   --setup-dns --setup-kra --auto-forwarders
+                   --setup-dns --setup-kra --auto-forwarders \
+		   --no-ntp
 
 install_result=$?
 
@@ -47,7 +49,8 @@ if [ "$install_result" -eq 0 ] ; then
 	ipa-test-task --help
 	ipa-run-tests --help
 
-	ipa-run-tests ${tests_to_ignore} \
+	ipa-run-tests \
+            ${tests_to_ignore} \
             ${tests_to_dedicate} \
             --slices=${SYSTEM_TOTALJOBSINPHASE:-1} \
             --slice-num=${SYSTEM_JOBPOSITIONINPHASE:-1} \
@@ -76,7 +79,7 @@ fi
 
 echo "Collect the logs"
 journalctl -b --no-pager > systemd_journal.log
-tar --ignore-failed-read -cvf var_log.tar \
+tar --ignore-failed-read --remove-files -czf var_log.tar.gz \
     /var/log/dirsrv \
     /var/log/httpd \
     /var/log/ipa* \

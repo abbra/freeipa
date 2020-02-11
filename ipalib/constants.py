@@ -151,6 +151,7 @@ DEFAULT_CONFIG = (
     ('container_certmaprules', DN(('cn', 'certmaprules'), ('cn', 'certmap'))),
     ('container_ca_renewal',
         DN(('cn', 'ca_renewal'), ('cn', 'ipa'), ('cn', 'etc'))),
+    ('container_fsp', DN(('cn', 'ForeignSecurityPrincipals'))),
 
     # Ports, hosts, and URIs:
     # Following values do not have any reasonable default.
@@ -277,6 +278,11 @@ LDAP_GENERALIZED_TIME_FORMAT = "%Y%m%d%H%M%SZ"
 IPA_ANCHOR_PREFIX = ':IPA:'
 SID_ANCHOR_PREFIX = ':SID:'
 
+# When an entry does not contain ipantsecurityidentifier (for instance a
+# non posix group), IPA will generate a special SID using the following
+# prefix, based on the entry ipauniqueid
+IPA_SID_FAMILY_PREFIX = 'S-1-738065-'
+
 # domains levels
 DOMAIN_LEVEL_0 = 0  # compat
 DOMAIN_LEVEL_1 = 1  # replica promotion, topology plugin
@@ -310,6 +316,7 @@ IPA_CA_RECORD = "ipa-ca"
 IPA_CA_NICKNAME = 'caSigningCert cert-pki-ca'
 RENEWAL_CA_NAME = 'dogtag-ipa-ca-renew-agent'
 RENEWAL_REUSE_CA_NAME = 'dogtag-ipa-ca-renew-agent-reuse'
+RENEWAL_SELFSIGNED_CA_NAME = 'dogtag-ipa-ca-renew-agent-selfsigned'
 # The RA agent cert is used for client cert authentication. In the past IPA
 # used caServerCert profile, which adds clientAuth and serverAuth EKU. The
 # serverAuth EKU caused trouble with NamedConstraints, see RHBZ#1670239.
@@ -342,3 +349,9 @@ SOFTHSM_DNSSEC_TOKEN_LABEL = u'ipaDNSSEC'
 # Apache's mod_ssl SSLVerifyDepth value (Maximum depth of CA
 # Certificates in Client Certificate verification)
 MOD_SSL_VERIFY_DEPTH = '5'
+
+GC_SERVER_ID = "GLOBAL-CATALOG"
+GC_SERVICE_NAME = "globalcatalog"
+GC_REALM_NAME = "GLOBAL.CATALOG"
+GC_PORT = 3268
+GC_SECURE_PORT = 3269

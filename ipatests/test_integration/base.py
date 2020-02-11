@@ -41,10 +41,6 @@ class IntegrationTest:
     fips_mode = None
 
     @classmethod
-    def setup_class(cls):
-        pass
-
-    @classmethod
     def host_by_role(cls, role):
         for domain in cls.get_domains():
             try:
@@ -81,7 +77,7 @@ class IntegrationTest:
         else:
             domain_level = cls.master.config.domain_level
 
-        if cls.master.config.fips_mode:
+        if cls.master.config.fips_mode:  # pylint: disable=using-constant-test
             cls.fips_mode = True
         if cls.fips_mode:
             cls.enable_fips_mode()
@@ -92,10 +88,6 @@ class IntegrationTest:
             tasks.install_topo(cls.topology,
                                cls.master, cls.replicas,
                                cls.clients, domain_level)
-    @classmethod
-    def teardown_class(cls):
-        pass
-
     @classmethod
     def uninstall(cls, mh):
         for replica in cls.replicas:

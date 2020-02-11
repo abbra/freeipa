@@ -35,7 +35,7 @@ jobs:
         git_refspec: '{git_refspec}'
         template: &pki-master-latest
           name: freeipa/pki-master-f31
-          version: 0.0.1
+          version: 0.0.2
         timeout: 1800
         topology: *build
 
@@ -52,7 +52,7 @@ jobs:
         timeout: 3600
         topology: *master_1repl
 
-  pki-fedora/external_ca_1:
+  pki-fedora/test_external_ca_TestExternalCA:
     requires: [pki-fedora/build]
     priority: 50
     job:
@@ -65,7 +65,7 @@ jobs:
         timeout: 4800
         topology: *master_1repl_1client
 
-  pki-fedora/external_ca_2:
+  pki-fedora/test_external_ca_TestSelfExternalSelf:
     requires: [pki-fedora/build]
     priority: 50
     job:
@@ -142,6 +142,19 @@ jobs:
         template: *pki-master-latest
         timeout: 10800
         topology: *master_3repl_1client
+
+  pki-fedora/test_installation_TestInstallCA:
+    requires: [pki-fedora/build]
+    priority: 50
+    job:
+      class: RunPytest
+      args:
+        build_url: '{pki-fedora/build_url}'
+        update_packages: True
+        test_suite: test_integration/test_installation.py::TestInstallCA
+        template: *pki-master-latest
+        timeout: 10800
+        topology: *master_2repl_1client
 
   pki-fedora/test_installation_TestInstallWithCA_KRA1:
     requires: [pki-fedora/build]
@@ -766,6 +779,19 @@ jobs:
         build_url: '{pki-fedora/build_url}'
         update_packages: True
         test_suite: test_integration/test_external_ca.py::TestMultipleExternalCA
+        template: *pki-master-latest
+        timeout: 3600
+        topology: *master_1repl
+
+  pki-fedora/test_ipahealthcheck:
+    requires: [pki-fedora/build]
+    priority: 50
+    job:
+      class: RunPytest
+      args:
+        build_url: '{pki-fedora/build_url}'
+        update_packages: True
+        test_suite: test_integration/test_ipahealthcheck.py
         template: *pki-master-latest
         timeout: 3600
         topology: *master_1repl

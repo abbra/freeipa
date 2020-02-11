@@ -1461,13 +1461,18 @@ def install_kra(host, domain_level=None, first_instance=False, raiseonerr=True):
     return result
 
 
-def install_ca(host, domain_level=None, first_instance=False,
-               external_ca=False, cert_files=None, raiseonerr=True):
+def install_ca(
+        host, domain_level=None, first_instance=False, external_ca=False,
+        cert_files=None, raiseonerr=True, extra_args=()
+):
     if domain_level is None:
         domain_level = domainlevel(host)
     check_domain_level(domain_level)
     command = ["ipa-ca-install", "-U", "-p", host.config.dirman_password,
                "-P", 'admin', "-w", host.config.admin_password]
+    if not isinstance(extra_args, (tuple, list)):
+        raise TypeError("extra_args must be tuple or list")
+    command.extend(extra_args)
     # First step of ipa-ca-install --external-ca
     if external_ca:
         command.append('--external-ca')
@@ -1610,7 +1615,7 @@ def assert_error(result, pattern, returncode=None):
     ``pattern`` may be a ``str`` or a ``re.Pattern`` (regular expression).
 
     """
-    if isinstance(pattern, re.Pattern):
+    if hasattr(pattern, "search"):  # re pattern
         assert pattern.search(result.stderr_text), \
             f"pattern {pattern} not found in stderr {result.stderr_text!r}"
     else:
@@ -1843,7 +1848,7 @@ def ldapmodify_dm(host, ldif_text, **kwargs):
     args = [
         'ldapmodify',
         '-x',
-        '-D', str(host.config.dirman_dn),  # pylint: disable=no-member
+        '-D', str(host.config.dirman_dn),
         '-w', host.config.dirman_password
     ]
     return host.run_command(args, stdin_text=ldif_text, **kwargs)
@@ -1864,7 +1869,7 @@ def ldapsearch_dm(host, base, ldap_args, scope='sub', **kwargs):
         '-x', '-ZZ',
         '-h', host.hostname,
         '-p', '389',
-        '-D', str(host.config.dirman_dn),  # pylint: disable=no-member
+        '-D', str(host.config.dirman_dn),
         '-w', host.config.dirman_password,
         '-s', scope,
         '-b', base,
@@ -1989,3 +1994,40 @@ def get_logsize(host, logfile):
     """ get current logsize"""
     logsize = len(host.get_file_contents(logfile))
     return logsize
+
+
+def get_platform(host):
+    result = host.run_command([
+        'python3', '-c',
+        'from ipaplatform.osinfo import OSInfo; print(OSInfo().platform)'
+    ], raiseonerr=False)
+    assert result.returncode == 0
+    return result.stdout_text.strip()
+
+
+def install_packages(host, pkgs):
+    """Install packages on a remote host.
+    :param host: the host where the installation takes place
+    :param pkgs: packages to install, provided as a list of strings
+    """
+    platform = get_platform(host)
+    # Only supports RHEL 8+ and Fedora for now
+    if platform in ('rhel', 'fedora'):
+        install_cmd = ['/usr/bin/dnf', 'install', '-y']
+    else:
+        raise ValueError('install_packages: unknown platform %s' % platform)
+    host.run_command(install_cmd + pkgs)
+
+
+def uninstall_packages(host, pkgs):
+    """Uninstall packages on a remote host.
+    :param host: the host where the uninstallation takes place
+    :param pkgs: packages to uninstall, provided as a list of strings
+    """
+    platform = get_platform(host)
+    # Only supports RHEL 8+ and Fedora for now
+    if platform in ('rhel', 'fedora'):
+        install_cmd = ['/usr/bin/dnf', 'remove', '-y']
+    else:
+        raise ValueError('install_packages: unknown platform %s' % platform)
+    host.run_command(install_cmd + pkgs)

@@ -25,6 +25,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 pytest_plugins = [
     'ipatests.pytest_ipa.additional_config',
+    'ipatests.pytest_ipa.deprecated_frameworks',
     'ipatests.pytest_ipa.slicing',
     'ipatests.pytest_ipa.beakerlib',
     'ipatests.pytest_ipa.declarative',
@@ -56,6 +57,7 @@ NO_RECURSE_DIRS = [
     'install/share',
     # integration plugin imports from ipaplatform
     'ipatests/pytest_ipa',
+    'ipatests/azure',
 ]
 
 

@@ -28,8 +28,8 @@ from datetime import datetime
 import time
 import re
 import os
+
 from functools import wraps
-import unittest
 from urllib.error import URLError
 
 import paramiko
@@ -102,8 +102,6 @@ def screenshot(fn):
     def screenshot_wrapper(*args, **kwargs):
         try:
             return fn(*args, **kwargs)
-        except unittest.SkipTest:
-            raise
         except Exception:
             self = args[0]
             name = '%s_%s_%s' % (
@@ -138,6 +136,23 @@ def dismiss_unexpected_alert(fn):
     return wrapped
 
 
+def repeat_on_stale_parent_reference(fn):
+    """
+    The decorator repeats a function once when StaleElementReferenceException
+    is caught.
+    It is not applicable if a parent reference is created outside a function.
+    """
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        if ('parent' in kwargs) and kwargs['parent'] is None:
+            try:
+                return fn(*args, **kwargs)
+            except StaleElementReferenceException:
+                pass
+        return fn(*args, **kwargs)
+    return wrapped
+
+
 class UI_driver:
     """
     Base class for all UI integration tests
@@ -145,19 +160,22 @@ class UI_driver:
 
     request_timeout = 60
 
-    @classmethod
-    def setup_class(cls):
+    @pytest.fixture(autouse=True, scope="class")
+    def ui_driver_setup(self, request):
+        cls = request.cls
         if NO_SELENIUM:
-            raise unittest.SkipTest('Selenium not installed')
+            pytest.skip('Selenium not installed')
         cls.load_config()
 
-    def setup(self):
+    @pytest.fixture(autouse=True)
+    def ui_driver_fsetup(self, request):
         self.driver = self.get_driver()
         self.driver.maximize_window()
 
-    def teardown(self):
-        self.driver.delete_all_cookies()
-        self.driver.quit()
+        def fin():
+            self.driver.delete_all_cookies()
+            self.driver.quit()
+        request.addfinalizer(fin)
 
     @classmethod
     def load_config(cls):
@@ -175,9 +193,9 @@ class UI_driver:
                 with open(path, 'r') as conf:
                     cls.config = yaml.load(conf)
             except yaml.YAMLError as e:
-                raise unittest.SkipTest("Invalid Web UI config.\n%s" % e)
+                pytest.skip("Invalid Web UI config.\n%s" % e)
             except IOError as e:
-                raise unittest.SkipTest(
+                pytest.skip(
                     "Can't load Web UI test config: %s" % e
                 )
         else:
@@ -216,7 +234,7 @@ class UI_driver:
 
         if driver_type == 'remote':
             if 'host' not in cls.config:
-                raise unittest.SkipTest('Selenium server host not configured')
+                pytest.skip('Selenium server host not configured')
             host = cls.config["host"]
 
             if browser == 'chrome':
@@ -232,11 +250,11 @@ class UI_driver:
                     command_executor='http://%s:%d/wd/hub' % (host, port),
                     desired_capabilities=capabilities)
             except URLError as e:
-                raise unittest.SkipTest(
+                pytest.skip(
                     'Error connecting to selenium server: %s' % e
                 )
             except RuntimeError as e:
-                raise unittest.SkipTest(
+                pytest.skip(
                     'Error while establishing webdriver: %s' % e
                 )
         else:
@@ -252,11 +270,11 @@ class UI_driver:
                     ff_log_path = cls.config.get("geckodriver_log_path")
                     driver = webdriver.Firefox(fp, log_path=ff_log_path)
             except URLError as e:
-                raise unittest.SkipTest(
+                pytest.skip(
                     'Error connecting to selenium server: %s' % e
                 )
             except RuntimeError as e:
-                raise unittest.SkipTest(
+                pytest.skip(
                     'Error while establishing webdriver: %s' % e
                 )
 
@@ -731,9 +749,16 @@ class UI_driver:
 
     def _button_click(self, selector, parent, name=''):
         btn = self.find(selector, By.CSS_SELECTOR, parent, strict=True)
+
+        # The small timeout (up to 5 seconds) allows to prevent exceptions when
+        # driver attempts to click a button before it is rendered.
+        WebDriverWait(self.driver, 5, 0.2).until(
+            lambda d: btn.is_displayed(),
+            'Button is not displayed: %s' % (name or selector)
+        )
         self.move_to_element_in_page(btn)
+
         disabled = btn.get_attribute("disabled")
-        assert btn.is_displayed(), 'Button is not displayed: %s' % name
         assert not disabled, 'Invalid button state: disabled. Button: %s' % name
         btn.click()
         self.wait_for_request()
@@ -1189,6 +1214,7 @@ class UI_driver:
             val = el.text
         return val
 
+    @repeat_on_stale_parent_reference
     def has_record(self, pkey, parent=None, table_name=None):
         """
         Check if table contains specific record.
@@ -1991,7 +2017,7 @@ class UI_driver:
         """
         Skip tests
         """
-        raise unittest.SkipTest(reason)
+        pytest.skip(reason)
 
     def assert_text(self, selector, value, parent=None):
         """

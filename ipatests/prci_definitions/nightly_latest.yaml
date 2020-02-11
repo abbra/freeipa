@@ -47,7 +47,7 @@ jobs:
         git_refspec: '{git_refspec}'
         template: &ci-master-latest
           name: freeipa/ci-master-f31
-          version: 0.0.2
+          version: 0.0.3
         timeout: 1800
         topology: *build
 
@@ -63,7 +63,7 @@ jobs:
         timeout: 3600
         topology: *master_1repl
 
-  fedora-latest/external_ca_1:
+  fedora-latest/test_external_ca_TestExternalCA:
     requires: [fedora-latest/build]
     priority: 50
     job:
@@ -75,7 +75,7 @@ jobs:
         timeout: 4800
         topology: *master_1repl_1client
 
-  fedora-latest/external_ca_2:
+  fedora-latest/test_external_ca_TestSelfExternalSelf:
     requires: [fedora-latest/build]
     priority: 50
     job:
@@ -302,6 +302,18 @@ jobs:
         template: *ci-master-latest
         timeout: 10800
         topology: *master_3repl_1client
+
+  fedora-latest/test_installation_TestInstallCA:
+    requires: [fedora-latest/build]
+    priority: 50
+    job:
+      class: RunPytest
+      args:
+        build_url: '{fedora-latest/build_url}'
+        test_suite: test_integration/test_installation.py::TestInstallCA
+        template: *ci-master-latest
+        timeout: 10800
+        topology: *master_2repl_1client
 
   fedora-latest/test_installation_TestInstallWithCA_KRA1:
     requires: [fedora-latest/build]
@@ -1253,6 +1265,18 @@ jobs:
         timeout: 3600
         topology: *master_1repl
 
+  fedora-latest/test_ipahealthcheck:
+    requires: [fedora-latest/build]
+    priority: 50
+    job:
+      class: RunPytest
+      args:
+        build_url: '{fedora-latest/build_url}'
+        test_suite: test_integration/test_ipahealthcheck.py
+        template: *ci-master-latest
+        timeout: 3600
+        topology: *master_1repl
+
   fedora-latest/test_ntp_options:
     requires: [fedora-latest/build]
     priority: 50
@@ -1420,3 +1444,15 @@ jobs:
         template: *ci-master-latest
         timeout: 3600
         topology: *master_1repl
+
+  fedora-latest/test_winsyncmigrate:
+    requires: [fedora-latest/build]
+    priority: 50
+    job:
+      class: RunADTests
+      args:
+        build_url: '{fedora-latest/build_url}'
+        test_suite: test_integration/test_winsyncmigrate.py
+        template: *ci-master-latest
+        timeout: 4800
+        topology: *ad_master

@@ -70,7 +70,7 @@ def test_host(request):
 
 
 @pytest.fixture(scope='class')
-def test_service(request, test_host):
+def test_service(request, test_host, keytab_retrieval_setup):
     service_tracker = service_plugin.ServiceTracker(u'srv', test_host.name)
     test_host.ensure_exists()
     return service_tracker.make_fixture(request)
@@ -84,10 +84,9 @@ class KeytabRetrievalTest(cmdline_test):
     command = "ipa-getkeytab"
     keytabname = None
 
-    @classmethod
-    def setup_class(cls):
-        super(KeytabRetrievalTest, cls).setup_class()
-
+    @pytest.fixture(autouse=True, scope="class")
+    def keytab_retrieval_setup(self, request, cmdline_setup):
+        cls = request.cls
         keytabfd, keytabname = tempfile.mkstemp()
 
         os.close(keytabfd)
@@ -95,14 +94,13 @@ class KeytabRetrievalTest(cmdline_test):
 
         cls.keytabname = keytabname
 
-    @classmethod
-    def teardown_class(cls):
-        super(KeytabRetrievalTest, cls).teardown_class()
+        def fin():
+            try:
+                os.unlink(cls.keytabname)
+            except OSError:
+                pass
 
-        try:
-            os.unlink(cls.keytabname)
-        except OSError:
-            pass
+        request.addfinalizer(fin)
 
     def run_ipagetkeytab(self, service_principal, args=tuple(),
                          raiseonerr=False, stdin=None):
@@ -201,6 +199,41 @@ class test_ipagetkeytab(KeytabRetrievalTest):
         except Exception as errmsg:
             assert('Unable to bind to LDAP. Error initializing principal' in str(errmsg))
 
+    def test_6_quiet_mode(self, test_service):
+        """
+        Try to use quiet mode
+        """
+        test_service.ensure_exists()
+        # getkeytab without quiet mode option enabled
+        result = self.run_ipagetkeytab(test_service.name)
+        err = result.error_output.split("\n")[0]
+        assert err == f"Keytab successfully retrieved and stored in:" \
+                      f" {self.keytabname}"
+        assert result.returncode == 0
+
+        # getkeytab with quiet mode option enabled
+        result1 = self.run_ipagetkeytab(test_service.name, args=tuple("-q"))
+        assert result1.returncode == 0
+
+    def test_7_server_name_check(self, test_service):
+        """
+        Try to use -s for server name
+        """
+        test_service.ensure_exists()
+        self.assert_success(test_service.name, args=["-s", api.env.host])
+
+    def test_8_keytab_encryption_check(self, test_service):
+        """
+        Try to use -e for different types of encryption check
+        """
+        encryptes_list = [
+            "aes256-cts-hmac-sha1-96",
+            "aes128-cts-hmac-sha256-128",
+        ]
+        self.assert_success(
+            test_service.name, args=["-e", ",".join(encryptes_list)]
+        )
+
     def test_dangling_symlink(self, test_service):
         # see https://pagure.io/freeipa/issue/4607
         test_service.ensure_exists()
@@ -240,10 +273,9 @@ class TestBindMethods(KeytabRetrievalTest):
     dm_password = None
     ca_cert = None
 
-    @classmethod
-    def setup_class(cls):
-        super(TestBindMethods, cls).setup_class()
-
+    @pytest.fixture(autouse=True, scope="class")
+    def bindmethods_setup(self, request, keytab_retrieval_setup):
+        cls = request.cls
         try:
             cls.dm_password = retrieve_dm_password()
         except errors.NotFound as e:
@@ -257,14 +289,12 @@ class TestBindMethods(KeytabRetrievalTest):
 
         cls.ca_cert = temp_ca_cert
 
-    @classmethod
-    def teardown_class(cls):
-        super(TestBindMethods, cls).teardown_class()
-
-        try:
-            os.unlink(cls.ca_cert)
-        except OSError:
-            pass
+        def fin():
+            try:
+                os.unlink(cls.ca_cert)
+            except OSError:
+                pass
+        request.addfinalizer(fin)
 
     def check_ldapi(self):
         if not api.env.ldap_uri.startswith('ldapi://'):
@@ -383,7 +413,7 @@ class SMBServiceTracker(service_plugin.ServiceTracker):
 
 
 @pytest.fixture(scope='class')
-def test_smb_svc(request, test_host):
+def test_smb_svc(request, test_host, smb_service_setup):
     service_tracker = SMBServiceTracker(u'cifs', test_host.name)
     test_host.ensure_exists()
     return service_tracker.make_fixture(request)
@@ -397,12 +427,12 @@ class test_smb_service(KeytabRetrievalTest):
     Test `ipa-getkeytab` for retrieving explicit enctypes
     """
     command = "ipa-getkeytab"
+    dm_password = None
     keytabname = None
 
-    @classmethod
-    def setup_class(cls):
-        super(test_smb_service, cls).setup_class()
-
+    @pytest.fixture(autouse=True, scope="class")
+    def smb_service_setup(self, request, keytab_retrieval_setup):
+        cls = request.cls
         try:
             cls.dm_password = retrieve_dm_password()
         except errors.NotFound as e:

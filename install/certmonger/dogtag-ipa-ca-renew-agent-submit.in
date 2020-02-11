@@ -123,7 +123,9 @@ def call_handler(_handler, *args, **kwargs):
     operation = os.environ['CERTMONGER_OPERATION']
     if operation == 'POLL':
         cookie = os.environ.pop('CERTMONGER_CA_COOKIE', None)
-        if cookie is not None:
+        if cookie is None:
+            return (UNCONFIGURED, "Cookie not provided")
+        if len(cookie) > 0:
             try:
                 context = json.loads(cookie)
                 if not isinstance(context, dict):
@@ -131,7 +133,13 @@ def call_handler(_handler, *args, **kwargs):
             except (TypeError, ValueError):
                 return (UNCONFIGURED, "Invalid cookie: %r" % cookie)
         else:
-            return (UNCONFIGURED, "Cookie not provided")
+            # Reconstruct the data for the missing cookie. Sanity checking
+            # is done elsewhere, when needed.
+            context = dict(cookie=u'')
+            profile = os.environ.get('CERTMONGER_CA_PROFILE')
+            if profile is not None:
+                profile = profile.encode('ascii').decode('raw_unicode_escape')
+            context['profile'] = profile
 
         if 'profile' in context:
             profile = context.pop('profile')
@@ -394,7 +402,7 @@ def retrieve_cert(**kwargs):
     return result
 
 
-def renew_ca_cert(reuse_existing, **kwargs):
+def renew_ca_cert(reuse_existing, force_self_signed, **kwargs):
     """
     This is used for automatic CA certificate renewal.
     """
@@ -412,7 +420,8 @@ def renew_ca_cert(reuse_existing, **kwargs):
     if operation == 'SUBMIT':
         state = 'retrieve'
 
-        if not reuse_existing and is_renewal_master():
+        if (is_self_signed or force_self_signed) \
+                and not reuse_existing and is_renewal_master():
             state = 'request'
 
         csr_file = paths.IPA_CA_CSR
@@ -465,13 +474,22 @@ def renew_ca_cert(reuse_existing, **kwargs):
 def main():
     kwargs = {
         'reuse_existing': False,
+        'force_self_signed': False,
     }
+
     try:
         sys.argv.remove('--reuse-existing')
     except ValueError:
         pass
     else:
         kwargs['reuse_existing'] = True
+
+    try:
+        sys.argv.remove('--force-self-signed')
+    except ValueError:
+        pass
+    else:
+        kwargs['force_self_signed'] = True
 
     operation = os.environ.get('CERTMONGER_OPERATION')
     if operation not in ('SUBMIT', 'POLL'):

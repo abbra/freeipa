@@ -1,0 +1,2869 @@
+dn: cn=schema
+attributeTypes: (1.2.840.113556.1.4.867 NAME 'altSecurityIdentities'
+    DESC 'Alt-Security-Identities'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (2.5.4.37 NAME 'cACertificate'
+    DESC 'CA-Certificate'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.697 NAME 'cACertificateDN'
+    DESC 'CA-Certificate-DN'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.823 NAME 'certificateTemplates'
+    DESC 'Certificate-Templates'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (2.5.4.6 NAME 'c'
+    DESC 'Country-Name'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (2.5.4.13 NAME 'description'
+    DESC 'Description'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.619 NAME 'dNSHostName'
+    DESC 'DNS-Host-Name'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.229 NAME 'driverName'
+    DESC 'Driver-Name'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1357 NAME 'dSCorePropagationData'
+    DESC 'DS-Core-Propagation-Data'
+    EQUALITY generalizedTimeMatch
+    ORDERING generalizedTimeOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.24
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (0.9.2342.19200300.100.1.3 NAME 'mail'
+    DESC 'E-mail-Addresses'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.38 NAME 'flags'
+    DESC 'Flags'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.869 NAME 'frsComputerReference'
+    DESC 'Frs-Computer-Reference'
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.26
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.875 NAME 'fRSMemberReference'
+    DESC 'FRS-Member-Reference'
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.26
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (2.5.4.42 NAME 'givenName'
+    DESC 'Given-Name'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.891 NAME 'gPLink'
+    DESC 'GP-Link'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.750 NAME 'groupType'
+    DESC 'Group-Type'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.2.1 NAME 'instanceType'
+    DESC 'Instance-Type'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.2.48 NAME 'isDeleted'
+    DESC 'Is-Deleted'
+    EQUALITY booleanMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.7
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2058 NAME 'isRecycled'
+    DESC 'Is the object recycled.'
+    EQUALITY booleanMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.7
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.48 NAME 'keywords'
+    DESC 'Keywords'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1696 NAME 'lastLogonTimestamp'
+    DESC 'Last-Logon-Timestamp'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.2.460 NAME 'lDAPDisplayName'
+    DESC 'LDAP-Display-Name'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.655 NAME 'legacyExchangeDN'
+    DESC 'Legacy-Exchange-DN'
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.26
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (2.5.4.7 NAME 'l'
+    DESC 'Locality-Name'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.222 NAME 'location'
+    DESC 'Location'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (0.9.2342.19200300.100.1.10 NAME 'manager'
+    DESC 'Manager'
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.26
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.590 NAME 'meetingBlob'
+    DESC 'meetingBlob'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.567 NAME 'meetingDescription'
+    DESC 'meetingDescription'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.566 NAME 'meetingName'
+    DESC 'meetingName'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.570 NAME 'meetingProtocol'
+    DESC 'meetingProtocol'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (2.5.4.31 NAME 'member'
+    DESC 'Member'
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.26
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1843 NAME 'msDRM-IdentityCertificate'
+    DESC 'The XrML digital rights management certificates for this user.'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2061 NAME 'msDS-EnabledFeature'
+    DESC 'Enabled optional features.'
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.26
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1622 NAME 'msDS-Entry-Time-To-Die'
+    DESC 'ms-DS-Entry-Time-To-Die'
+    EQUALITY generalizedTimeMatch
+    ORDERING generalizedTimeOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.24
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1942 NAME 'msDS-PhoneticFirstName'
+    DESC 'Contains the phonetic given name or first name of the person.'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1943 NAME 'msDS-PhoneticLastName'
+    DESC 'Contains the phonetic last name of the person.'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1944 NAME 'msDS-PhoneticDepartment'
+    DESC 'Contains the phonetic department name where the person works.'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1945 NAME 'msDS-PhoneticCompanyName'
+    DESC 'Contains the phonetic company name where the person works.'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1946 NAME 'msDS-PhoneticDisplayName'
+    DESC 'The phonetic display name of an object.  In the absence of a
+          phonetic display name the existing display name is
+          used.'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1997 NAME 'msDS-HABSeniorityIndex'
+    DESC 'Contains the seniority index as applied by the organization where
+          the person w orks.'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1702 NAME 'msDS-TrustForestTrustInfo'
+    DESC 'ms-DS-Trust-Forest-Trust-Info'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1998 NAME 'msFVE-VolumeGuid'
+    DESC 'This attribute contains the GUID associated with a
+          BitLocker-supported disk vo lume. Full Volume
+          Encryption (FVE) was the pre-release name for BitLocker
+          Driv e Encryption.'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1965 NAME 'msFVE-RecoveryGuid'
+    DESC 'This attribute contains the GUID associated with a BitLocker
+          recovery password . Full Volume Encryption (FVE) was
+          the pre-release name for BitLocker Drive En cryption.'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2076 NAME 'msPKI-Enrollment-Servers'
+    DESC 'Priority, authentication type, and URI of each certificate
+          enrollment web serv ice.'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2077 NAME 'msPKI-Site-Name'
+    DESC 'Active Directory site to which the CA machine belongs.'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1892 NAME 'msPKIRoamingTimeStamp'
+    DESC 'Time stamp for last change to roaming tokens'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1893 NAME 'msPKIDPAPIMasterKeys'
+    DESC 'Storage of encrypted DPAPI Master Keys for user'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1894 NAME 'msPKIAccountCredentials'
+    DESC 'Storage of encrypted user credential token blobs for roaming'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.884 NAME 'msRRASAttribute'
+    DESC 'ms-RRAS-Attribute'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1363 NAME 'mS-SQL-Name'
+    DESC 'MS-SQL-Name'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1388 NAME 'mS-SQL-Version'
+    DESC 'MS-SQL-Version'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1393 NAME 'mS-SQL-Database'
+    DESC 'MS-SQL-Database'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1395 NAME 'mS-SQL-Alias'
+    DESC 'MS-SQL-Alias'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.923 NAME 'mSMQAuthenticate'
+    DESC 'MSMQ-Authenticate'
+    EQUALITY booleanMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.7
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.920 NAME 'mSMQBasePriority'
+    DESC 'MSMQ-Base-Priority'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1226 NAME 'mSMQDependentClientServices'
+    DESC 'MSMQ-Dependent-Client-Services'
+    EQUALITY booleanMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.7
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.948 NAME 'mSMQDigests'
+    DESC 'MSMQ-Digests'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.966 NAME 'mSMQDigestsMig'
+    DESC 'MSMQ-Digests-Mig'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1228 NAME 'mSMQDsServices'
+    DESC 'MSMQ-Ds-Services'
+    EQUALITY booleanMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.7
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.936 NAME 'mSMQEncryptKey'
+    DESC 'MSMQ-Encrypt-Key'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.934 NAME 'mSMQForeign'
+    DESC 'MSMQ-Foreign'
+    EQUALITY booleanMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.7
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.929 NAME 'mSMQInRoutingServers'
+    DESC 'MSMQ-In-Routing-Servers'
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.26
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.918 NAME 'mSMQJournal'
+    DESC 'MSMQ-Journal'
+    EQUALITY booleanMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.7
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.922 NAME 'mSMQLabel'
+    DESC 'MSMQ-Label'
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.26
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1415 NAME 'mSMQLabelEx'
+    DESC 'MSMQ-Label-Ex'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1714 NAME 'MSMQ-MulticastAddress'
+    DESC 'MSMQ-Multicast-Address'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.935 NAME 'mSMQOSType'
+    DESC 'MSMQ-OS-Type'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.928 NAME 'mSMQOutRoutingServers'
+    DESC 'MSMQ-Out-Routing-Servers'
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.26
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.925 NAME 'mSMQOwnerID'
+    DESC 'MSMQ-Owner-ID'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.924 NAME 'mSMQPrivacyLevel'
+    DESC 'MSMQ-Privacy-Level'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.963 NAME 'mSMQQueueJournalQuota'
+    DESC 'MSMQ-Queue-Journal-Quota'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1243 NAME 'mSMQQueueNameExt'
+    DESC 'MSMQ-Queue-Name-Ext'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.962 NAME 'mSMQQueueQuota'
+    DESC 'MSMQ-Queue-Quota'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.917 NAME 'mSMQQueueType'
+    DESC 'MSMQ-Queue-Type'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1227 NAME 'mSMQRoutingServices'
+    DESC 'MSMQ-Routing-Services'
+    EQUALITY booleanMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.7
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1713 NAME 'MSMQ-SecuredSource'
+    DESC 'MSMQ-Secured-Source'
+    EQUALITY booleanMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.7
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.930 NAME 'mSMQServiceType'
+    DESC 'MSMQ-Service-Type'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.947 NAME 'mSMQSignCertificates'
+    DESC 'MSMQ-Sign-Certificates'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.967 NAME 'mSMQSignCertificatesMig'
+    DESC 'MSMQ-Sign-Certificates-Mig'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.937 NAME 'mSMQSignKey'
+    DESC 'MSMQ-Sign-Key'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.927 NAME 'mSMQSites'
+    DESC 'MSMQ-Sites'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.926 NAME 'mSMQTransactional'
+    DESC 'MSMQ-Transactional'
+    EQUALITY booleanMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.7
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1337 NAME 'mSMQUserSid'
+    DESC 'MSMQ-User-Sid'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.359 NAME 'netbootGUID'
+    DESC 'Netboot-GUID'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2234 NAME 'netbootDUID'
+    DESC 'Netboot-DUID'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.361 NAME 'netbootMachineFilePath'
+    DESC 'Netboot-Machine-File-Path'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.2.281 NAME 'nTSecurityDescriptor'
+    DESC 'NT-Security-Descriptor'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.40
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (2.5.4.49 NAME 'distinguishedName'
+    DESC 'Obj-Dist-Name'
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.26
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.782 NAME 'objectCategory'
+    DESC 'Object-Category'
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.26
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (2.5.4.0 NAME 'objectClass'
+    DESC 'Object-Class'
+    EQUALITY objectIdentifierMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.38
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2 NAME 'objectGUID'
+    DESC 'Object-Guid'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.146 NAME 'objectSid'
+    DESC 'Object-Sid'
+    EQUALITY caseExactMatch
+    ORDERING caseExactOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.40
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.663 NAME 'partialAttributeDeletionList'
+    DESC 'Partial-Attribute-Deletion-List'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.640 NAME 'partialAttributeSet'
+    DESC 'Partial-Attribute-Set'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (0.9.2342.19200300.100.1.20 NAME 'homePhone'
+    DESC 'Phone-Home-Primary'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.722 NAME 'otherIpPhone'
+    DESC 'Phone-Ip-Other'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.721 NAME 'ipPhone'
+    DESC 'Phone-Ip-Primary'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1330 NAME 'pKICriticalExtensions'
+    DESC 'PKI-Critical-Extensions'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1334 NAME 'pKIDefaultCSPs'
+    DESC 'PKI-Default-CSPs'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1327 NAME 'pKIDefaultKeySpec'
+    DESC 'PKI-Default-Key-Spec'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1335 NAME 'pKIEnrollmentAccess'
+    DESC 'PKI-Enrollment-Access'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.40
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1331 NAME 'pKIExpirationPeriod'
+    DESC 'PKI-Expiration-Period'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1333 NAME 'pKIExtendedKeyUsage'
+    DESC 'PKI-Extended-Key-Usage'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1328 NAME 'pKIKeyUsage'
+    DESC 'PKI-Key-Usage'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1329 NAME 'pKIMaxIssuingDepth'
+    DESC 'PKI-Max-Issuing-Depth'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1332 NAME 'pKIOverlapPeriod'
+    DESC 'PKI-Overlap-Period'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.2.8 NAME 'possSuperiors'
+    DESC 'Poss-Superiors'
+    EQUALITY objectIdentifierMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.38
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.98 NAME 'primaryGroupID'
+    DESC 'Primary-Group-ID'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.243 NAME 'printColor'
+    DESC 'Print-Color'
+    EQUALITY booleanMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.7
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1311 NAME 'printDuplexSupported'
+    DESC 'Print-Duplex-Supported'
+    EQUALITY booleanMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.7
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.238 NAME 'printMaxResolutionSupported'
+    DESC 'Print-Max-Resolution-Supported'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.289 NAME 'printMediaReady'
+    DESC 'Print-Media-Ready'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.282 NAME 'printMemory'
+    DESC 'Print-Memory'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.631 NAME 'printPagesPerMinute'
+    DESC 'Print-Pages-Per-Minute'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.285 NAME 'printRate'
+    DESC 'Print-Rate'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.286 NAME 'printRateUnit'
+    DESC 'Print-Rate-Unit'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.270 NAME 'printShareName'
+    DESC 'Print-Share-Name'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.281 NAME 'printStaplingSupported'
+    DESC 'Print-Stapling-Supported'
+    EQUALITY booleanMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.7
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.300 NAME 'printerName'
+    DESC 'Printer-Name'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1249 NAME 'proxiedObjectName'
+    DESC 'Proxied-Object-Name'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.2.34 NAME 'rangeLower'
+    DESC 'Range-Lower'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.2.35 NAME 'rangeUpper'
+    DESC 'Range-Upper'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.3 NAME 'replPropertyMetaData'
+    DESC 'Repl-Property-Meta-Data'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.4 NAME 'replUpToDateVector'
+    DESC 'Repl-UpToDate-Vector'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.2.91 NAME 'repsFrom'
+    DESC 'Reps-From'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.2.83 NAME 'repsTo'
+    DESC 'Reps-To'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.221 NAME 'sAMAccountName'
+    DESC 'SAM-Account-Name'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.302 NAME 'sAMAccountType'
+    DESC 'SAM-Account-Type'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.121 NAME 'securityIdentifier'
+    DESC 'Security-Identifier'
+    EQUALITY caseExactMatch
+    ORDERING caseExactOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.40
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.223 NAME 'serverName'
+    DESC 'Server-Name'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.510 NAME 'serviceBindingInformation'
+    DESC 'Service-Binding-Information'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.122 NAME 'serviceClassID'
+    DESC 'Service-Class-ID'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.123 NAME 'serviceClassInfo'
+    DESC 'Service-Class-Info'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.199 NAME 'serviceInstanceVersion'
+    DESC 'Service-Instance-Version'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.771 NAME 'servicePrincipalName'
+    DESC 'Service-Principal-Name'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.1209 NAME 'shortServerName'
+    DESC 'Short-Server-Name'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.2.169 NAME 'showInAdvancedViewOnly'
+    DESC 'Show-In-Advanced-View-Only'
+    EQUALITY booleanMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.7
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.609 NAME 'sIDHistory'
+    DESC 'SID-History'
+    EQUALITY caseExactMatch
+    ORDERING caseExactOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.40
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.824 NAME 'signatureAlgorithms'
+    DESC 'Signature-Algorithms'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (2.5.4.8 NAME 'st'
+    DESC 'State-Or-Province-Name'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (2.5.4.9 NAME 'street'
+    DESC 'Street-Address'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.2.7 NAME 'subRefs'
+    DESC 'Sub-Refs'
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.26
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (2.5.4.4 NAME 'sn'
+    DESC 'Surname'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.195 NAME 'systemPossSuperiors'
+    DESC 'System-Poss-Superiors'
+    EQUALITY objectIdentifierMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.38
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (2.5.4.20 NAME 'telephoneNumber'
+    DESC 'Telephone-Number'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.470 NAME 'trustAttributes'
+    DESC 'Trust-Attributes'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.132 NAME 'trustDirection'
+    DESC 'Trust-Direction'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.133 NAME 'trustPartner'
+    DESC 'Trust-Partner'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.136 NAME 'trustType'
+    DESC 'Trust-Type'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.137 NAME 'uNCName'
+    DESC 'UNC-Name'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.8 NAME 'userAccountControl'
+    DESC 'User-Account-Control'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.645 NAME 'userCert'
+    DESC 'User-Cert'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.656 NAME 'userPrincipalName'
+    DESC 'User-Principal-Name'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.2.120 NAME 'uSNChanged'
+    DESC 'USN-Changed'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.2.19 NAME 'uSNCreated'
+    DESC 'USN-Created'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.2.121 NAME 'uSNLastObjRem'
+    DESC 'USN-Last-Obj-Rem'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.141 NAME 'versionNumber'
+    DESC 'Version-Number'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.618 NAME 'wellKnownObjects'
+    DESC 'Well-Known-Objects'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.2.3 NAME 'whenChanged'
+    DESC 'When-Changed'
+    EQUALITY generalizedTimeMatch
+    ORDERING generalizedTimeOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.24
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.2.2 NAME 'whenCreated'
+    DESC 'When-Created'
+    EQUALITY generalizedTimeMatch
+    ORDERING generalizedTimeOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.24
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.142 NAME 'winsockAddresses'
+    DESC 'Winsock-Addresses'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (2.5.4.36 NAME 'userCertificate'
+    DESC 'X509-Cert'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2036 NAME 'msDFS-Commentv2'
+    DESC 'Comment associated with DFS root/link.'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2032 NAME 'msDFS-GenerationGUIDv2'
+    DESC 'To be updated each time the entry containing this attribute is
+          modified.'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2034 NAME 'msDFS-LastModifiedv2'
+    DESC 'To be updated on each write to the entry containing the
+          attribute.'
+    EQUALITY generalizedTimeMatch
+    ORDERING generalizedTimeOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.24
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2041 NAME 'msDFS-LinkIdentityGUIDv2'
+    DESC 'To be set only when the link is created. Stable across
+          rename/move as long as link is not replaced by another
+          link having same name.'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2039 NAME 'msDFS-LinkPathv2'
+    DESC 'DFS link path relative to the DFS root target share (i.e. without
+          the server/d omain and DFS namespace name components).
+          Use forward slashes (/) instead of b ackslashes so that
+          LDAP searches can be done without having to use
+          escapes.'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2040 NAME 'msDFS-LinkSecurityDescriptorv2'
+    DESC 'Security descriptor of the DFS linkss reparse point on the
+          filesystem.'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.40
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2033 NAME 'msDFS-NamespaceIdentityGUIDv2'
+    DESC 'To be set only when the namespace is created. Stable across
+          rename/move as lon g as namespace is not replaced by
+          another namespace having same name.'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2037 NAME 'msDFS-Propertiesv2'
+    DESC 'Properties associated with DFS root/link.'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2030 NAME 'msDFS-SchemaMajorVersion'
+    DESC 'Major version of schema of DFS metadata.'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2031 NAME 'msDFS-SchemaMinorVersion'
+    DESC 'Minor version of schema of DFS metadata.'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2042 NAME 'msDFS-ShortNameLinkPathv2'
+    DESC 'Shortname DFS link path relative to the DFS root target share
+          (i.e. without th e server/domain and DFS namespace name
+          components). Use forward slashes (/) in stead of
+          backslashes so that LDAP searches can be done without
+          having to use e scapes.'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2038 NAME 'msDFS-TargetListv2'
+    DESC 'Targets corresponding to DFS root/link.'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2035 NAME 'msDFS-Ttlv2'
+    DESC 'TTL associated with DFS root/link. For use at DFS referral time.'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2167 NAME 'msDS-PrimaryComputer'
+    DESC 'For a user or group object, identifies the primary computers.'
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.26
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2214 NAME 'msDS-cloudExtensionAttribute1'
+    DESC 'An attribute used to house an arbitrary cloud-relevant string'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2215 NAME 'msDS-cloudExtensionAttribute2'
+    DESC 'An attribute used to house an arbitrary cloud-relevant string'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2216 NAME 'msDS-cloudExtensionAttribute3'
+    DESC 'An attribute used to house an arbitrary cloud-relevant string'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2217 NAME 'msDS-cloudExtensionAttribute4'
+    DESC 'An attribute used to house an arbitrary cloud-relevant string'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2218 NAME 'msDS-cloudExtensionAttribute5'
+    DESC 'An attribute used to house an arbitrary cloud-relevant string'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2219 NAME 'msDS-cloudExtensionAttribute6'
+    DESC 'An attribute used to house an arbitrary cloud-relevant string'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2220 NAME 'msDS-cloudExtensionAttribute7'
+    DESC 'An attribute used to house an arbitrary cloud-relevant string'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2221 NAME 'msDS-cloudExtensionAttribute8'
+    DESC 'An attribute used to house an arbitrary cloud-relevant string'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2222 NAME 'msDS-cloudExtensionAttribute9'
+    DESC 'An attribute used to house an arbitrary cloud-relevant string'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2223 NAME 'msDS-cloudExtensionAttribute10'
+    DESC 'An attribute used to house an arbitrary cloud-relevant string'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2224 NAME 'msDS-cloudExtensionAttribute11'
+    DESC 'An attribute used to house an arbitrary cloud-relevant string'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2225 NAME 'msDS-cloudExtensionAttribute12'
+    DESC 'An attribute used to house an arbitrary cloud-relevant string'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2226 NAME 'msDS-cloudExtensionAttribute13'
+    DESC 'An attribute used to house an arbitrary cloud-relevant string'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2227 NAME 'msDS-cloudExtensionAttribute14'
+    DESC 'An attribute used to house an arbitrary cloud-relevant string'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2228 NAME 'msDS-cloudExtensionAttribute15'
+    DESC 'An attribute used to house an arbitrary cloud-relevant string'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2229 NAME 'msDS-cloudExtensionAttribute16'
+    DESC 'An attribute used to house an arbitrary cloud-relevant string'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2230 NAME 'msDS-cloudExtensionAttribute17'
+    DESC 'An attribute used to house an arbitrary cloud-relevant string'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2231 NAME 'msDS-cloudExtensionAttribute18'
+    DESC 'An attribute used to house an arbitrary cloud-relevant string'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2232 NAME 'msDS-cloudExtensionAttribute19'
+    DESC 'An attribute used to house an arbitrary cloud-relevant string'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2233 NAME 'msDS-cloudExtensionAttribute20'
+    DESC 'An attribute used to house an arbitrary cloud-relevant string'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2258 NAME 'msDS-RegisteredOwner'
+    DESC 'Single valued binary attribute containing the primary SID
+          referencing the firs t user to register the device. The
+          value is not removed during de-registration , but could
+          be managed by an administrator.'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2263 NAME 'msDS-RegisteredUsers'
+    DESC ':
+          Q29udGFpbnMgdGhlIGxpc3Qgb2YgdXNlcnMgdGhhdCBoYXZlIHJlZ2lzdGVyZWQgdGhlIGRldmljZS
+          4gIFVzZXJzIGluIHRoaXMgbGlzdCBoYXZlIGFsbCBvZiB0aGUgZmVhdHVyZXMgcHJvdmlkZWQgYnkg
+          dGhlIO+/vUNvbXBhbnkgUG9ydGFs77+9IGFwcC4gIEFuZCB0aGV5IGhhdmUgU1NPIHRvIGNvbXBhbn
+          kgcmVzb3VyY2VzLg=='
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2262 NAME 'msDS-ApproximateLastLogonTimeStamp'
+    DESC 'The approximate time a user last logged on with from the device.'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2248 NAME 'msDS-IsEnabled'
+    DESC 'This attribute is used to enable or disable the user-device
+          relationship.'
+    EQUALITY booleanMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.7
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2249 NAME 'msDS-DeviceOSType'
+    DESC 'This attribute is used to track the type of device based on the
+          OS.'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2250 NAME 'msDS-DeviceOSVersion'
+    DESC 'This attribute is used to track the OS version of the device.'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2251 NAME 'msDS-DevicePhysicalIDs'
+    DESC 'This attribute is used to store identifiers of the physical
+          device.'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2252 NAME 'msDS-DeviceID'
+    DESC 'This attribute stores the ID of the device.'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2257 NAME 'msDS-DeviceObjectVersion'
+    DESC 'This attribute is used to identify the schema version of the
+          device.'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2265 NAME 'msDS-DrsFarmID'
+    DESC 'This attribute stores the name of the federation service this DRS
+          object is as sociated with.'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2310 NAME 'msDS-ExternalDirectoryObjectId'
+    DESC 'ms-DS-External-Directory-Object-Id'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2314 NAME 'msDS-IsCompliant'
+    DESC 'This attribute is used to determine if the object is compliant
+          with company po licies.'
+    EQUALITY booleanMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.7
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2315 NAME 'msDS-KeyId'
+    DESC 'This attribute contains a key identifier.'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2316 NAME 'msDS-KeyMaterial'
+    DESC 'This attribute contains key material.'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2317 NAME 'msDS-KeyUsage'
+    DESC 'This attribute identifies the usage scenario for the key.'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2318 NAME 'msDS-KeyPrincipal'
+    DESC 'This attribute specifies the principal that a key object applies
+          to.'
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.26
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2319 NAME 'msDS-KeyPrincipalBL'
+    DESC 'This attribute is the backlink for msDS-KeyPrincipal.'
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.26
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2320 NAME 'msDS-DeviceDN'
+    DESC 'This attribute identifies the registered device from which this
+          key object was provisioned.'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2321 NAME 'msDS-ComputerSID'
+    DESC 'This attribute identifies a domain-joined computer.'
+    EQUALITY caseExactMatch
+    ORDERING caseExactOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.40
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2322 NAME 'msDS-CustomKeyInformation'
+    DESC 'This attribute contains additional information about the key.'
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.5
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2323 NAME 'msDS-KeyApproximateLastLogonTimeStamp'
+    DESC 'The approximate time this key was last used in a logon operation.'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+attributeTypes: (1.2.840.113556.1.4.2325 NAME 'msDS-DeviceTrustType'
+    DESC 'Represents join type for devices.'
+    EQUALITY integerMatch
+    ORDERING integerOrderingMatch
+    SINGLE-VALUE
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.27
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (2.16.840.1.113730.3.8.26.1 NAME 'ad-top'
+    DESC 'ad-top'
+    ABSTRACT
+    MUST ( objectClass $ objectCategory $ nTSecurityDescriptor $
+          instanceType )
+    MAY ( whenCreated $ whenChanged $ wellKnownObjects $ uSNLastObjRem $
+          uSNCreated $ uSNChanged $ subRefs $ repsTo $ repsFrom $
+          replUpToDateVector $ replPropertyMetaData $ name $
+          proxiedObjectName $ partialAttributeSet $
+          partialAttributeDeletionList $ objectGUID $
+          distinguishedName $ isRecycled $ isDeleted $ flags $
+          dSCorePropagationData $ displayName $ description $ cn )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.20 NAME 'leaf'
+    DESC 'Leaf'
+    SUP ad-top
+    ABSTRACT
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.14 NAME 'connectionPoint'
+    DESC 'Connection-Point'
+    SUP leaf
+    ABSTRACT
+    MUST ( cn )
+    MAY ( keywords )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.36 NAME 'volume'
+    DESC 'Volume'
+    SUP connectionPoint
+    STRUCTURAL
+    MUST ( uNCName )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (2.16.840.1.113730.3.8.26.5 NAME 'ad-organizationalPerson'
+    DESC 'ad-organizationalPerson'
+    SUP person
+    STRUCTURAL
+    MAY ( msDS-HABSeniorityIndex $ msDS-PhoneticDisplayName $
+          msDS-PhoneticCompanyName $ msDS-PhoneticDepartment $
+          msDS-PhoneticLastName $ msDS-PhoneticFirstName $ street
+          $ st $ ipPhone $ otherIpPhone $ homePhone $ ou $ o $
+          manager $ l $ givenName $ mail $ c )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.9 NAME 'user'
+    DESC 'User'
+    SUP ad-organizationalPerson
+    STRUCTURAL
+    MAY ( userSMIMECertificate $ givenName $ displayName $
+          msDS-KeyPrincipalBL $ msDS-PrimaryComputer $ o $
+          manager $ mail $ homePhone $ userCertificate $
+          userPrincipalName $ userAccountControl $
+          servicePrincipalName $ primaryGroupID $
+          mSMQSignCertificatesMig $ mSMQSignCertificates $
+          mSMQDigestsMig $ mSMQDigests $
+          msDRM-IdentityCertificate $ lastLogonTimestamp )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.53 NAME 'typeLibrary'
+    DESC 'Type-Library'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.34 NAME 'trustedDomain'
+    DESC 'Trusted-Domain'
+    SUP leaf
+    STRUCTURAL
+    MAY ( trustType $ trustPartner $ trustDirection $ trustAttributes $
+          securityIdentifier $ msDS-TrustForestTrustInfo )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.95 NAME 'subnetContainer'
+    DESC 'Subnet-Container'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.96 NAME 'subnet'
+    DESC 'Subnet'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( location )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.33 NAME 'storage'
+    DESC 'Storage'
+    SUP connectionPoint
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.107 NAME 'sitesContainer'
+    DESC 'Sites-Container'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.148 NAME 'siteLinkBridge'
+    DESC 'Site-Link-Bridge'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.147 NAME 'siteLink'
+    DESC 'Site-Link'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.31 NAME 'site'
+    DESC 'Site'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( location $ gPLink )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.30 NAME 'serviceInstance'
+    DESC 'Service-Instance'
+    SUP connectionPoint
+    STRUCTURAL
+    MUST ( serviceClassID $ displayName )
+    MAY ( winsockAddresses $ serviceInstanceVersion )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.126 NAME 'serviceConnectionPoint'
+    DESC 'Service-Connection-Point'
+    SUP connectionPoint
+    STRUCTURAL
+    MAY ( versionNumber $ serviceBindingInformation )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.29 NAME 'serviceClass'
+    DESC 'Service-Class'
+    SUP leaf
+    STRUCTURAL
+    MUST ( serviceClassID $ displayName )
+    MAY ( serviceClassInfo )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.94 NAME 'serviceAdministrationPoint'
+    DESC 'Service-Administration-Point'
+    SUP serviceConnectionPoint
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.7000.48 NAME 'serversContainer'
+    DESC 'Servers-Container'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.17 NAME 'server'
+    DESC 'Server'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( dNSHostName )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.6 NAME 'securityPrincipal'
+    DESC 'Security-Principal'
+    SUP ad-top
+    AUXILIARY
+    MUST ( sAMAccountName $ objectSid )
+    MAY ( sIDHistory $ securityIdentifier $ sAMAccountType $
+          nTSecurityDescriptor $ altSecurityIdentities )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.1 NAME 'securityObject'
+    DESC 'Security-Object'
+    SUP ad-top
+    ABSTRACT
+    MUST ( cn )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.28 NAME 'secret'
+    DESC 'Secret'
+    SUP leaf
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.5 NAME 'samServer'
+    DESC 'Sam-Server'
+    SUP securityObject
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.2 NAME 'samDomainBase'
+    DESC 'Sam-Domain-Base'
+    SUP ad-top
+    AUXILIARY
+    MAY ( objectSid $ nTSecurityDescriptor )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.3 NAME 'samDomain'
+    DESC 'Sam-Domain'
+    SUP ad-top
+    AUXILIARY
+    MAY ( gPLink $ description $ cACertificate )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.27 NAME 'rpcEntry'
+    DESC 'rpc-Entry'
+    SUP connectionPoint
+    ABSTRACT
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.73 NAME 'rpcServerElement'
+    DESC 'rpc-Server-Element'
+    SUP rpcEntry
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.81 NAME 'rpcServer'
+    DESC 'rpc-Server'
+    SUP rpcEntry
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.26 NAME 'rpcProfileElement'
+    DESC 'rpc-Profile-Element'
+    SUP rpcEntry
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.82 NAME 'rpcProfile'
+    DESC 'rpc-Profile'
+    SUP rpcEntry
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.80 NAME 'rpcGroup'
+    DESC 'rpc-Group'
+    SUP rpcEntry
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.3.23 NAME 'container'
+    DESC 'Container'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( cn )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.136 NAME 'rpcContainer'
+    DESC 'Rpc-Container'
+    SUP container
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (2.5.6.10 NAME 'residentialPerson'
+    DESC 'Residential-Person'
+    SUP person
+    STRUCTURAL
+    MAY ( street $ st $ ou $ l )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.146 NAME 'remoteStorageServicePoint'
+    DESC 'Remote-Storage-Service-Point'
+    SUP serviceAdministrationPoint
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.24 NAME 'remoteMailRecipient'
+    DESC 'Remote-Mail-Recipient'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.156 NAME 'rRASAdministrationDictionary'
+    DESC 'RRAS-Administration-Dictionary'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.150 NAME 'rRASAdministrationConnectionPoint'
+    DESC 'RRAS-Administration-Connection-Point'
+    SUP serviceAdministrationPoint
+    STRUCTURAL
+    MAY ( msRRASAttribute )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.129 NAME 'rIDSet'
+    DESC 'RID-Set'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.83 NAME 'rIDManager'
+    DESC 'RID-Manager'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.106 NAME 'queryPolicy'
+    DESC 'Query-Policy'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.23 NAME 'printQueue'
+    DESC 'Print-Queue'
+    SUP connectionPoint
+    STRUCTURAL
+    MUST ( versionNumber $ uNCName $ shortServerName $ serverName $
+          printerName )
+    MAY ( printStaplingSupported $ printShareName $ printRateUnit $
+          printRate $ printPagesPerMinute $ printMemory $
+          printMediaReady $ printMaxResolutionSupported $
+          printDuplexSupported $ printColor $ location $
+          driverName )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.97 NAME 'physicalLocation'
+    DESC 'Physical-Location'
+    SUP locality
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.49 NAME 'packageRegistration'
+    DESC 'Package-Registration'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.178 NAME 'pKIEnrollmentService'
+    DESC 'PKI-Enrollment-Service'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( msPKI-Site-Name $ msPKI-Enrollment-Servers $ signatureAlgorithms
+          $ dNSHostName $ certificateTemplates $ cACertificateDN
+          $ cACertificate )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.177 NAME 'pKICertificateTemplate'
+    DESC 'PKI-Certificate-Template'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( pKIOverlapPeriod $ pKIMaxIssuingDepth $ pKIKeyUsage $
+          pKIExtendedKeyUsage $ pKIExpirationPeriod $
+          pKIEnrollmentAccess $ pKIDefaultCSPs $
+          pKIDefaultKeySpec $ pKICriticalExtensions $ flags $
+          displayName )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.154 NAME 'nTFRSSubscriptions'
+    DESC 'NTFRS-Subscriptions'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.155 NAME 'nTFRSSubscriber'
+    DESC 'NTFRS-Subscriber'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( fRSMemberReference )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.7000.49 NAME 'applicationSettings'
+    DESC 'Application-Settings'
+    SUP ad-top
+    ABSTRACT
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.89 NAME 'nTFRSSettings'
+    DESC 'NTFRS-Settings'
+    SUP applicationSettings
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.102 NAME 'nTFRSReplicaSet'
+    DESC 'NTFRS-Replica-Set'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.153 NAME 'nTFRSMember'
+    DESC 'NTFRS-Member'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( frsComputerReference )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.68 NAME 'applicationSiteSettings'
+    DESC 'Application-Site-Settings'
+    SUP ad-top
+    ABSTRACT
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.69 NAME 'nTDSSiteSettings'
+    DESC 'NTDS-Site-Settings'
+    SUP applicationSiteSettings
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.72 NAME 'nTDSService'
+    DESC 'NTDS-Service'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.7000.47 NAME 'nTDSDSA'
+    DESC 'NTDS-DSA'
+    SUP applicationSettings
+    STRUCTURAL
+    MAY ( msDS-EnabledFeature )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.254 NAME 'nTDSDSARO'
+    DESC 'A subclass of Directory Service Agent which is distinguished by
+          its reduced pr ivilege level.'
+    SUP nTDSDSA
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.71 NAME 'nTDSConnection'
+    DESC 'NTDS-Connection'
+    SUP leaf
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.240 NAME 'msieee80211-Policy'
+    DESC 'class to store Wireless Network Policy Object'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.215 NAME 'msWMI-WMIGPO'
+    DESC 'ms-WMI-WMIGPO'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.203 NAME 'msWMI-RangeParam'
+    DESC 'ms-WMI-RangeParam'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.204 NAME 'msWMI-UnknownRangeParam'
+    DESC 'ms-WMI-UnknownRangeParam'
+    SUP msWMI-RangeParam
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.208 NAME 'msWMI-UintSetParam'
+    DESC 'ms-WMI-UintSetParam'
+    SUP msWMI-RangeParam
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.207 NAME 'msWMI-UintRangeParam'
+    DESC 'ms-WMI-UintRangeParam'
+    SUP msWMI-RangeParam
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.210 NAME 'msWMI-StringSetParam'
+    DESC 'ms-WMI-StringSetParam'
+    SUP msWMI-RangeParam
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.213 NAME 'msWMI-Som'
+    DESC 'ms-WMI-Som'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.200 NAME 'msWMI-PolicyTemplate'
+    DESC 'ms-WMI-PolicyTemplate'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.201 NAME 'msWMI-SimplePolicyTemplate'
+    DESC 'ms-WMI-SimplePolicyTemplate'
+    SUP msWMI-PolicyTemplate
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.212 NAME 'msWMI-ShadowObject'
+    DESC 'ms-WMI-ShadowObject'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.214 NAME 'msWMI-Rule'
+    DESC 'ms-WMI-Rule'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.209 NAME 'msWMI-RealRangeParam'
+    DESC 'ms-WMI-RealRangeParam'
+    SUP msWMI-RangeParam
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.211 NAME 'msWMI-PolicyType'
+    DESC 'ms-WMI-PolicyType'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.217 NAME 'msWMI-ObjectEncoding'
+    DESC 'ms-WMI-ObjectEncoding'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.202 NAME 'msWMI-MergeablePolicyTemplate'
+    DESC 'ms-WMI-MergeablePolicyTemplate'
+    SUP msWMI-PolicyTemplate
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.206 NAME 'msWMI-IntSetParam'
+    DESC 'ms-WMI-IntSetParam'
+    SUP msWMI-RangeParam
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.205 NAME 'msWMI-IntRangeParam'
+    DESC 'ms-WMI-IntRangeParam'
+    SUP msWMI-RangeParam
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.276 NAME 'msTPM-InformationObjectsContainer'
+    DESC 'Container for TPM objects.'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( cn )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.275 NAME 'msTPM-InformationObject'
+    DESC 'This class contains recovery information for a Trusted Platform
+          Module (TPM) d evice.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.222 NAME 'msTAPI-RtPerson'
+    DESC 'msTAPI-RtPerson'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.221 NAME 'msTAPI-RtConference'
+    DESC 'msTAPI-RtConference'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.266 NAME 'msSPP-ActivationObjectsContainer'
+    DESC 'Container for Activation Objects used by Active Directory based
+          activation'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.267 NAME 'msSPP-ActivationObject'
+    DESC 'Activation Object used in Active Directory based activation'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.6.18.2.216 NAME 'msSFU30NetworkUser'
+    DESC 'represents network file data'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.6.18.2.212 NAME 'msSFU30NetId'
+    DESC 'stores the netword ID'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.6.18.2.217 NAME 'msSFU30NISMapConfig'
+    DESC 'represents an internal Data Structure used by Server for NIS'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.6.18.2.211 NAME 'msSFU30MailAliases'
+    DESC 'represents UNIX mail file data'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.6.18.2.215 NAME 'msSFU30DomainInfo'
+    DESC 'Represents an internal data structure used by Server for NIS.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.6.23.2 NAME 'msPrint-ConnectionPolicy'
+    DESC 'Pushed Printer Connection Policy1'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( cn )
+    MAY ( uNCName $ serverName $ printerName )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.223 NAME 'msPKI-PrivateKeyRecoveryAgent'
+    DESC 'ms-PKI-Private-Key-Recovery-Agent'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( userCertificate )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.195 NAME 'msPKI-Key-Recovery-Agent'
+    DESC 'ms-PKI-Key-Recovery-Agent'
+    SUP user
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.196 NAME 'msPKI-Enterprise-Oid'
+    DESC 'ms-PKI-Enterprise-Oid'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.219 NAME 'msMQ-Group'
+    DESC 'MSMQ-Group'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( member )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.218 NAME 'msMQ-Custom-Recipient'
+    DESC 'MSMQ-Custom-Recipient'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.277 NAME 'msKds-ProvServerConfiguration'
+    DESC 'Configuration for the Group Key Distribution Service.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.278 NAME 'msKds-ProvRootKey'
+    DESC 'Root keys for the Group Key Distribution Service.'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( cn )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.263 NAME 'msImaging-PostScanProcess'
+    DESC 'Enterprise Scan Post Scan Process object.'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( displayName )
+    MAY ( serverName )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.262 NAME 'msImaging-PSPs'
+    DESC 'Container for all Enterprise Scan Post Scan Process objects.'
+    SUP container
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.253 NAME 'msFVE-RecoveryInformation'
+    DESC 'This class contains BitLocker recovery information including
+          GUIDs, recovery p asswords, and keys. Full Volume
+          Encryption (FVE) was the pre-release name for BitLocker
+          Drive Encryption.'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( msFVE-RecoveryGuid )
+    MAY ( msFVE-VolumeGuid )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.176 NAME 'msExchConfigurationContainer'
+    DESC 'ms-Exch-Configuration-Container'
+    SUP container
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.279 NAME 'msDS-ValueType'
+    DESC 'An value type object holds value type information for a resource
+          property.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.298 NAME 'msDS-ShadowPrincipalContainer'
+    DESC 'Dedicated container for msDS-ShadowPrincipal objects.'
+    SUP container
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.299 NAME 'msDS-ShadowPrincipal'
+    DESC 'Represents a principal from an external forest.'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( member )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.274 NAME 'msDS-ResourcePropertyList'
+    DESC 'An object of this class contains a list of resource properties.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.269 NAME 'msDS-ClaimTypePropertyBase'
+    DESC 'An abstract class that defines the base class for claim type or
+          resource prope rty classes.'
+    SUP ad-top
+    ABSTRACT
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.273 NAME 'msDS-ResourceProperty'
+    DESC 'An instance of this class holds the definition of a property on
+          resources.'
+    SUP msDS-ClaimTypePropertyBase
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.271 NAME 'msDS-ResourceProperties'
+    DESC 'A container of this class can contain resource properties.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.243 NAME 'msDS-QuotaControl'
+    DESC 'A class used to represent quota specifications for the directory
+          database.'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( cn )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.242 NAME 'msDS-QuotaContainer'
+    DESC 'A special container that holds all quota specifications for the
+          directory data base.'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( cn )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.256 NAME 'msDS-PasswordSettingsContainer'
+    DESC 'Container for password settings objects'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.255 NAME 'msDS-PasswordSettings'
+    DESC 'Password settings object for accounts'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.265 NAME 'msDS-OptionalFeature'
+    DESC 'Configuration for an optional DS feature.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.3.30 NAME 'computer'
+    DESC 'Computer'
+    SUP user
+    STRUCTURAL
+    MAY ( netbootMachineFilePath $ netbootDUID $ netbootGUID $ location $
+          dNSHostName $ cn )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.264 NAME 'msDS-ManagedServiceAccount'
+    DESC 'Service account class is used to create accounts that are used
+          for running Win dows services.'
+    SUP computer
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.297 NAME 'msDS-KeyCredential'
+    DESC 'An instance of this class contains key material.'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( msDS-DeviceID )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.282 NAME 'msDS-GroupManagedServiceAccount'
+    DESC 'The group managed service account class is used to create an
+          account which can be shared by different computers to
+          run Windows services.'
+    SUP computer
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.287 NAME 'msDS-DeviceRegistrationServiceContainer'
+    DESC 'A class for the container used to house all enrollment services
+          used for devic e registrations.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.284 NAME 'msDS-DeviceRegistrationService'
+    DESC 'An object of this class holds the registration service
+          configuration used for devices.'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( msDS-IsEnabled )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.289 NAME 'msDS-DeviceContainer'
+    DESC 'A class for the container used to hold device objects.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.286 NAME 'msDS-Device'
+    DESC 'An object of this type represents a registered device.'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( msDS-DeviceID $ msDS-IsEnabled $ altSecurityIdentities $
+          displayName )
+    MAY ( msDS-DeviceTrustType $ msDS-IsCompliant $
+          msDS-DeviceObjectVersion $ msDS-RegisteredOwner $
+          msDS-RegisteredUsers $ msDS-DevicePhysicalIDs $
+          msDS-DeviceOSVersion $ msDS-DeviceOSType $
+          msDS-ApproximateLastLogonTimeStamp )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.283 NAME 'msDS-CloudExtensions'
+    DESC 'A collection of attributes used to house arbitrary cloud-relevant
+          strings.'
+    SUP ad-top
+    AUXILIARY
+    MAY ( msDS-cloudExtensionAttribute20 $ msDS-cloudExtensionAttribute19 $
+          msDS-cloudExtensionAttribute18 $
+          msDS-cloudExtensionAttribute17 $
+          msDS-cloudExtensionAttribute16 $
+          msDS-cloudExtensionAttribute15 $
+          msDS-cloudExtensionAttribute14 $
+          msDS-cloudExtensionAttribute13 $
+          msDS-cloudExtensionAttribute12 $
+          msDS-cloudExtensionAttribute11 $
+          msDS-cloudExtensionAttribute10 $
+          msDS-cloudExtensionAttribute9 $
+          msDS-cloudExtensionAttribute8 $
+          msDS-cloudExtensionAttribute7 $
+          msDS-cloudExtensionAttribute6 $
+          msDS-cloudExtensionAttribute5 $
+          msDS-cloudExtensionAttribute4 $
+          msDS-cloudExtensionAttribute3 $
+          msDS-cloudExtensionAttribute2 $
+          msDS-cloudExtensionAttribute1 )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.280 NAME 'msDS-ClaimsTransformationPolicyType'
+    DESC 'An object of this class holds the one set of Claims
+          Transformation Policy for Cross-Forest Claims
+          Transformation.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.281 NAME 'msDS-ClaimsTransformationPolicies'
+    DESC 'An object of this class holds the one set of Claims
+          Transformation Policy for Cross-Forest Claims
+          Transformation.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.270 NAME 'msDS-ClaimTypes'
+    DESC 'A container of this class can contain claim type objects.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.272 NAME 'msDS-ClaimType'
+    DESC 'An instance of this class holds the definition of a claim type
+          that can be def ined on security principals.'
+    SUP msDS-ClaimTypePropertyBase
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.238 NAME 'msDS-AzTask'
+    DESC 'Describes a set of operations'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( description )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.237 NAME 'msDS-AzScope'
+    DESC 'Describes a set of objects managed by an application'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( description )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.239 NAME 'msDS-AzRole'
+    DESC 'Defines a set of operations that can be performed by a particular
+          set of users within a particular scope'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( description )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.236 NAME 'msDS-AzOperation'
+    DESC 'Describes a particular operation supported by an application'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( description )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.235 NAME 'msDS-AzApplication'
+    DESC 'Defines an installed instance of an application bound to a
+          particular policy s tore.'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( description )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.234 NAME 'msDS-AzAdminManager'
+    DESC 'Root of Authorization Policy store instance'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( description )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.291 NAME 'msDS-AuthNPolicySilos'
+    DESC 'A container of this class can contain authentication policy silo
+          objects.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.292 NAME 'msDS-AuthNPolicySilo'
+    DESC 'An instance of this class defines authentication policies and
+          related behavior s for assigned users, computers, and
+          services.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.294 NAME 'msDS-AuthNPolicy'
+    DESC 'An instance of this class defines authentication policy behaviors
+          for assigned principals.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.293 NAME 'msDS-AuthNPolicies'
+    DESC 'A container of this class can contain authentication policy
+          objects.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.241 NAME 'msDS-AppData'
+    DESC 'Stores data that is to be used by an object. For example, profile
+          information for a user object.'
+    SUP applicationSettings
+    STRUCTURAL
+    MAY ( keywords )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.220 NAME 'msDS-App-Configuration'
+    DESC 'Stores configuration parameters for an application.'
+    SUP applicationSettings
+    STRUCTURAL
+    MAY ( keywords )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.4.2129 NAME 'msDNS-ServerSettings'
+    DESC 'A container for storing DNS server settings.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.6.13.4.8 NAME 'msDFSR-Topology'
+    DESC 'Container for objects that form the replication topology'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.6.13.4.3 NAME 'msDFSR-Subscription'
+    DESC 'Represents local computer participation of a content set'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.6.13.4.2 NAME 'msDFSR-Subscriber'
+    DESC 'Represents local computer membership of a replication group'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.6.13.4.5 NAME 'msDFSR-ReplicationGroup'
+    DESC 'Replication Group container'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( description )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.6.13.4.9 NAME 'msDFSR-Member'
+    DESC 'Replication group member'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.6.13.4.1 NAME 'msDFSR-LocalSettings'
+    DESC 'DFSR settings applicable to local computer'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.6.13.4.4 NAME 'msDFSR-GlobalSettings'
+    DESC 'Global settings applicable to all replication group members'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.6.13.4.7 NAME 'msDFSR-ContentSet'
+    DESC 'DFSR Content Set'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( description )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.6.13.4.6 NAME 'msDFSR-Content'
+    DESC 'Container for DFSR-ContentSet objects'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.6.13.4.10 NAME 'msDFSR-Connection'
+    DESC 'Directional connection between two members'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.258 NAME 'msDFS-Namespacev2'
+    DESC 'DFS namespace'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.257 NAME 'msDFS-NamespaceAnchor'
+    DESC 'DFS namespace anchor'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.259 NAME 'msDFS-Linkv2'
+    DESC 'DFS Link in DFS namespace'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.260 NAME 'msDFS-DeletedLinkv2'
+    DESC 'Deleted DFS Link in DFS namespace'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.194 NAME 'msCOM-PartitionSet'
+    DESC 'PartitionSet class. Default = adminDisplayName'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.193 NAME 'msCOM-Partition'
+    DESC 'Partition class. Default = adminDisplayName'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.4.2162 NAME 'msAuthz-CentralAccessRules'
+    DESC 'A container of this class can contain Central Access Policy Entry
+          objects.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.4.2163 NAME 'msAuthz-CentralAccessRule'
+    DESC 'A class that defines Central Access Rules used to construct a
+          central access p olicy.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.4.2164 NAME 'msAuthz-CentralAccessPolicy'
+    DESC 'A class that defines Central Access Policy objects.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.4.2161 NAME 'msAuthz-CentralAccessPolicies'
+    DESC 'A container of this class can contain Central Access Policy
+          objects.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.252 NAME 'ms-net-ieee-8023-GroupPolicy'
+    DESC 'This class represents an 802.3 wired network group policy object.
+          This class contains identifiers and configuration data
+          relevant to an 802.3 wired network .'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.251 NAME 'ms-net-ieee-80211-GroupPolicy'
+    DESC 'This class represents an 802.11 wireless network group policy
+          object.  This cl ass contains identifiers and
+          configuration data relevant to an 802.11 wireless
+          network.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.104 NAME 'meeting'
+    DESC 'Meeting'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( meetingName )
+    MAY ( meetingProtocol $ meetingDescription $ meetingBlob )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (2.16.840.1.113730.3.8.26.3 NAME 'ad-mailRecipient'
+    DESC 'ad-mailReciipient'
+    SUP ad-top
+    AUXILIARY
+    MUST ( cn )
+    MAY ( msDS-ExternalDirectoryObjectId $ msDS-PhoneticDisplayName $
+          userSMIMECertificate $ userCertificate $ userCert $
+          telephoneNumber $ legacyExchangeDN )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.164 NAME 'mSMQSiteLink'
+    DESC 'MSMQ-Site-Link'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.165 NAME 'mSMQSettings'
+    DESC 'MSMQ-Settings'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( mSMQOwnerID )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.161 NAME 'mSMQQueue'
+    DESC 'MSMQ-Queue'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( mSMQTransactional $ MSMQ-SecuredSource $ mSMQQueueType $
+          mSMQQueueQuota $ mSMQQueueNameExt $
+          mSMQQueueJournalQuota $ mSMQPrivacyLevel $ mSMQOwnerID
+          $ MSMQ-MulticastAddress $ mSMQLabelEx $ mSMQLabel $
+          mSMQJournal $ mSMQBasePriority $ mSMQAuthenticate )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.179 NAME 'mSMQMigratedUser'
+    DESC 'MSMQ-Migrated-User'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( mSMQUserSid $ mSMQSignCertificatesMig $ mSMQSignCertificates $
+          mSMQDigestsMig $ mSMQDigests $ objectSid )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.163 NAME 'mSMQEnterpriseSettings'
+    DESC 'MSMQ-Enterprise-Settings'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.162 NAME 'mSMQConfiguration'
+    DESC 'MSMQ-Configuration'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( mSMQSites $ mSMQSignKey $ mSMQServiceType $ mSMQRoutingServices $
+          mSMQOwnerID $ mSMQOutRoutingServers $ mSMQOSType $
+          mSMQInRoutingServers $ mSMQForeign $ mSMQEncryptKey $
+          mSMQDsServices $ mSMQDependentClientServices )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.184 NAME 'mS-SQL-SQLServer'
+    DESC 'MS-SQL-SQLServer'
+    SUP serviceConnectionPoint
+    STRUCTURAL
+    MAY ( mS-SQL-Name )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.186 NAME 'mS-SQL-SQLRepository'
+    DESC 'MS-SQL-SQLRepository'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( mS-SQL-Version $ mS-SQL-Name )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.187 NAME 'mS-SQL-SQLPublication'
+    DESC 'MS-SQL-SQLPublication'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( mS-SQL-Database $ mS-SQL-Name )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.188 NAME 'mS-SQL-SQLDatabase'
+    DESC 'MS-SQL-SQLDatabase'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( mS-SQL-Alias $ mS-SQL-Name )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.185 NAME 'mS-SQL-OLAPServer'
+    DESC 'MS-SQL-OLAPServer'
+    SUP serviceConnectionPoint
+    STRUCTURAL
+    MAY ( mS-SQL-Version $ mS-SQL-Name )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.189 NAME 'mS-SQL-OLAPDatabase'
+    DESC 'MS-SQL-OLAPDatabase'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( mS-SQL-Name )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.190 NAME 'mS-SQL-OLAPCube'
+    DESC 'MS-SQL-OLAPCube'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( mS-SQL-Name )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.139 NAME 'lostAndFound'
+    DESC 'Lost-And-Found'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.52 NAME 'fileLinkTracking'
+    DESC 'File-Link-Tracking'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.90 NAME 'linkTrackVolumeTable'
+    DESC 'Link-Track-Volume-Table'
+    SUP fileLinkTracking
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.92 NAME 'linkTrackVolEntry'
+    DESC 'Link-Track-Vol-Entry'
+    SUP leaf
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.91 NAME 'linkTrackObjectMoveTable'
+    DESC 'Link-Track-Object-Move-Table'
+    SUP fileLinkTracking
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.93 NAME 'linkTrackOMTEntry'
+    DESC 'Link-Track-OMT-Entry'
+    SUP leaf
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.78 NAME 'licensingSiteSettings'
+    DESC 'Licensing-Site-Settings'
+    SUP applicationSiteSettings
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.7000.56 NAME 'ipsecBase'
+    DESC 'Ipsec-Base'
+    SUP ad-top
+    ABSTRACT
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.98 NAME 'ipsecPolicy'
+    DESC 'Ipsec-Policy'
+    SUP ipsecBase
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.119 NAME 'ipsecNegotiationPolicy'
+    DESC 'Ipsec-Negotiation-Policy'
+    SUP ipsecBase
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.121 NAME 'ipsecNFA'
+    DESC 'Ipsec-NFA'
+    SUP ipsecBase
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.120 NAME 'ipsecISAKMPPolicy'
+    DESC 'Ipsec-ISAKMP-Policy'
+    SUP ipsecBase
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.118 NAME 'ipsecFilter'
+    DESC 'Ipsec-Filter'
+    SUP ipsecBase
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.140 NAME 'interSiteTransportContainer'
+    DESC 'Inter-Site-Transport-Container'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.141 NAME 'interSiteTransport'
+    DESC 'Inter-Site-Transport'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.151 NAME 'intellimirrorSCP'
+    DESC 'Intellimirror-SCP'
+    SUP serviceAdministrationPoint
+    STRUCTURAL
+    MAY ( netbootMachineFilePath )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.152 NAME 'intellimirrorGroup'
+    DESC 'Intellimirror-Group'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.175 NAME 'infrastructureUpdate'
+    DESC 'Infrastructure-Update'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (2.16.840.1.113730.3.8.26.2 NAME 'ad-inetOrgPerson'
+    DESC 'Represents people who are associated with an organization in some
+          way.'
+    SUP user
+    STRUCTURAL
+    MAY ( userSMIMECertificate $ userCertificate $ o $ manager $ mail $
+          homePhone $ givenName $ displayName )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.130 NAME 'indexServerCatalog'
+    DESC 'Index-Server-Catalog'
+    SUP connectionPoint
+    STRUCTURAL
+    MAY ( uNCName )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.157 NAME 'groupPolicyContainer'
+    DESC 'Group-Policy-Container'
+    SUP container
+    STRUCTURAL
+    MAY ( versionNumber $ flags )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.8 NAME 'group'
+    DESC 'Group'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( groupType )
+    MAY ( msDS-PrimaryComputer $ member $ mail )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.76 NAME 'foreignSecurityPrincipal'
+    DESC 'Foreign-Security-Principal'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( objectSid )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.59 NAME 'fileLinkTrackingEntry'
+    DESC 'File-Link-Tracking-Entry'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.43 NAME 'fTDfs'
+    DESC 'FT-Dfs'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( uNCName $ keywords )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.3.6.1.4.1.1466.101.119.2 NAME 'dynamicObject'
+    DESC 'Dynamic-Object'
+    SUP ad-top
+    AUXILIARY
+    MAY ( msDS-Entry-Time-To-Die )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.18 NAME 'domainPolicy'
+    DESC 'Domain-Policy'
+    SUP leaf
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.67 NAME 'domainDNS'
+    DESC 'Domain-DNS'
+    SUP domain
+    STRUCTURAL
+    MAY ( msDS-EnabledFeature )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.300 NAME 'dnsZoneScopeContainer'
+    DESC 'Container for Dns Zone Scope objects.'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.301 NAME 'dnsZoneScope'
+    DESC 'A zonescope of a zone is another copy of the zone contained in
+          the zone with d ifferent set of resource records.'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( dc )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.85 NAME 'dnsZone'
+    DESC 'Dns-Zone'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( dc )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.86 NAME 'dnsNode'
+    DESC 'Dns-Node'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( dc )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.3.59 NAME 'displayTemplate'
+    DESC 'Display-Template'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( cn )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.84 NAME 'displaySpecifier'
+    DESC 'Display-Specifier'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.42 NAME 'dfsConfiguration'
+    DESC 'Dfs-Configuration'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.183 NAME 'dSUISettings'
+    DESC 'DS-UI-Settings'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (2.5.6.12 NAME 'applicationEntity'
+    DESC 'Application-Entity'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( cn )
+    MAY ( ou $ o $ l )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (2.5.6.13 NAME 'dSA'
+    DESC 'DSA'
+    SUP applicationEntity
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.3.9 NAME 'dMD'
+    DESC 'DMD'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( cn )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.132 NAME 'dHCPClass'
+    DESC 'DHCP-Class'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.7000.53 NAME 'crossRefContainer'
+    DESC 'Cross-Ref-Container'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( msDS-EnabledFeature )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.3.11 NAME 'crossRef'
+    DESC 'Cross-Ref'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( cn )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.77 NAME 'controlAccessRight'
+    DESC 'Control-Access-Right'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.15 NAME 'contact'
+    DESC 'Contact'
+    SUP ad-organizationalPerson
+    STRUCTURAL
+    MUST ( cn )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.12 NAME 'configuration'
+    DESC 'Configuration'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( cn )
+    MAY ( gPLink )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.11 NAME 'comConnectionPoint'
+    DESC 'Com-Connection-Point'
+    SUP connectionPoint
+    STRUCTURAL
+    MUST ( cn )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.44 NAME 'classStore'
+    DESC 'Class-Store'
+    SUP ad-top
+    STRUCTURAL
+    MAY ( versionNumber )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.3.13 NAME 'classSchema'
+    DESC 'Class-Schema'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( cn )
+    MAY ( systemPossSuperiors $ possSuperiors $ lDAPDisplayName )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.10 NAME 'classRegistration'
+    DESC 'Class-Registration'
+    SUP leaf
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (2.16.840.1.113730.3.8.26.6 NAME 'ad-certificationAuthority'
+    DESC 'ad-certificationAuthority'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( cn $ cACertificate )
+    MAY ( signatureAlgorithms $ dNSHostName $ certificateTemplates $
+          cACertificateDN )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.74 NAME 'categoryRegistration'
+    DESC 'Category-Registration'
+    SUP leaf
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (2.16.840.1.113730.3.8.26.7 NAME 'ad-crlDistributionPoint'
+    DESC 'ad-crlDistributionPoint'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( cn )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.4 NAME 'builtinDomain'
+    DESC 'Builtin-Domain'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.3.14 NAME 'attributeSchema'
+    DESC 'Attribute-Schema'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( lDAPDisplayName $ cn )
+    MAY ( rangeUpper $ rangeLower )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.216 NAME 'applicationVersion'
+    DESC 'Stores versioning information for an application and its schema.'
+    SUP applicationSettings
+    STRUCTURAL
+    MAY ( keywords $ versionNumber )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.3.58 NAME 'addressTemplate'
+    DESC 'Address-Template'
+    SUP displayTemplate
+    STRUCTURAL
+    MUST ( displayName )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.125 NAME 'addressBookContainer'
+    DESC 'Address-Book-Container'
+    SUP ad-top
+    STRUCTURAL
+    MUST ( displayName )
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.138 NAME 'aCSSubnet'
+    DESC 'ACS-Subnet'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.191 NAME 'aCSResourceLimits'
+    DESC 'ACS-Resource-Limits'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+objectClasses: (1.2.840.113556.1.5.137 NAME 'aCSPolicy'
+    DESC 'ACS-Policy'
+    SUP ad-top
+    STRUCTURAL
+    X-ORIGIN 'MS-WSPP')
+

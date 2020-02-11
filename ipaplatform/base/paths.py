@@ -172,6 +172,7 @@ class BasePathNamespace:
     FIREFOX = "/usr/bin/firefox"
     GETCERT = "/usr/bin/getcert"
     GPG2 = "/usr/bin/gpg2"
+    GPG_CONF = "/usr/bin/gpgconf"
     GPG_CONNECT_AGENT = "/usr/bin/gpg-connect-agent"
     GPG_AGENT = "/usr/bin/gpg-agent"
     IPA_GETCERT = "/usr/bin/ipa-getcert"
@@ -254,6 +255,7 @@ class BasePathNamespace:
     FONTS_FONTAWESOME_DIR = "/usr/share/fonts/fontawesome"
     USR_SHARE_IPA_DIR = "/usr/share/ipa/"
     USR_SHARE_IPA_CLIENT_DIR = "/usr/share/ipa/client"
+    USR_SHARE_IPA_GC_DIR = "/usr/share/ipa/gc/base"
     CA_TOPOLOGY_ULDIF = "/usr/share/ipa/ca-topology.uldif"
     IPA_HTML_DIR = "/usr/share/ipa/html"
     CA_CRT = "/usr/share/ipa/html/ca.crt"
@@ -266,6 +268,7 @@ class BasePathNamespace:
     SCHEMA_COMPAT_POST_ULDIF = "/usr/share/ipa/schema_compat_post.uldif"
     IPA_JS_PLUGINS_DIR = "/usr/share/ipa/ui/js/plugins"
     UPDATES_DIR = "/usr/share/ipa/updates/"
+    GC_UPDATES_DIR = "/usr/share/ipa/gc/updates"
     DICT_WORDS = "/usr/share/dict/words"
     VAR_KERBEROS_KRB5KDC_DIR = "/var/kerberos/krb5kdc/"
     VAR_KRB5KDC_K5_REALM = "/var/kerberos/krb5kdc/.k5."
@@ -404,6 +407,8 @@ class BasePathNamespace:
     SLAPD_INSTANCE_AUDIT_LOG_TEMPLATE = "/var/log/dirsrv/slapd-%s/audit"
     SLAPD_INSTANCE_SYSTEMD_IPA_ENV_TEMPLATE = \
         "/etc/systemd/system/dirsrv@%s.service.d/ipa-env.conf"
+    # Global Catalog constants
+    GC_KEYTAB = "/etc/dirsrv/gc.keytab"
     IPA_SERVER_UPGRADE = '/usr/sbin/ipa-server-upgrade'
     KEYCTL = '/bin/keyctl'
     GETENT = '/usr/bin/getent'

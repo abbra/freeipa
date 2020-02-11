@@ -29,7 +29,6 @@ from __future__ import absolute_import
 
 import os
 import sys
-import unittest
 
 import pytest
 import six
@@ -50,15 +49,17 @@ class test_ldap:
     Test various LDAP client bind methods.
     """
 
-    def setup(self):
+    @pytest.fixture(autouse=True)
+    def ldap_setup(self, request):
         self.conn = None
         self.ldapuri = api.env.ldap_uri
         self.dn = DN(('krbprincipalname','ldap/%s@%s' % (api.env.host, api.env.realm)),
                      ('cn','services'),('cn','accounts'),api.env.basedn)
 
-    def teardown(self):
-        if self.conn and self.conn.isconnected():
-            self.conn.disconnect()
+        def fin():
+            if self.conn and self.conn.isconnected():
+                self.conn.disconnect()
+        request.addfinalizer(fin)
 
     def test_anonymous(self):
         """
@@ -90,7 +91,7 @@ class test_ldap:
             with open(pwfile, "r") as fp:
                 dm_password = fp.read().rstrip()
         else:
-            raise unittest.SkipTest(
+            pytest.skip(
                 "No directory manager password in %s" % pwfile
             )
         self.conn = ldap2(api)
@@ -116,7 +117,7 @@ class test_ldap:
             with open(pwfile, "r") as fp:
                 dm_password = fp.read().rstrip()
         else:
-            raise unittest.SkipTest(
+            pytest.skip(
                 "No directory manager password in %s" % pwfile
             )
         myapi.Backend.ldap2.connect(bind_dn=DN(('cn', 'Directory Manager')), bind_pw=dm_password)
@@ -134,7 +135,7 @@ class test_ldap:
         try:
             self.conn.connect(autobind=True)
         except errors.ACIError:
-            raise unittest.SkipTest("Only executed as root")
+            pytest.skip("Only executed as root")
         entry_attrs = self.conn.get_entry(self.dn, ['usercertificate'])
         cert = entry_attrs.get('usercertificate')[0]
         assert cert.serial_number is not None
@@ -151,16 +152,18 @@ class test_LDAPEntry:
     dn1 = DN(('cn', cn1[0]))
     dn2 = DN(('cn', cn2[0]))
 
-    def setup(self):
+    @pytest.fixture(autouse=True)
+    def ldapentry_setup(self, request):
         self.ldapuri = api.env.ldap_uri
         self.conn = ldap2(api)
         self.conn.connect(autobind=AUTOBIND_DISABLED)
 
         self.entry = self.conn.make_entry(self.dn1, cn=self.cn1)
 
-    def teardown(self):
-        if self.conn and self.conn.isconnected():
-            self.conn.disconnect()
+        def fin():
+            if self.conn and self.conn.isconnected():
+                self.conn.disconnect()
+        request.addfinalizer(fin)
 
     def test_entry(self):
         e = self.entry

@@ -39,6 +39,7 @@ from ipaplatform.paths import paths
 from ipaserver import servroles
 from ipaserver.install import installutils
 from ipaserver.install import dsinstance
+from ipaserver.install import gcinstance
 from ipaserver.install import httpinstance
 from ipaserver.install import bindinstance
 from ipaserver.install import service
@@ -357,6 +358,15 @@ def upgrade_adtrust_config():
             logger.warning("Error updating Samba registry: %s", e)
 
 
+def upgrade_global_catalog(fstore):
+    logger.info('[Upgrading Global Catalog]')
+
+    if not gcinstance.is_gc_configured():
+        logger.info('Global Catalog is not configured')
+        return
+    gcinstance.GCInstance(fstore=fstore).apply_updates()
+
+
 def ca_configure_profiles_acl(ca):
     logger.info('[Authorizing RA Agent to modify profiles]')
 
@@ -386,15 +396,34 @@ def ca_enable_ldap_profile_subsystem(ca):
     needs_update = False
     directive = None
     try:
-        for i in range(15):
+        i = 0
+        while True:
+            # find profile subsystem
+            directive = "subsystem.{}.id".format(i)
+            value = directivesetter.get_directive(
+                paths.CA_CS_CFG_PATH,
+                directive,
+                separator='=')
+            if not value:
+                logger.error('Unable to find profile subsystem in %s',
+                             paths.CA_CS_CFG_PATH)
+                return False
+            if value != 'profile':
+                i = i + 1
+                continue
+
+            # check profile subsystem class name
             directive = "subsystem.{}.class".format(i)
             value = directivesetter.get_directive(
                 paths.CA_CS_CFG_PATH,
                 directive,
                 separator='=')
-            if value == 'com.netscape.cmscore.profile.ProfileSubsystem':
+            if value != 'com.netscape.cmscore.profile.LDAPProfileSubsystem':
                 needs_update = True
-                break
+
+            # break after finding profile subsystem
+            break
+
     except OSError as e:
         logger.error('Cannot read CA configuration file "%s": %s',
                      paths.CA_CS_CFG_PATH, e)
@@ -1032,6 +1061,9 @@ def certificate_renewal_update(ca, kra, ds, http):
     Update certmonger certificate renewal configuration.
     """
 
+    # First ensure the renewal helpers are defined.
+    ca.configure_certmonger_renewal_helpers()
+
     template = paths.CERTMONGER_COMMAND_TEMPLATE
     serverid = ipaldap.realm_to_serverid(api.env.realm)
 
@@ -1148,7 +1180,6 @@ def certificate_renewal_update(ca, kra, ds, http):
             logger.info("Removing %s", filename)
             ipautil.remove_file(filename)
 
-    ca.configure_certmonger_renewal()
     ca.configure_renewal()
     ca.configure_agent_renewal()
     ca.add_lightweight_ca_tracking_requests()
@@ -2067,6 +2098,7 @@ def upgrade_configuration():
     cleanup_adtrust(fstore)
     cleanup_dogtag()
     upgrade_adtrust_config()
+    upgrade_global_catalog(fstore)
 
     bind = bindinstance.BindInstance(fstore)
     if bind.is_configured() and not bind.is_running():

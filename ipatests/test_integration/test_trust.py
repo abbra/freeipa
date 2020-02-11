@@ -3,8 +3,9 @@
 from __future__ import absolute_import
 
 import re
-import unittest
 import textwrap
+
+import pytest
 
 from ipaplatform.constants import constants as platformconstants
 from ipaplatform.paths import paths
@@ -33,18 +34,18 @@ class BaseTestTrust(IntegrationTest):
     @classmethod
     def install(cls, mh):
         if not cls.master.transport.file_exists('/usr/bin/rpcclient'):
-            raise unittest.SkipTest("Package samba-client not available "
-                                    "on {}".format(cls.master.hostname))
+            raise pytest.skip("Package samba-client not available "
+                              "on {}".format(cls.master.hostname))
         super(BaseTestTrust, cls).install(mh)
-        cls.ad = cls.ads[0]  # pylint: disable=no-member
+        cls.ad = cls.ads[0]
         cls.ad_domain = cls.ad.domain.name
         tasks.install_adtrust(cls.master)
         cls.check_sid_generation()
         tasks.sync_time(cls.master, cls.ad)
 
-        cls.child_ad = cls.ad_subdomains[0]  # pylint: disable=no-member
+        cls.child_ad = cls.ad_subdomains[0]
         cls.ad_subdomain = cls.child_ad.domain.name
-        cls.tree_ad = cls.ad_treedomains[0]  # pylint: disable=no-member
+        cls.tree_ad = cls.ad_treedomains[0]
         cls.ad_treedomain = cls.tree_ad.domain.name
 
         # values used in workaround for
