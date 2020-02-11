@@ -20,7 +20,8 @@ systemctl --now enable firewalld
 echo "Installing FreeIPA master for the domain ${server_domain} and realm ${server_realm}"
 ipa-server-install -U --domain ${server_domain} --realm ${server_realm} \
                    -p ${server_password} -a ${server_password} \
-                   --setup-dns --setup-kra --auto-forwarders
+                   --setup-dns --setup-kra --auto-forwarders \
+		   --no-ntp
 
 install_result=$?
 
