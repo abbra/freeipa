@@ -11,6 +11,7 @@ FreeIPA design documentation
    adtrust/sudorules-with-ad-objects.md
    adtrust/auto-private-groups.md
    adtrust/sidconfig.md
+   adtrust/gc-design.md
    edns.md
    hsm.md
    krb-ticket-policy.md
