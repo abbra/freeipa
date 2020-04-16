@@ -160,85 +160,49 @@ generate valid schema in 389-ds format and thus adds mapping between schema
 attribute definitions existing in 389-ds and MS-ADSC. In particular, attribute
 types, their ordering and matching functions mapped to those of 389-ds.
 
-{| border="1"
-|+ Equality rules mapping
-|-
-! Original syntax !! Mapped syntax
-|-
-| 2.5.5.8 || booleanMatch
-|-
-| 2.5.5.9 || integerMatch
-|-
-| 2.5.5.16 || integerMatch
-|-
-| 2.5.5.14 || distinguishedNameMatch
-|-
-| 1.3.12.2.1011.28.0.702 || octetStringMatch
-|-
-| 1.2.840.113556.1.1.1.12 || distinguishedNameMatch
-|-
-| 2.5.5.7 || octetStringMatch
-|-
-| 2.6.6.1.2.5.11.29 || octetStringMatch
-|-
-| 1.2.840.113556.1.1.1.11 || octetStringMatch
-|-
-| 2.5.5.13 || caseIgnoreMatch
-|-
-| 2.5.5.10 || octetStringMatch
-|-
-| 2.5.5.3 || caseIA5Match
-|-
-| 2.5.5.5 || caseIA5Match
-|-
-| 2.5.5.15 || octetStringMatch
-|-
-| 2.5.5.6 || numericStringMatch
-|-
-| 2.5.5.2 || objectIdentifierMatch
-|-
-| 2.5.5.10 || octetStringMatch
-|-
-| 2.5.5.17 || caseExactMatch
-|-
-| 2.5.5.4 || caseIgnoreMatch
-|-
-| 2.5.5.12 || caseIgnoreMatch
-|-
-| 2.5.5.11 || generalizedTimeMatch
-|}
+###### Equality rules mapping
 
-{| border="1"
-|+ Attribute syntax mapping
-|-
-! Original syntax !! Mapped syntax
-|-
-| 2.5.5.8 || 1.3.6.1.4.1.1466.115.121.1.7 
-|-
-| 2.5.5.9 || 1.3.6.1.4.1.1466.115.121.1.27
-|-
-| 2.5.5.16 || 1.3.6.1.4.1.1466.115.121.1.27
-|-
-| 2.5.5.14 || 1.3.6.1.4.1.1466.115.121.1.12
-|-
-| 1.3.12.2.1011.28.0.702 || 1.3.6.1.4.1.1466.115.121.1.5
-|-
-| 1.2.840.113556.1.1.1.12 || 1.3.6.1.4.1.1466.115.121.1.12
-|-
-| 2.5.5.7 || 1.3.6.1.4.1.1466.115.121.1.12
-|-
-| 2.6.6.1.2.5.11.29 || 1.3.6.1.4.1.1466.115.121.1.12
-|-
-| 1.2.840.113556.1.1.1.11 || 1.3.6.1.4.1.1466.115.121.1.12
-|-
-| 2.5.5.13 || 1.3.6.1.4.1.1466.115.121.1.43
-|-
-| 1.3.12.2.1011.28.0.732 || 1.3.6.1.4.1.1466.115.121.1.43
-|-
-| 2.5.5.10 || 1.3.6.1.4.1.1466.115.121.1.5
-|-
-| 1.2.840.11.3556.1.1.1.6 || 1.3.6.1.4.1.1466.115.121.1.5
-|}
+|  Original syntax        | Mapped syntax           |
+|-------------------------|-------------------------|
+| 2.5.5.8                 | booleanMatch
+| 2.5.5.9                 | integerMatch
+| 2.5.5.16                | integerMatch
+| 2.5.5.14                | distinguishedNameMatch
+| 1.3.12.2.1011.28.0.702  | octetStringMatch
+| 1.2.840.113556.1.1.1.12 | distinguishedNameMatch
+| 2.5.5.7                 | octetStringMatch
+| 2.6.6.1.2.5.11.29       | octetStringMatch
+| 1.2.840.113556.1.1.1.11 | octetStringMatch
+| 2.5.5.13                | caseIgnoreMatch
+| 2.5.5.10                | octetStringMatch
+| 2.5.5.3                 | caseIA5Match
+| 2.5.5.5                 | caseIA5Match
+| 2.5.5.15                | octetStringMatch
+| 2.5.5.6                 | numericStringMatch
+| 2.5.5.2                 | objectIdentifierMatch
+| 2.5.5.10                | octetStringMatch
+| 2.5.5.17                | caseExactMatch
+| 2.5.5.4                 | caseIgnoreMatch
+| 2.5.5.12                | caseIgnoreMatch
+| 2.5.5.11                | generalizedTimeMatch
+
+###### Attribute syntax mapping
+
+|  Original syntax        | Mapped syntax                |
+|-------------------------|------------------------------|
+| 2.5.5.8                 | 1.3.6.1.4.1.1466.115.121.1.7
+| 2.5.5.9                 | 1.3.6.1.4.1.1466.115.121.1.27
+| 2.5.5.16                | 1.3.6.1.4.1.1466.115.121.1.27
+| 2.5.5.14                | 1.3.6.1.4.1.1466.115.121.1.12
+| 1.3.12.2.1011.28.0.702  | 1.3.6.1.4.1.1466.115.121.1.5
+| 1.2.840.113556.1.1.1.12 | 1.3.6.1.4.1.1466.115.121.1.12
+| 2.5.5.7                 | 1.3.6.1.4.1.1466.115.121.1.12
+| 2.6.6.1.2.5.11.29       | 1.3.6.1.4.1.1466.115.121.1.12
+| 1.2.840.113556.1.1.1.11 | 1.3.6.1.4.1.1466.115.121.1.12
+| 2.5.5.13                | 1.3.6.1.4.1.1466.115.121.1.43
+| 1.3.12.2.1011.28.0.732  | 1.3.6.1.4.1.1466.115.121.1.43
+| 2.5.5.10                | 1.3.6.1.4.1.1466.115.121.1.5
+| 1.2.840.11.3556.1.1.1.6 | 1.3.6.1.4.1.1466.115.121.1.5
 
 #### Auxiliary classes
 
