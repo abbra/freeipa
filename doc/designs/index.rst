@@ -9,6 +9,7 @@ FreeIPA design documentation
    adtrust/samba-domain-member.md
    adtrust/admin-ipa-as-trusted-user.md
    adtrust/sudorules-with-ad-objects.md
+   adtrust/gc-design.md
    krb-ticket-policy.md
    extdom-plugin-protocol.md
    expiring-password-notification.md
