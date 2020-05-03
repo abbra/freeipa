@@ -153,6 +153,8 @@ class GCInstance(service.Service):
                   self.configure_systemd_ipa_env)
         self.step("enabling SASL mapping fallback",
                   self.__enable_sasl_mapping_fallback)
+        self.step("configuring objectclass filter rewriter",
+                  self.__configure_oc_filter_rewriter)
 
     def __common_post_setup(self):
         self.step("configuring global catalog to start on boot", self.__enable)
@@ -298,7 +300,8 @@ class GCInstance(service.Service):
             MIN_DOMAIN_LEVEL=constants.MIN_DOMAIN_LEVEL,
             NAME=DN(self.suffix)[0].value,
             DOMAINGUID=domainguid,
-            DOMAINSID=domainsid
+            DOMAINSID=domainsid,
+            LIBARCH=paths.LIBARCH
         )
 
     def __create_instance(self):
@@ -723,6 +726,12 @@ class GCInstance(service.Service):
     def __enable_sasl_mapping_fallback(self):
         self._ldap_mod(
             "sasl-mapping-fallback.ldif", self.sub_dict,
+            ldap_uri=self.ldap_uri
+        )
+
+    def __configure_oc_filter_rewriter(self):
+        self._ldap_mod(
+            "gc/base/ocrewriter.ldif", self.sub_dict,
             ldap_uri=self.ldap_uri
         )
 
