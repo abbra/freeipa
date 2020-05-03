@@ -1,0 +1,7 @@
+dn: cn=ObjectClass Filter Rewriter,cn=rewriters,cn=config
+changetype: add
+objectclass: top
+objectclass: rewriterEntry
+cn: ObjectClass Filter Rewriter
+nsslapd-libpath: /usr/lib$LIBARCH/dirsrv/librewriters.so
+nsslapd-filterrewriter: adfilter_rewrite_objectCategory

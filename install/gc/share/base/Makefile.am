@@ -14,6 +14,7 @@ dist_gcbase_DATA =                          \
 	00-ad-schema-2016.ldif              \
 	objectguid.ldif                     \
 	default-aci.ldif                    \
+	ocrewriter.ldif                     \
 	$(NULL)
 
 .PHONY: $(SCHEMA_FILES)
