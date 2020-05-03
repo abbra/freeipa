@@ -77,7 +77,7 @@ dn: cn=schema,cn=configuration,$SUFFIX
 changetype: add
 objectClass: top
 objectclass: ad-top
-objectClass: dMD
+objectClass: ad-dMD
 cn: schema
 instanceType: 13
 name: Schema
