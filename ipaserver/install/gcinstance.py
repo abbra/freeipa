@@ -255,8 +255,8 @@ class GCInstance(service.Service):
             objectclass=["top", "nsSaslMapping"],
             cn=["Read-Only Principal"],
             nsSaslMapRegexString=[r'^[^:]+$'],
-            nsSaslMapBaseDNTemplate=[DN(('cn', 'configuration')) +
-                                     self.suffix],
+            nsSaslMapBaseDNTemplate=[
+                DN(('cn', 'configuration')) + self.suffix],
             nsSaslMapFilterTemplate=['(uid=read-only-principal)'],
             nsSaslMapPriority=['10'],
         )
