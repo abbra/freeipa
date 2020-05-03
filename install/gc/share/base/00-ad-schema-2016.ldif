@@ -594,8 +594,8 @@ attributeTypes: (1.2.840.113556.1.4.2 NAME 'objectGUID'
     X-ORIGIN 'MS-WSPP')
 attributeTypes: (1.2.840.113556.1.4.146 NAME 'objectSid'
     DESC 'Object-Sid'
-    EQUALITY caseExactMatch
-    ORDERING caseExactOrderingMatch
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
     SINGLE-VALUE
     SYNTAX 1.3.6.1.4.1.1466.115.121.1.40
     X-ORIGIN 'MS-WSPP')
@@ -839,8 +839,8 @@ attributeTypes: (1.2.840.113556.1.4.302 NAME 'sAMAccountType'
     X-ORIGIN 'MS-WSPP')
 attributeTypes: (1.2.840.113556.1.4.121 NAME 'securityIdentifier'
     DESC 'Security-Identifier'
-    EQUALITY caseExactMatch
-    ORDERING caseExactOrderingMatch
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
     SINGLE-VALUE
     SYNTAX 1.3.6.1.4.1.1466.115.121.1.40
     X-ORIGIN 'MS-WSPP')
@@ -898,8 +898,8 @@ attributeTypes: (1.2.840.113556.1.2.169 NAME 'showInAdvancedViewOnly'
     X-ORIGIN 'MS-WSPP')
 attributeTypes: (1.2.840.113556.1.4.609 NAME 'sIDHistory'
     DESC 'SID-History'
-    EQUALITY caseExactMatch
-    ORDERING caseExactOrderingMatch
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
     SYNTAX 1.3.6.1.4.1.1466.115.121.1.40
     X-ORIGIN 'MS-WSPP')
 attributeTypes: (1.2.840.113556.1.4.824 NAME 'signatureAlgorithms'
@@ -1445,8 +1445,8 @@ attributeTypes: (1.2.840.113556.1.4.2320 NAME 'msDS-DeviceDN'
     X-ORIGIN 'MS-WSPP')
 attributeTypes: (1.2.840.113556.1.4.2321 NAME 'msDS-ComputerSID'
     DESC 'This attribute identifies a domain-joined computer.'
-    EQUALITY caseExactMatch
-    ORDERING caseExactOrderingMatch
+    EQUALITY octetStringMatch
+    ORDERING octetStringOrderingMatch
     SINGLE-VALUE
     SYNTAX 1.3.6.1.4.1.1466.115.121.1.40
     X-ORIGIN 'MS-WSPP')
@@ -2725,19 +2725,12 @@ objectClasses: (1.2.840.113556.1.5.183 NAME 'dSUISettings'
     SUP ad-top
     STRUCTURAL
     X-ORIGIN 'MS-WSPP')
-objectClasses: (2.5.6.12 NAME 'applicationEntity'
-    DESC 'Application-Entity'
-    SUP ad-top
-    STRUCTURAL
-    MUST ( cn )
-    MAY ( ou $ o $ l )
-    X-ORIGIN 'MS-WSPP')
 objectClasses: (2.5.6.13 NAME 'dSA'
     DESC 'DSA'
     SUP applicationEntity
     STRUCTURAL
     X-ORIGIN 'MS-WSPP')
-objectClasses: (1.2.840.113556.1.3.9 NAME 'dMD'
+objectClasses: (2.16.840.1.113730.3.8.26.8 NAME 'ad-dMD'
     DESC 'DMD'
     SUP ad-top
     STRUCTURAL

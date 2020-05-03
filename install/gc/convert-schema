@@ -114,7 +114,7 @@ oMRules["EQ"] = {
     "2.5.5.15": "octetStringMatch",
     "2.5.5.6": "numericStringMatch",
     "2.5.5.2": "objectIdentifierMatch",
-    "2.5.5.17": "caseExactMatch",
+    "2.5.5.17": "octetStringMatch",
     "2.5.5.12": "caseIgnoreMatch",
     "2.5.5.11": "generalizedTimeMatch",
 }
@@ -155,7 +155,7 @@ oMRules["ORD"] = {
     "2.5.5.10": "octetStringOrderingMatch",
     "2.5.5.15": "octetStringOrderingMatch",
     "2.5.5.6": "numericStringOrderingMatch",
-    "2.5.5.17": "caseExactOrderingMatch",
+    "2.5.5.17": "octetStringOrderingMatch",
     "2.5.5.12": "caseIgnoreOrderingMatch",
     "2.5.5.11": "generalizedTimeOrderingMatch",
 }
@@ -209,6 +209,10 @@ filteredClasses = {
         'adminDescription': 'ad-crlDistributionPoint',
         'governsID': '2.16.840.1.113730.3.8.26.7',
     },
+    'dMD': {
+        'lDAPDisplayName': 'ad-dMD',
+        'governsID': '2.16.840.1.113730.3.8.26.8',
+    },
     'domain': FILTER_BY_OID,
     'nisMap': FILTER_BY_OID,
     'rFC822LocalPart': FILTER_BY_OID,
@@ -242,6 +246,7 @@ filteredClasses = {
     'applicationProcess': FILTER_BY_NAME,
     'account': FILTER_BY_NAME,
     'country': FILTER_BY_NAME,
+    'applicationEntity': FILTER_BY_NAME,
 }
 
 filteredAttrs = {
