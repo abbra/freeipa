@@ -181,7 +181,7 @@ types, their ordering and matching functions mapped to those of 389-ds.
 | 2.5.5.6                 | numericStringMatch
 | 2.5.5.2                 | objectIdentifierMatch
 | 2.5.5.10                | octetStringMatch
-| 2.5.5.17                | caseExactMatch
+| 2.5.5.17                | octetStringMatch
 | 2.5.5.4                 | caseIgnoreMatch
 | 2.5.5.12                | caseIgnoreMatch
 | 2.5.5.11                | generalizedTimeMatch
@@ -203,6 +203,7 @@ types, their ordering and matching functions mapped to those of 389-ds.
 | 1.3.12.2.1011.28.0.732  | 1.3.6.1.4.1.1466.115.121.1.43
 | 2.5.5.10                | 1.3.6.1.4.1.1466.115.121.1.5
 | 1.2.840.11.3556.1.1.1.6 | 1.3.6.1.4.1.1466.115.121.1.5
+| 2.5.5.1                 | 1.3.6.1.4.1.1466.115.121.1.12
 
 #### Auxiliary classes
 
