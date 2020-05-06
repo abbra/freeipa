@@ -115,6 +115,9 @@ original data to a schema compatible with Global Catalog in Active Directory.
 The data is stored in a proper LDAP backend so it is persistent across the
 directory server restarts.
 
+For a more detailed design, please refer to
+[ipa-gcsyncd design](ipa-gcsyncd-design.md).
+
 #### GC tree structure
 
 In Active Directory Global Catalog contains directory data for all domains in a
@@ -222,15 +225,4 @@ requirements on the object creation rather than by using those attributes.
 
 ### Synchronization service design
 
-Synchronization service is an external application (daemon) that runs
-independently on IPA masters. The daemon is connected to the primary FreeIPA
-LDAP instance over LDAPI socket and listens for changes with SYNCREPL mechanism.
-Upon an arrival of an update, it determines whether this update should be
-translated into Global Catalog's change. If the change is required, a
-transformation is performed by the daemon.
-
-In order to write to Global Catalog instance, the daemon connects to it over
-LDAPI socket and binds with SASL EXTERNAL. Global Catalog is configured to
-auto-bind such connection from the daemon identity to a special LDAP object that
-has permissions to write to Global Catalog trees. As result, only updates
-performed by this identity are allowed in Global Catalog.
+Please refer to [ipa-gcsyncd design](ipa-gcsyncd-design.md)
