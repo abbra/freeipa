@@ -4,9 +4,6 @@
 
 from __future__ import print_function
 
-from io import StringIO
-from ldap import SCOPE_SUBTREE
-from ldif import LDIFParser
 import logging
 import os
 import pwd
@@ -60,7 +57,8 @@ logger = logging.getLogger(__name__)
 if six.PY3:
     unicode = str
 
-GC_SCHEMA_FILES = ("00-ad-schema-2016.ldif",)
+GC_SCHEMA_FILES = ("00-ad-schema-2016.ldif",
+                   "01-gc-schema.ldif",)
 
 ALL_SCHEMA_FILES = GC_SCHEMA_FILES
 
@@ -195,8 +193,7 @@ class GCInstance(service.Service):
         pkcs12_info=None,
         subject_base=None,
         ca_subject=None,
-        ca_file=None,
-        populate=False
+        ca_file=None
     ):
         self.init_info(
             realm_name,
@@ -221,8 +218,6 @@ class GCInstance(service.Service):
         self.step("importing CA certificates from LDAP",
                   self.__import_ca_certs)
         self.step("restarting global catalog", self.__restart_instance)
-        if populate:
-            self.step("Initializing global catalog content", self.__populate)
         self.start_creation()
 
     def __configure_sasl_mappings(self):
@@ -462,84 +457,6 @@ class GCInstance(service.Service):
 
     def __restart_instance(self):
         self.restart(self.serverid)
-
-    def __populate(self):
-        from ipaserver.globalcatalog.transfo import GCTransformer
-
-        class AddLDIF(LDIFParser):
-            def __init__(self, input, conn):
-                LDIFParser.__init__(self, StringIO(input))
-                self._conn = conn
-
-            def handle(self, dn, entry):
-                try:
-                    newentry = self._conn.make_entry(DN(dn), entry)
-                    self._conn.add_entry(newentry)
-                except errors.DuplicateEntry:
-                    logger.debug("Entry %s already exists", dn)
-
-        ldapuri_ds = ipaldap.get_ldap_uri(realm=api.env.realm,
-                                          protocol='ldapi')
-        ds_ldap = ipaldap.LDAPClient(ldapuri_ds)
-        ds_ldap.external_bind()
-
-        gc = GCTransformer(api, ds_ldap)
-
-        attrs = [
-            'objectclass',
-            'cn',
-            'displayname',
-            'gidnumber',
-            'givenname',
-            'homedirectory',
-            'ipantsecurityidentifier',
-            'ipauniqueid',
-            'krbcanonicalname',
-            'krbprincipalname',
-            'mail',
-            'memberof',
-            'sn',
-            'uid',
-            'uidnumber',
-        ]
-
-        users, truncated = ds_ldap.find_entries(
-            '(objectclass=person)', attrs,
-            DN(api.env.container_user, api.env.basedn), scope=SCOPE_SUBTREE,
-            time_limit=0, size_limit=-1)
-
-        if truncated:
-            logger.info("Initialization of Global Catalog may be incomplete, "
-                        "number of users exceeded size limit")
-
-        for entry in users:
-            ldif_add = gc.create_ldif_user(entry)
-            parser = AddLDIF(ldif_add, self.conn)
-            parser.parse()
-
-        attrs = [
-            'objectclass',
-            'cn',
-            'ipauniqueid',
-            'ipantsecurityidentifier',
-            'member',
-            'ipaexternalmember',
-        ]
-
-        groups, truncated = ds_ldap.find_entries(
-            '(objectclass=groupofnames)', attrs,
-            DN(api.env.container_group, api.env.basedn), scope=SCOPE_SUBTREE,
-            time_limit=0, size_limit=-1)
-        if truncated:
-            logger.info("Initialization of Global Catalog may be incomplete, "
-                        "number of groups exceeded size limit")
-
-        for entry in groups:
-            ldif_add = gc.create_ldif_group(entry)
-            parser = AddLDIF(ldif_add, self.conn)
-            parser.parse()
-
-        logger.debug("Global catalog initialized")
 
     def configure_systemd_ipa_env(self):
         pent = pwd.getpwnam(platformconstants.DS_USER)
@@ -798,7 +715,8 @@ class GCInstance(service.Service):
         self.restore_state("running")
 
         try:
-            api.Backend.ldap2.connect()
+            if not api.Backend.ldap2.isconnected():
+                api.Backend.ldap2.connect()
         except (NetworkError, AttributeError):
             logger.error("Unable to connect to directory server, "
                          "you may need to remove service container and "
@@ -879,3 +797,68 @@ class GCInstance(service.Service):
         )
         self.conn = ipaldap.LDAPClient(self.ldap_uri)
         self.conn.external_bind()
+
+
+class GCSyncInstance(service.Service):
+    def __init__(self, fstore=None, logger=logger):
+        super(GCSyncInstance, self).__init__(
+            "ipa-gcsyncd",
+            service_desc="Global Catalog synchronization service",
+            fstore=fstore,
+            service_prefix=u'ipa-gcsyncd'
+        )
+
+    def create_instance(self, realm_name, fqdn):
+        self.fqdn = fqdn
+        self.realm = realm_name
+        self.suffix = ipautil.realm_to_suffix(self.realm)
+        try:
+            self.stop()
+        except Exception:
+            pass
+
+        self.step("configuring ipa-gcsyncd to start on boot", self.__enable)
+        self.step("start ipa-gcsyncd", self.__start)
+        self.start_creation()
+
+    def __enable(self):
+        self.backup_state("enabled", True)
+        try:
+            self.ldap_configure('GCSync', self.fqdn, None,
+                                self.suffix)
+        except errors.DuplicateEntry:
+            logger.error("GCSync service already exists")
+
+    def __start(self):
+        try:
+            self.start()
+        except Exception as e:
+            print("Failed to start ipa-gcyncd")
+            logger.debug("Failed to start ipa-gcsyncd: %s", e)
+
+    def uninstall(self):
+        if self.is_configured():
+            self.print_msg("Unconfiguring %s" % self.service_name)
+            # Remove the service container entry
+            try:
+                if not api.Backend.ldap2.isconnected():
+                    api.Backend.ldap2.connect()
+            except (NetworkError, AttributeError):
+                logger.error("Unable to connect to directory server, "
+                             "you may need to remove service container "
+                             "manually.")
+            else:
+                self.ldap_remove_service_container('GCSync', api.env.host,
+                                                   api.env.basedn)
+
+            # Just eat states
+            self.restore_state("running")
+            self.restore_state("enabled")
+            self.restore_state("configured")
+
+            # stop and disable service (IPA service, we do not need it anymore)
+            self.stop()
+            self.disable()
+
+            # remove cookie file
+            ipautil.remove_file(paths.GC_COOKIE)

@@ -1339,6 +1339,7 @@ fi
 # We need the whole subtree in both cases below
 %{_usr}/share/ipa/gc
 %{_libexecdir}/ipa/gc
+%{_libexecdir}/ipa/gc/ipa-gcsyncd
 %attr(755,root,root) %{_libdir}/samba/pdb/ipasam.so
 %{_mandir}/man1/ipa-adtrust-install.1*
 %ghost %{_libdir}/krb5/plugins/libkrb5/winbind_krb5_locator.so
@@ -1346,6 +1347,7 @@ fi
 %{_sysconfdir}/oddjobd.conf.d/oddjobd-ipa-trust.conf
 %%attr(755,root,root) %{_libexecdir}/ipa/oddjob/com.redhat.idm.trust-fetch-domains
 %{python3_sitelib}/ipaserver/globalcatalog
+%attr(644,root,root) %{_unitdir}/ipa-gcsyncd.service
 
 # ONLY_CLIENT
 %endif
