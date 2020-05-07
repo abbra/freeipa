@@ -5,6 +5,7 @@ only:nsslapd-pluginEnabled: on
 add:nsslapd-attribute: nsuniqueid:targetUniqueId
 add:nsslapd-changelogmaxage: 2d
 add:nsslapd-include-suffix: cn=dns,$SUFFIX
+add:nsslapd-include-suffix: cn=accounts,$SUFFIX
 
 # Keep memberOf and referential integrity plugins away from cn=changelog.
 # It is necessary for performance reasons because we don't have appropriate

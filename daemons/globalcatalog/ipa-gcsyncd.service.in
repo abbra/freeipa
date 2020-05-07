@@ -1,0 +1,11 @@
+[Unit]
+Description=IPA Global Catalog Sync daemon
+
+[Service]
+ExecStart=@libexecdir@/ipa/gc/ipa-gcsyncd
+PrivateTmp=yes
+Restart=on-failure
+RestartSec=60s
+
+[Install]
+WantedBy=multi-user.target

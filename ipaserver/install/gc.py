@@ -8,7 +8,6 @@ import logging
 
 from ipalib.errors import NetworkError
 from ipaplatform.paths import paths
-from ipapython import ipautil
 from ipaserver.install import ca, dsinstance, gcinstance
 from ipaserver.install import installutils, service
 from ipaserver.install.installutils import read_password
@@ -58,12 +57,6 @@ def install_check(api, installer):
             ca_cert_files=[paths.IPA_CA_CRT])
         gc_pkcs12_info = (gc_pkcs12_file.name, gc_pin)
 
-    # Ask if we want to populate the GC
-    if not options.populate and options.interactive:
-        options.populate = ipautil.user_input(
-            "Do you want to fill the Global Catalog with users and groups?",
-            True)
-
     # Check if we have creds, otherwise acquire them
     # installutils.check_creds(options, api.env.realm)
 
@@ -103,18 +96,20 @@ def install(api, fstore, installer):
         gc.create_instance(api.env.realm, api.env.host, api.env.domain,
                            options.gc_password, gc_pkcs12_info,
                            subject_base=subject_base,
-                           ca_subject=ca_subject,
-                           populate=options.populate)
+                           ca_subject=ca_subject)
     else:
         gc = gcinstance.GCInstance(fstore=fstore, domainlevel=domainlevel)
         installer._gc = gc
         gc.create_instance(api.env.realm, api.env.host, api.env.domain,
                            options.gc_password,
                            subject_base=subject_base,
-                           ca_subject=ca_subject,
-                           populate=options.populate)
+                           ca_subject=ca_subject)
 
     gc.apply_updates()
+
+    gcsyncd = gcinstance.GCSyncInstance(fstore=fstore)
+    installer._gcsyncd = gcsyncd
+    gcsyncd.create_instance(api.env.realm, api.env.host)
 
     service.sync_services_state(api.env.host)
     # After this point the Global Catalog is seen as enabled
@@ -133,4 +128,5 @@ def uninstall_check():
 
 
 def uninstall(fstore):
+    gcinstance.GCSyncInstance(fstore=fstore).uninstall()
     gcinstance.GCInstance(fstore=fstore).uninstall()
