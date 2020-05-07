@@ -18,6 +18,7 @@ noinst_HEADERS = ipa-version.h.in
 SUBDIRS =			\
 	.			\
 	dnssec			\
+	globalcatalog		\
 	ipa-kdb			\
 	ipa-slapi-plugins	\
 	ipa-sam			\

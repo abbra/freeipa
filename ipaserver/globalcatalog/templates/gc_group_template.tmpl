@@ -3,6 +3,8 @@ objectClass: top
 objectClass: ad-top
 objectClass: group
 objectClass: securityprincipal
+objectClass: nsmemberof
+objectClass: gcobject
 cn: {{ pkey }}
 instanceType: 4
 name: {{ pkey }}
@@ -15,4 +17,8 @@ ntsecuritydescriptor: D:(A;;RPWPCRCCDCLCLORCWOWDSDDTSW;;;DA)(A;;RPWPCRCCDCLCLORC
 {%- for member in entry['member'] %}
 member: {{ member }}
 {%- endfor %}
+{%- for group in entry['memberof'] %}
+memberof: {{ group }}
+{%- endfor %}
 groupType: {{ groupType }}
+gcuuid: {{ entryuuid }}

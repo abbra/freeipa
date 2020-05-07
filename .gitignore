@@ -74,6 +74,8 @@ freeipa2-dev-doc
 /daemons/dnssec/ipa-dnskeysyncd.service
 /daemons/dnssec/ipa-ods-exporter.service
 /daemons/dnssec/ipa-ods-exporter.socket
+/daemons/globalcatalog/ipa-gcsyncd
+/daemons/globalcatalog/ipa-gcsyncd.service
 /daemons/ipa-kdb/ipa_kdb_tests
 /daemons/ipa-kdb/ipa-print-pac
 /daemons/ipa-kdb/tests/.dirstamp
