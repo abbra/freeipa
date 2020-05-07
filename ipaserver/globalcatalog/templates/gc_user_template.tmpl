@@ -11,6 +11,7 @@ objectClass: user
 objectClass: securityPrincipal
 objectClass: posixAccount
 objectClass: inetUser
+objectClass: gcobject
 cn: {{ first_val('cn') }}
 sn: {{ first_val('sn') }}
 {%- if entry['givenname'] %}
@@ -46,3 +47,4 @@ homeDirectory: {{ first_val('homedirectory') }}
 memberof: {{ group }}
 {%- endfor %}
 nTSecurityDescriptor: D:(A;;RPWPCRCCDCLCLORCWOWDSDDTSW;;;DA)(A;;RPWPCRCCDCLCLORCWOWDSDDTSW;;;SY)(A;;RPLCLORC;;;AU)(OA;;WP;736e4812-af31-11d2-b7df-00805f48caeb;bf967ab8-0de6-11d0-a285-00aa003049e2;CO)(A;;SD;;;CO)
+gcuuid: {{ entryuuid }}
