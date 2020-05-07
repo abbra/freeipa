@@ -75,6 +75,7 @@ redhat_system_units['ods-signerd'] = 'ods-signerd.service'
 redhat_system_units['ods_signerd'] = redhat_system_units['ods-signerd']
 redhat_system_units['gssproxy'] = 'gssproxy.service'
 redhat_system_units['globalcatalog'] = 'dirsrv@GLOBAL-CATALOG.service'
+redhat_system_units['ipa-gcsyncd'] = 'ipa-gcsyncd.service'
 
 
 # Service classes that implement Red Hat OS family-specific behaviour

@@ -12,6 +12,7 @@ dist_gcbase_DATA =                          \
         00-ad-bootstrap-template.ldif       \
 	00-ad-indices.ldif                  \
 	00-ad-schema-2016.ldif              \
+	01-gc-schema.ldif                   \
 	objectguid.ldif                     \
 	default-aci.ldif                    \
 	ocrewriter.ldif                     \
@@ -20,4 +21,3 @@ dist_gcbase_DATA =                          \
 .PHONY: $(SCHEMA_FILES)
 00-ad-schema-2016.ldif: $(CONVERT_SCHEMA) $(SCHEMA_FILES)
 	@$(CONVERT_SCHEMA) $(SCHEMA_FILES) >$@
-
