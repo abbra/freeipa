@@ -572,6 +572,7 @@ AC_CONFIG_FILES([
     contrib/completion/Makefile
     contrib/Makefile
     daemons/dnssec/Makefile
+    daemons/globalcatalog/Makefile
     daemons/Makefile
     daemons/ipa-kdb/Makefile
     daemons/ipa-sam/Makefile
