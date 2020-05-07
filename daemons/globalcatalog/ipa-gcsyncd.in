@@ -1,0 +1,116 @@
+#!/usr/bin/python3
+#
+# Copyright (C) 2020  FreeIPA Contributors see COPYING for license
+#
+
+import ldap
+import ldapurl
+import logging
+import os
+import signal
+import sys
+import time
+
+from ipalib import api
+from ipaplatform.paths import paths
+from ipapython.dn import DN
+from ipaserver.globalcatalog.gcsyncer import GCSyncer
+
+logger = logging.getLogger(os.path.basename(__file__))
+
+
+# IPA framework initialization
+api.bootstrap(context='globalcatalog', confdir=paths.ETC_IPA, in_server=True)
+api.finalize()
+
+# Global state
+watcher_running = True
+sync_conn = False
+
+# Shutdown handler
+def commenceShutdown(signum, stack):
+    # Declare the needed global variables
+    global watcher_running
+    global sync_conn  # pylint: disable=global-variable-not-assigned
+
+    logger.info('Signal %s received: Shutting down!', signum)
+
+    # We are no longer running
+    watcher_running = False
+
+    # Tear down the server connection
+    if sync_conn:
+        sync_conn.shutdown()
+        del sync_conn
+
+    # Shutdown
+    sys.exit(0)
+
+
+os.umask(0o07)
+
+# Signal handlers
+signal.signal(signal.SIGTERM, commenceShutdown)
+signal.signal(signal.SIGINT, commenceShutdown)
+
+# LDAP initialization
+basedn = DN(api.env.container_accounts, api.env.basedn)
+ldap_url = ldapurl.LDAPUrl(api.env.ldap_uri)
+ldap_url.dn = str(basedn)
+ldap_url.scope = ldapurl.LDAP_SCOPE_SUBTREE
+ldap_url.filterstr = '(|(objectClass=groupofnames)(objectClass=person))'
+ldap_url.attrs = [
+    'objectclass',
+    'cn',
+    'displayname',
+    'gidnumber',
+    'givenname',
+    'homedirectory',
+    'ipaexternalmember',
+    'ipantsecurityidentifier',
+    'ipauniqueid',
+    'krbcanonicalname',
+    'krbprincipalname',
+    'mail',
+    'member',
+    'memberof',
+    'sn',
+    'uid',
+    'uidnumber',
+]
+logger.debug('LDAP URL: %s', ldap_url.unparse())
+
+# Real work
+while watcher_running:
+    # Prepare the LDAP server connection (triggers the connection as well)
+    sync_conn = GCSyncer(ldap_url.initializeUrl(), ipa_api=api)
+
+    # Now we login to the LDAP server
+    try:
+        logger.info('LDAP bind...')
+        sync_conn.sasl_external_bind_s()
+    except ldap.INVALID_CREDENTIALS as e:
+        logger.exception('Login to LDAP server failed: %s', e)
+        sys.exit(1)
+    except (ldap.SERVER_DOWN, ldap.CONNECT_ERROR) as e:
+        logger.exception('LDAP server is down, going to retry: %s', e)
+        time.sleep(5)
+        continue
+
+    # Commence the syncing
+    logger.info('Commencing sync process')
+    ldap_search = sync_conn.syncrepl_search(
+        ldap_url.dn,
+        ldap_url.scope,
+        mode='refreshAndPersist',
+        attrlist=ldap_url.attrs,
+        filterstr=ldap_url.filterstr
+    )
+
+    try:
+        while sync_conn.syncrepl_poll(all=1, msgid=ldap_search):
+            pass
+    except (ldap.SERVER_DOWN, ldap.CONNECT_ERROR) as e:
+        logger.error('syncrepl_poll: LDAP error (%s)', e)
+        sync_conn.shutdown()
+        sys.exit(1)
