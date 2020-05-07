@@ -44,7 +44,8 @@ SERVICES = [
     service_definition('ipa-ods-exporter', 90, 'DNSKeyExporter'),
     service_definition('ods-enforcerd', 100, 'DNSSEC'),
     service_definition('ipa-dnskeysyncd', 110, 'DNSKeySync'),
-    service_definition('globalcatalog', 120, 'GLOBAL-CATALOG')
+    service_definition('globalcatalog', 120, 'GLOBAL-CATALOG'),
+    service_definition('ipa-gcsyncd', 130, 'GCSync')
 ]
 
 SERVICE_LIST = {s.service_entry: s for s in SERVICES}
