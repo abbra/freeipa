@@ -47,11 +47,6 @@ class GCInstallInterface(Installable,
         cli_metavar='PIN',
     )
 
-    populate = knob(
-        None,
-        description="Fill the global catalog with IdM user and group entries",
-    )
-
 
 class GCServerInstall(GCInstallInterface):
     @step()
