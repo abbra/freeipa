@@ -431,6 +431,7 @@ class BasePathNamespace:
         "/etc/systemd/system/dirsrv@%s.service.d/ipa-env.conf"
     # Global Catalog constants
     GC_KEYTAB = "/etc/dirsrv/gc.keytab"
+    GC_COOKIE = "/var/lib/ipa/gc_cookie"
     IPA_SERVER_UPGRADE = '/usr/sbin/ipa-server-upgrade'
     KEYCTL = '/bin/keyctl'
     GETENT = '/usr/bin/getent'
