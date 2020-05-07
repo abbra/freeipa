@@ -58,7 +58,7 @@ wellknownservices = [
     'named', 'ods_enforcerd', 'ods_signerd', 'gssproxy',
     'nfs-utils', 'sssd', 'NetworkManager', 'ipa-custodia',
     'ipa-dnskeysyncd', 'ipa-otpd', 'ipa-ods-exporter',
-    'globalcatalog'
+    'globalcatalog', 'ipa-gcsyncd'
 ]
 
 # The common ports for these services. This is used to wait for the
