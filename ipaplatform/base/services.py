@@ -54,7 +54,7 @@ wellknownservices = [
     'nfs-utils', 'sssd', 'NetworkManager', 'ipa-custodia',
     'ipa-dnskeysyncd', 'ipa-otpd', 'ipa-ods-exporter',
     'systemd-resolved', 'unbound',
-    'globalcatalog'
+    'globalcatalog', 'ipa-gcsyncd',
 ]
 
 # The common ports for these services. This is used to wait for the
