@@ -12,6 +12,7 @@ FreeIPA design documentation
    adtrust/auto-private-groups.md
    adtrust/sidconfig.md
    adtrust/gc-design.md
+   adtrust/ipa-gcsyncd-design.md
    hsm.md
    krb-ticket-policy.md
    extdom-plugin-protocol.md
