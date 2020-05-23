@@ -10,6 +10,7 @@ FreeIPA design documentation
    adtrust/admin-ipa-as-trusted-user.md
    adtrust/sudorules-with-ad-objects.md
    adtrust/gc-design.md
+   adtrust/ipa-gcsyncd-design.md
    krb-ticket-policy.md
    extdom-plugin-protocol.md
    expiring-password-notification.md
