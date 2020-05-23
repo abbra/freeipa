@@ -115,8 +115,7 @@ original data to a schema compatible with Global Catalog in Active Directory.
 The data is stored in a proper LDAP backend so it is persistent across the
 directory server restarts.
 
-For a more detailed design, please refer to
-[ipa-gcsyncd design](ipa-gcsyncd-design.md).
+For a more detailed design, please refer to [ipa-gcsyncd design].
 
 #### GC tree structure
 
@@ -225,4 +224,6 @@ requirements on the object creation rather than by using those attributes.
 
 ### Synchronization service design
 
-Please refer to [ipa-gcsyncd design](ipa-gcsyncd-design.md)
+Please refer to [ipa-gcsyncd design].
+
+[ipa-gcsyncd design]: ipa-gcsyncd-design.html
