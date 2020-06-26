@@ -441,6 +441,14 @@ class update_mapping_Guests_to_nobody(Updater):
         return False, []
 
 
+ad_trust_filter = \
+    "(&(objectClass=ipaNTTrustedDomain)(objectClass=ipaIDObject))"
+ad_trust_attrs = ("ipaNTFlatName", "ipaNTTrustPartner", "ipaNTTrustDirection",
+                  "cn", "ipaNTTrustAttributes", "ipaNTAdditionalSuffixes",
+                  "ipaNTTrustedDomainSID", "ipaNTTrustType",
+                  "ipaNTTrustAuthIncoming", "ipaNTTrustAuthOutgoing")
+
+
 @register()
 class update_tdo_to_new_layout(Updater):
     """
@@ -476,12 +484,6 @@ class update_tdo_to_new_layout(Updater):
     """
     tgt_principal_template = "krbtgt/{remote}@{local}"
     nbt_principal_template = "{nbt}$@{realm}"
-    trust_filter = \
-        "(&(objectClass=ipaNTTrustedDomain)(objectClass=ipaIDObject))"
-    trust_attrs = ("ipaNTFlatName", "ipaNTTrustPartner", "ipaNTTrustDirection",
-                   "cn", "ipaNTTrustAttributes", "ipaNTAdditionalSuffixes",
-                   "ipaNTTrustedDomainSID", "ipaNTTrustType",
-                   "ipaNTTrustAuthIncoming", "ipaNTTrustAuthOutgoing")
     change_password_template = \
         "change_password -pw {password} " \
         "-e aes256-cts-hmac-sha1-96,aes128-cts-hmac-sha1-96 " \
@@ -660,8 +662,8 @@ class update_tdo_to_new_layout(Updater):
             trusts = ldap.get_entries(
                 base_dn=trusts_dn,
                 scope=ldap.SCOPE_ONELEVEL,
-                filter=self.trust_filter,
-                attrs_list=self.trust_attrs)
+                filter=ad_trust_filter,
+                attrs_list=ad_trust_attrs)
         except errors.EmptyResult:
             trusts = []
 
