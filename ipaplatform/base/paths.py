@@ -429,6 +429,8 @@ class BasePathNamespace:
     LIBARCH = "64"
     TDBTOOL = '/usr/bin/tdbtool'
     SECRETS_TDB = '/var/lib/samba/private/secrets.tdb'
+    UPDATE_CRYPTO_POLICIES = '/usr/bin/update-crypto-policies'
+    CRYPTO_POLICIES_MOD_DIR = '/etc/crypto-policies/policies/modules'
 
     def check_paths(self):
         """Check paths for missing files

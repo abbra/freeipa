@@ -1,6 +1,7 @@
 # Copyright (C) 2012-2019  FreeIPA Contributors see COPYING for license
 
 import logging
+import os
 from collections import namedtuple
 from textwrap import dedent
 
@@ -937,5 +938,92 @@ class update_adtrust_agents_members(Updater):
             agents_dn,
             "member",
             agents_list)
+
+        return False, []
+
+
+@register()
+class update_crypto_policy_for_trust(Updater):
+    """Extend system crypto policy with RC4 cipher if trust to AD is enabled
+
+    For all AD environments since Windows Server 2008:
+
+     - default encryption type for users and services is still RC4 despite
+       allowing to enable AES encryption.
+
+     - changing forest- or domain-wide policy to enable AES encryption types
+       does not change existing user and services' Kerberos keys. They still
+       have only RC4 unless they changed user password or machine account
+       password.
+
+     - when trust is established between AD domains in the same forest,
+       default encryption type for trusted domain object (krbtgt/...) is RC4
+       only, unless there is a forest- or domain-wide policy to enable AES
+       encryption type is in action.
+
+     - removing RC4 from the policy in AD leads to situation that no
+       Kerberos ticket can be issued at all.
+
+    For non-FIPS compliant environment it thus makes sense to extend
+    system-wide crypto policy to include RC4 cipher into a default set of
+    supported Kerberos encryption types. For FIPS mode it is advised to change
+    Active Directory configuration to enable AES encryption types and
+    regenerate user and service credentials to use them.
+    """
+    def execute(self, **options):
+        ldap = self.api.Backend.ldap2
+
+        # First, see if trusts are enabled on the server
+        if not self.api.Command.adtrust_is_enabled()['result']:
+            logger.debug('AD Trusts are not enabled on this server')
+            return False, []
+
+        rc4_policy_module = os.path.join(paths.CRYPTO_POLICIES_MOD_DIR,
+                                         'RC4.pmod')
+        if os.path.exists(rc4_policy_module):
+            return False, []
+
+        if not os.path.exists(paths.UPDATE_CRYPTO_POLICIES):
+            return False, []
+
+        args = [paths.UPDATE_CRYPTO_POLICIES, '--show']
+        result = ipautil.run(args, raiseonerr=False)
+        if result.returncode == 0:
+            if result.output.startswith('FIPS'):
+                return False, []
+
+        # System crypto policy is not FIPS and RC4 override does not exist
+        crypto_policy = result.output.splitlines()[0]
+
+        # Verify that we have established trusts
+        trusts_dn = self.api.env.container_adtrusts + self.api.env.basedn
+
+        # We might be in a situation when no trusts exist yet
+        # In such case there is nothing to upgrade but we have to catch
+        # an exception or it will abort the whole upgrade process
+        try:
+            trusts = ldap.get_entries(
+                base_dn=trusts_dn,
+                scope=ldap.SCOPE_ONELEVEL,
+                filter=ad_trust_filter,
+                attrs_list=ad_trust_attrs)
+        except errors.EmptyResult:
+            trusts = []
+
+        if len(trusts) == 0:
+            return False, []
+
+        # We can create RC4 override and amend the policy
+        with open(rc4_policy_module, 'w') as f:
+            f.write('cipher = RC4-128+\n')
+            os.fchown(f.fileno(), 0, 0)
+            os.fchmod(f.fileno(), 0o644)
+
+        args = [paths.UPDATE_CRYPTO_POLICIES, '--set',
+                crypto_policy + ':RC4']
+        result = ipautil.run(args, raiseonerr=False)
+        if result.returncode != 0:
+            logger.error(
+                'Could not amend defined crypto policy with RC4 cipher')
 
         return False, []
