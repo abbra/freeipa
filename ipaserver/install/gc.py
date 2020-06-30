@@ -6,33 +6,66 @@ from __future__ import print_function, absolute_import
 
 import logging
 
-from ipalib.errors import NetworkError
 from ipaplatform.paths import paths
+from ipapython.install.common import Installable, Interactive
+from ipapython.install.core import group, knob, Composite
+from ipapython.install import typing
 from ipaserver.install import ca, dsinstance, gcinstance
-from ipaserver.install import installutils, service
+from ipaserver.install import installutils
 from ipaserver.install.installutils import read_password
 
 logger = logging.getLogger(__name__)
 
 
+@group
+class GCInstallInterface(Installable,
+                         Interactive,
+                         Composite):
+    """
+    Interface for the Global Catalog installer
+    """
+    description = "Global Catalog"
+
+    gc_password = knob(
+        str, None,
+        sensitive=True,
+        description="Directory Manager password for the Global Catalog",
+    )
+
+    gc_cert_files = knob(
+        # pylint: disable=invalid-sequence-index
+        typing.List[str], None,
+        description=("File containing the Global Catalog SSL certificate and "
+                     "private key"),
+        cli_names='--gc-cert-file',
+        cli_metavar='FILE',
+    )
+
+    gc_pin = knob(
+        str, None,
+        sensitive=True,
+        description="The password to unlock the Global Catalog private key",
+        cli_deprecated_names='--gc_pin',
+        cli_metavar='PIN',
+    )
+
+
 def install_check(api, installer):
     if gcinstance.is_gc_configured():
-        raise RuntimeError(
-            "Global Catalog is already configured on this system.")
+        installer._setup_gc = False
+        return
+    installer._setup_gc = True
 
     options = installer
 
-    options.unattended = not installer.interactive
     gc_pkcs12_file = None
     gc_pkcs12_info = None
 
     # Checks for valid configuration
-    # Check we are on a master
-    installutils.check_server_configuration()
 
     # Ask for required options in non-interactive mode
     # Check we have a DM password
-    if not options.gc_password and options.interactive:
+    if not options.gc_password and not options.unattended:
         print("The Global Catalog is a directory server instance")
         print("with a specific Directory Manager administration user.")
         print("The password must be at least 8 characters long.")
@@ -43,7 +76,7 @@ def install_check(api, installer):
 
     # If a cert file is provided, PIN is required
     if options.gc_cert_files:
-        if options.gc_pin is None and options.interactive:
+        if options.gc_pin is None and not options.unattended:
             options.gc_pin = installutils.read_password(
                 "Enter Global Catalog private key unlock",
                 confirm=False, validate=False, retry=False)
@@ -57,34 +90,17 @@ def install_check(api, installer):
             ca_cert_files=[paths.IPA_CA_CRT])
         gc_pkcs12_info = (gc_pkcs12_file.name, gc_pin)
 
-    # Check if we have creds, otherwise acquire them
-    # installutils.check_creds(options, api.env.realm)
-
     installer._gc_pkcs12_info = gc_pkcs12_info
     installer._gc_pkcs12_file = gc_pkcs12_file
-
-    if not api.Backend.ldap2.isconnected():
-        try:
-            api.Backend.ldap2.connect()
-        except NetworkError as e:
-            logger.debug("Unable to connect to the local instance: %s", e)
-            raise RuntimeError("IPA must be running, please run ipactl start")
-
-    # Check that a trust is installed
-    if not api.Command['adtrust_is_enabled']()['result']:
-        raise RuntimeError("AD Trusts are not enabled on this server")
 
 
 def install(api, fstore, installer):
     options = installer
-    gc_pkcs12_info = installer._gc_pkcs12_info
-    # gc_pkcs12_file = installer._gc_pkcs12_file
+    if not options._setup_gc:
+        print("Global Catalog already installed, skipping")
+        return
 
-    if options.interactive:
-        print("")
-        print("The following operations may take some minutes to complete.")
-        print("Please wait until the prompt is returned.")
-        print("")
+    gc_pkcs12_info = installer._gc_pkcs12_info
 
     domainlevel = api.Command['domainlevel_get']()['result']
     subject_base = dsinstance.DsInstance().find_subject_base()
@@ -110,16 +126,6 @@ def install(api, fstore, installer):
     gcsyncd = gcinstance.GCSyncInstance(fstore=fstore)
     installer._gcsyncd = gcsyncd
     gcsyncd.create_instance(api.env.realm, api.env.host)
-
-    service.sync_services_state(api.env.host)
-    # After this point the Global Catalog is seen as enabled
-    # Add the DNS SRV entries for GC
-    api.Command.dns_update_system_records()
-
-    print("======================================="
-          "=======================================")
-    print("Setup complete")
-    print("")
 
 
 def uninstall_check():
