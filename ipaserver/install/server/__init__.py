@@ -33,7 +33,7 @@ from .replicainstall import install as replica_install
 from .replicainstall import promote_check as replica_promote_check
 from .upgrade import upgrade_check, upgrade
 
-from .. import adtrust, ca, conncheck, dns, kra
+from .. import adtrust, ca, conncheck, dns, gc, kra
 
 
 @group
@@ -148,6 +148,7 @@ class ServerInstallInterface(ServerCertificateInstallInterface,
                              kra.KRAInstallInterface,
                              dns.DNSInstallInterface,
                              adtrust.ADTrustInstallInterface,
+                             gc.GCInstallInterface,
                              conncheck.ConnCheckInterface,
                              ServerUninstallInterface):
     """
@@ -434,6 +435,21 @@ class ServerInstallInterface(ServerCertificateInstallInterface,
             if self.no_msdcs:
                 raise RuntimeError(
                     "You cannot specify a --no-msdcs option without the "
+                    "--setup-adtrust option")
+
+            if self.gc_password:
+                raise RuntimeError(
+                    "You cannot specify a --gc-password option without the "
+                    "--setup-adtrust option")
+
+            if self.gc_cert_files:
+                raise RuntimeError(
+                    "You cannot specify a --gc-cert-file option without the "
+                    "--setup-adtrust option")
+
+            if self.gc_pin:
+                raise RuntimeError(
+                    "You cannot specify a --gc-pin option without the "
                     "--setup-adtrust option")
 
         if not hasattr(self, 'replica_install'):
