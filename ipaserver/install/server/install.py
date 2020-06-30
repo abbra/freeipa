@@ -443,6 +443,7 @@ def install_check(installer):
         print("  * Configure DNS (bind)")
     if options.setup_adtrust:
         print("  * Configure Samba (smb) and winbind for managing AD trusts")
+        print("  * Configure the Global Catalog")
     if not options.no_pkinit:
         print("  * Configure the KDC to enable PKINIT")
     if options.no_ntp:
@@ -703,6 +704,7 @@ def install_check(installer):
 
     if options.setup_adtrust:
         adtrust.install_check(False, options, api)
+        gc.install_check(api,options)
 
     # installer needs to update hosts file when DNS subsystem will be
     # installed or custom addresses are used
@@ -966,6 +968,7 @@ def install(installer):
 
     if options.setup_adtrust:
         adtrust.install(False, options, fstore, api)
+        gc.install(api, fstore, options)
 
     # Set the admin user kerberos password
     ds.change_admin_password(admin_password)
