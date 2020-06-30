@@ -449,6 +449,7 @@ def install_check(installer):
     print("  * Configure SID generation")
     if options.setup_adtrust:
         print("  * Configure Samba (smb) and winbind for managing AD trusts")
+        print("  * Configure the Global Catalog")
     if not options.no_pkinit:
         print("  * Configure the KDC to enable PKINIT")
     if options.no_ntp:
@@ -713,6 +714,8 @@ def install_check(installer):
     # Always call adtrust.install_check
     # if --setup-adtrust is not specified, only the SID part is executed
     adtrust.install_check(False, options, api)
+    if options.setup_adtrust:
+        gc.install_check(api,options)
 
     # installer needs to update hosts file when DNS subsystem will be
     # installed or custom addresses are used
@@ -977,6 +980,8 @@ def install(installer):
     # Always call adtrust installer to configure SID generation
     # if --setup-adtrust is not specified, only the SID part is executed
     adtrust.install(False, options, fstore, api)
+    if options.setup_adtrust:
+        gc.install(api, fstore, options)
 
     # Set the admin user kerberos password
     ds.change_admin_password(admin_password)
