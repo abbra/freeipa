@@ -3,7 +3,6 @@ NULL =
 SUBDIRS = 			\
         AD			\
 	share			\
-	tools			\
         $(NULL)
 
 appdir = $(libexecdir)/ipa/gc
