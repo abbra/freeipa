@@ -622,7 +622,6 @@ AC_CONFIG_FILES([
     install/gc/share/base/Makefile
     install/gc/share/schema.d/Makefile
     install/gc/share/updates/Makefile
-    install/gc/tools/Makefile
     install/gc/AD/Makefile
     ipaclient/Makefile
     ipalib/Makefile

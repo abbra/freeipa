@@ -141,7 +141,19 @@ rule to allow access to anyone to this rule on IPA masters.
 As '\fBsystem\-auth\fR' PAM service is not used directly by any other
 application, it is safe to use it for trusted domain users via compatibility
 path.
+
+.SH "GLOBAL CATALOG OPTIONS"
 .TP
+\fB\-\-gc\-password\fR=\fIGC_PASSWORD\fR
+Directory Manager password for the Global Catalog.
+.TP
+\fB\-\-gc\-cert\-file\fR=\fIFILE\fR
+File containing the Global Catalog SSL certificate and private key. The files
+are accepted in PEM and DER  certificate, PKCS#7 certificate chain, PKCS#8 and
+raw private key and PKCS#12 formats. This option may be used multiple times.
+.TP
+\fB\-\-gc\-pin\fR=\fIPIN\fR
+The password to unlock the Global Catalog private key.
 .SH "EXIT STATUS"
 0 if the installation was successful
 
