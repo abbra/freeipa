@@ -668,7 +668,7 @@ class GCInstance(service.Service):
             realm=api.env.realm))
         try:
             api.Command.service_remove_principal(principal, principal_alias)
-        except errors.AttrValueNotFound:
+        except (errors.AttrValueNotFound, errors.NotFound):
             pass
 
     def __remove_gc_dns_records(self):
