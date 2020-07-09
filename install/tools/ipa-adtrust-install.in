@@ -93,9 +93,6 @@ def parse_options():
                       help="Enable support for trusted domains for old "
                            "clients")
     gc_group = OptionGroup(parser, "global catalog options")
-    gc_group.add_option("--gc-password", sensitive=True, dest="gc_password",
-                        help="Directory Manager password for the Global "
-                             "Catalog")
     gc_group.add_option("--gc-cert-file", dest="gc_cert_files",
                         action="append", metavar="FILE",
                         default=[],
