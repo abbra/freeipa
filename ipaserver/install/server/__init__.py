@@ -437,11 +437,6 @@ class ServerInstallInterface(ServerCertificateInstallInterface,
                     "You cannot specify a --no-msdcs option without the "
                     "--setup-adtrust option")
 
-            if self.gc_password:
-                raise RuntimeError(
-                    "You cannot specify a --gc-password option without the "
-                    "--setup-adtrust option")
-
             if self.gc_cert_files:
                 raise RuntimeError(
                     "You cannot specify a --gc-cert-file option without the "
