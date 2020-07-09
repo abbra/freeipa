@@ -12,7 +12,7 @@ from ipapython.install.core import group, knob, Composite
 from ipapython.install import typing
 from ipaserver.install import ca, dsinstance, gcinstance
 from ipaserver.install import installutils
-from ipaserver.install.installutils import read_password
+from ipapython import ipautil
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +25,6 @@ class GCInstallInterface(Installable,
     Interface for the Global Catalog installer
     """
     description = "Global Catalog"
-
-    gc_password = knob(
-        str, None,
-        sensitive=True,
-        description="Directory Manager password for the Global Catalog",
-    )
 
     gc_cert_files = knob(
         # pylint: disable=invalid-sequence-index
@@ -64,16 +58,6 @@ def install_check(api, installer):
     # Checks for valid configuration
 
     # Ask for required options in non-interactive mode
-    # Check we have a DM password
-    if not options.gc_password and not options.unattended:
-        print("The Global Catalog is a directory server instance")
-        print("with a specific Directory Manager administration user.")
-        print("The password must be at least 8 characters long.")
-        options.gc_password = read_password("Directory Manager", confirm=True,
-                                            validate=True, retry=True)
-    if not options.gc_password:
-        raise RuntimeError("Directory Manager password required")
-
     # If a cert file is provided, PIN is required
     if options.gc_cert_files:
         if options.gc_pin is None and not options.unattended:
@@ -105,19 +89,21 @@ def install(api, fstore, installer):
     domainlevel = api.Command['domainlevel_get']()['result']
     subject_base = dsinstance.DsInstance().find_subject_base()
     ca_subject = ca.lookup_ca_subject(api, subject_base)
+    # Generate a random DM password for GC
+    gc_password = ipautil.ipa_generate_password()
 
     if installer.gc_cert_files:
         gc = gcinstance.GCInstance(fstore=fstore, domainlevel=domainlevel)
         installer._gc = gc
         gc.create_instance(api.env.realm, api.env.host, api.env.domain,
-                           options.gc_password, gc_pkcs12_info,
+                           gc_password, gc_pkcs12_info,
                            subject_base=subject_base,
                            ca_subject=ca_subject)
     else:
         gc = gcinstance.GCInstance(fstore=fstore, domainlevel=domainlevel)
         installer._gc = gc
         gc.create_instance(api.env.realm, api.env.host, api.env.domain,
-                           options.gc_password,
+                           gc_password,
                            subject_base=subject_base,
                            ca_subject=ca_subject)
 
