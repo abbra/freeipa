@@ -715,7 +715,7 @@ def install_check(installer):
     # if --setup-adtrust is not specified, only the SID part is executed
     adtrust.install_check(False, options, api)
     if options.setup_adtrust:
-        gc.install_check(api,options)
+        gc.install_check(False, api, options)
 
     # installer needs to update hosts file when DNS subsystem will be
     # installed or custom addresses are used
@@ -981,7 +981,7 @@ def install(installer):
     # if --setup-adtrust is not specified, only the SID part is executed
     adtrust.install(False, options, fstore, api)
     if options.setup_adtrust:
-        gc.install(api, fstore, options)
+        gc.install(False, api, fstore, options)
 
     # Set the admin user kerberos password
     ds.change_admin_password(admin_password)
