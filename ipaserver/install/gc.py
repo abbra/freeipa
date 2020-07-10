@@ -44,7 +44,7 @@ class GCInstallInterface(Installable,
     )
 
 
-def install_check(api, installer):
+def install_check(standalone, api, installer):
     if gcinstance.is_gc_configured():
         installer._setup_gc = False
         return
@@ -57,6 +57,18 @@ def install_check(api, installer):
 
     # Checks for valid configuration
 
+    # if CA-less, --gc-cert-file is mandatory
+    # in standalone mode, we can use IPA api as the server is already
+    # configured
+    if standalone:
+        caless = not api.Command.ca_is_enabled()['result']
+    else:
+        caless = not options.setup_ca
+    if caless and not options.gc_cert_files:
+        raise RuntimeError("You must provide a server certificate for "
+                           "the Global Catalog using --gc-cert-file in "
+                           "CA-less environments")
+
     # Ask for required options in non-interactive mode
     # If a cert file is provided, PIN is required
     if options.gc_cert_files:
@@ -67,18 +79,26 @@ def install_check(api, installer):
         if options.gc_pin is None:
             raise RuntimeError("You must specify --gc-pin with --gc-cert-file")
 
+        # If the installation is done from ipa-adtrust-install,
+        # the /etc/ipa/ca.crt file is already created
+        # Otherwise we need to use the files from --gc-cert-files
+        if standalone:
+            ca_cert_files = [paths.IPA_CA_CRT]
+        else:
+            ca_cert_files = options.ca_cert_files
+
         gc_pkcs12_file, gc_pin, _gc_ca_cert = installutils.load_pkcs12(
             cert_files=options.gc_cert_files,
             key_password=options.gc_pin,
             key_nickname=None,
-            ca_cert_files=[paths.IPA_CA_CRT])
+            ca_cert_files=ca_cert_files)
         gc_pkcs12_info = (gc_pkcs12_file.name, gc_pin)
 
     installer._gc_pkcs12_info = gc_pkcs12_info
     installer._gc_pkcs12_file = gc_pkcs12_file
 
 
-def install(api, fstore, installer):
+def install(standalone, api, fstore, installer):
     options = installer
     if not options._setup_gc:
         print("Global Catalog already installed, skipping")
