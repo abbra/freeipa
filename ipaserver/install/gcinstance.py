@@ -135,6 +135,35 @@ class GCInstance(service.Service):
         return unicode(Principal(
             (self.service_prefix, self.fqdn, self.domain), realm=self.realm))
 
+    def add_cert_to_service(self):
+        """
+        Add a certificate to the service
+
+        This server cert should be in DER format.
+        """
+        # This method needs to be overriden for the Global Catalog service.
+        # The service entry is shared with LDAP service and its DN
+        # is built from the ldap principal
+        # (with the format ldap/fqdn@realm) instead of the
+        # special GC principal alias ldap/fqdn/domain@realm
+        if self.cert is None:
+            raise ValueError("{} has no cert".format(self.service_name))
+        ldap_principal = unicode(Principal(
+            (self.service_prefix, self.fqdn), realm=self.realm))
+        dn = DN(('krbprincipalname', ldap_principal), ('cn', 'services'),
+                ('cn', 'accounts'), self.suffix)
+        entry = api.Backend.ldap2.get_entry(dn)
+        entry.setdefault('userCertificate', []).append(self.cert)
+        try:
+            api.Backend.ldap2.update_entry(entry)
+        except errors.EmptyModlist:
+            # If the same cert is used for LDAP and GC, the service
+            # entry already contains the cert
+            pass
+        except Exception as e:
+            logger.critical("Could not add certificate to service %s entry: "
+                            "%s", ldap_principal, str(e))
+
     def __common_setup(self):
         self.step("creating global catalog instance", self.__create_instance)
         self.step("configure autobind for root", self.__root_autobind)
@@ -504,17 +533,17 @@ class GCInstance(service.Service):
             nssdir=dirname,
             subject_base=self.subject_base,
             ca_subject=self.ca_subject,
+            user=DS_USER,
+            create=True
         )
         if self.pkcs12_info:
             if self.ca_is_configured:
                 trust_flags = IPA_CA_TRUST_FLAGS
             else:
                 trust_flags = EXTERNAL_CA_TRUST_FLAGS
-            dsdb.create_from_pkcs12(
+            dsdb.import_pkcs12(
                 self.pkcs12_info[0],
                 self.pkcs12_info[1],
-                ca_file=self.ca_file,
-                trust_flags=trust_flags,
             )
             # rewrite the pin file with current password
             dsdb.create_pin_file()
@@ -528,14 +557,6 @@ class GCInstance(service.Service):
             # We only handle one server cert
             self.nickname = server_certs[0][0]
             self.cert = dsdb.get_cert_from_db(self.nickname)
-
-            if self.ca_is_configured:
-                dsdb.track_server_cert(
-                    self.nickname,
-                    self.principal,
-                    dsdb.passwd_fname,
-                    'restart_dirsrv %s' % self.serverid,
-                )
 
             self.add_cert_to_service()
         else:
@@ -616,9 +637,7 @@ class GCInstance(service.Service):
         dsdb = certs.CertDB(self.realm, nssdir=dirname,
                             subject_base=self.subject_base)
 
-        with ipaldap.LDAPClient(self.ldap_uri) as conn:
-            conn.external_bind()
-            self.export_ca_certs_nssdb(dsdb, self.ca_is_configured, conn)
+        self.export_ca_certs_nssdb(dsdb, self.ca_is_configured)
 
     def __add_default_layout(self):
         self._ldap_mod("gc/base/00-ad-bootstrap-template.ldif", self.sub_dict,
