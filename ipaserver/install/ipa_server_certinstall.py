@@ -24,6 +24,7 @@ import os.path
 import tempfile
 import optparse  # pylint: disable=deprecated-module
 
+from ipalib import constants
 from ipalib import x509
 from ipalib.install import certmonger
 from ipaplatform.paths import paths
@@ -60,6 +61,10 @@ class ServerCertInstall(admintool.AdminTool):
             dest="kdc", action="store_true", default=False,
             help="install PKINIT certificate for the KDC")
         parser.add_option(
+            "-g", "--gcsrv",
+            dest="gcsrv", action="store_true", default=False,
+            help="install certificate for the globalcatalog")
+        parser.add_option(
             "--pin",
             dest="pin", metavar="PIN", sensitive=True,
             help="The password of the PKCS#12 file")
@@ -81,9 +86,10 @@ class ServerCertInstall(admintool.AdminTool):
 
         installutils.check_server_configuration()
 
-        if not any((self.options.dirsrv, self.options.http, self.options.kdc)):
+        if not any((self.options.dirsrv, self.options.http, self.options.kdc,
+                    self.options.gcsrv)):
             self.option_parser.error(
-                "you must specify dirsrv, http and/or kdc")
+                "you must specify dirsrv, http, gcsrv and/or kdc")
 
         if not self.args:
             self.option_parser.error("you must provide certificate filename")
@@ -131,6 +137,9 @@ class ServerCertInstall(admintool.AdminTool):
         if self.options.kdc:
             self.replace_kdc_cert()
 
+        if self.options.gcsrv:
+            self.install_gcsrv_cert()
+
         print(
             "Please restart ipa services after installing certificate "
             "(ipactl restart)")
@@ -150,6 +159,29 @@ class ServerCertInstall(admintool.AdminTool):
         server_cert = self.import_cert(dirname, self.options.pin,
                                        old_cert, 'ldap/%s' % api.env.host,
                                        'restart_dirsrv %s' % serverid)
+
+        entry['nssslpersonalityssl'] = [server_cert]
+        try:
+            conn.update_entry(entry)
+        except errors.EmptyModlist:
+            pass
+
+    def install_gcsrv_cert(self):
+        serverid = constants.GC_SERVER_ID
+        dirname = dsinstance.config_dirname(serverid)
+        ldap_uri = ipaldap.get_ldap_uri(realm=constants.GC_REALM_NAME,
+                                        protocol='ldapi')
+        conn = ipaldap.LDAPClient(ldap_uri)
+        conn.external_bind()
+        entry = conn.get_entry(DN(('cn', 'RSA'), ('cn', 'encryption'),
+                                  ('cn', 'config')),
+                               ['nssslpersonalityssl'])
+        old_cert = entry.single_value['nssslpersonalityssl']
+
+        server_cert = self.import_cert(
+            dirname, self.options.pin, old_cert,
+            'ldap/%s/%s' % (api.env.host, api.env.domain),
+            'restart_dirsrv %s' % serverid)
 
         entry['nssslpersonalityssl'] = [server_cert]
         try:
