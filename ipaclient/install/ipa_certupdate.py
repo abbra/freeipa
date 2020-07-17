@@ -31,7 +31,7 @@ from ipaplatform import services
 from ipaplatform.paths import paths
 from ipaplatform.tasks import tasks
 from ipalib import api, errors, x509
-from ipalib.constants import IPA_CA_NICKNAME, RENEWAL_CA_NAME
+from ipalib.constants import IPA_CA_NICKNAME, RENEWAL_CA_NAME, GC_SERVER_ID
 from ipalib.util import check_client_configuration
 
 logger = logging.getLogger(__name__)
@@ -165,6 +165,15 @@ def update_server(certs):
     update_db(paths.ETC_DIRSRV_SLAPD_INSTANCE_TEMPLATE % instance, certs)
     if services.knownservices.dirsrv.is_running():
         services.knownservices.dirsrv.restart(instance)
+
+    # pylint: disable=import-error,ipa-forbidden-import
+    from ipaserver.install import gcinstance
+    # pylint: enable=import-error,ipa-forbidden-import
+    if gcinstance.is_gc_configured():
+        update_db(paths.ETC_DIRSRV_SLAPD_INSTANCE_TEMPLATE % GC_SERVER_ID,
+                  certs)
+        if services.knownservices.globalcatalog.is_running():
+            services.knownservices.globalcatalog.restart(GC_SERVER_ID)
 
     criteria = {
         'cert-database': paths.PKI_TOMCAT_ALIAS_DIR,
