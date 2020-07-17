@@ -22,13 +22,13 @@ ipa\-server\-certinstall \- Install new SSL server certificates
 .SH "SYNOPSIS"
 ipa\-server\-certinstall [\fIOPTION\fR]... FILE...
 .SH "DESCRIPTION"
-Replace the current Directory server SSL certificate, Apache server SSL certificate and/or Kerberos KDC certificate with the certificate in the specified files. The files are accepted in PEM and DER certificate, PKCS#7 certificate chain, PKCS#8 and raw private key and PKCS#12 formats.
+Replace the current Directory server SSL certificate, Apache server SSL certificate, Global Catalog certificate and/or Kerberos KDC certificate with the certificate in the specified files. The files are accepted in PEM and DER certificate, PKCS#7 certificate chain, PKCS#8 and raw private key and PKCS#12 formats.
 
 PKCS#12 is a file format used to safely transport SSL certificates and public/private keypairs.
 
 They may be generated and managed using the NSS pk12util command or the OpenSSL pkcs12 command.
 
-The service(s) are not automatically restarted. In order to use the newly installed certificate(s) you will need to manually restart the Directory, Apache and/or Krb5kdc servers.
+The service(s) are not automatically restarted. In order to use the newly installed certificate(s) you will need to manually restart the Directory, Apache, Global Catalog and/or Krb5kdc servers.
 
 .SH "OPTIONS"
 .TP 
@@ -40,6 +40,9 @@ Install the certificate in the Apache Web Server
 .TP
 \fB\-k\fR, \fB\-\-kdc\fR
 Install the certificate in the Kerberos KDC
+.TP
+\fB\-g\fR, \fB\-\-gcsrv\fR
+Install the certificate on the Global Catalog
 .TP
 \fB\-\-pin\fR=\fIPIN\fR
 The password to unlock the private key
