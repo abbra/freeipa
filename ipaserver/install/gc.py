@@ -11,6 +11,7 @@ from ipapython.install.common import Installable, Interactive
 from ipapython.install.core import group, knob, Composite
 from ipapython.install import typing
 from ipaserver.install import ca, dsinstance, gcinstance
+from ipaserver.install import adtrust, adtrustinstance
 from ipaserver.install import installutils
 from ipapython import ipautil
 
@@ -116,6 +117,8 @@ def install(standalone, api, fstore, installer):
         gc = gcinstance.GCInstance(fstore=fstore, domainlevel=domainlevel)
         installer._gc = gc
         gc.create_instance(api.env.realm, api.env.host, api.env.domain,
+                           adtrustinstance.make_netbios_name(api.env.host),
+                           adtrust.netbios_name,
                            gc_password, gc_pkcs12_info,
                            subject_base=subject_base,
                            ca_subject=ca_subject)
@@ -123,6 +126,8 @@ def install(standalone, api, fstore, installer):
         gc = gcinstance.GCInstance(fstore=fstore, domainlevel=domainlevel)
         installer._gc = gc
         gc.create_instance(api.env.realm, api.env.host, api.env.domain,
+                           adtrustinstance.make_netbios_name(api.env.host),
+                           adtrust.netbios_name,
                            gc_password,
                            subject_base=subject_base,
                            ca_subject=ca_subject)
