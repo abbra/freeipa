@@ -45,6 +45,7 @@ from ipaserver.install.dsinstance import (
     get_ds_instances,
     is_ds_running,
 )
+from ipaserver.install.adtrustinstance import make_netbios_name
 from ipapython.dnsutil import DNSName
 from lib389 import DirSrv
 from lib389.idm.ipadomain import IpaDomain
@@ -61,6 +62,21 @@ GC_SCHEMA_FILES = ("00-ad-schema-2016.ldif",
                    "01-gc-schema.ldif",)
 
 ALL_SCHEMA_FILES = GC_SCHEMA_FILES
+
+# MS-DRSR 2.2.3 and 2.2.4, SPNs for a target DCs in AD DS
+# List of (primary principal, service alias)
+DC_ALIASES = (
+    # LDAP SPNs for client communication
+    ('ldap/$FQDN', 'ldap/$NETBIOS'),
+    ('ldap/$FQDN', 'ldap/$FQDN/$WORKGROUP'),
+    ('ldap/$FQDN', 'ldap/$FQDN/$DOMAIN'),
+    ('ldap/$FQDN', 'ldap/$NETBIOS/$WORKGROUP'),
+    ('ldap/$FQDN', 'GC/$FQDN/$DOMAIN'),
+    # DRS interface GUID SPN
+    ('ldap/$FQDN',
+     'E3514235-4B06-11D1-AB04-00C04FC2DCD2/$DOMAINGUID_TEXT/$DOMAIN'),
+    # Basic SPN for RPC communications
+    ('cifs/$FQDN', 'RPC/$FQDN'))
 
 
 def check_ports():
@@ -191,6 +207,8 @@ class GCInstance(service.Service):
         realm_name,
         fqdn,
         domain_name,
+        host_netbios_name,
+        netbios_domain_name,
         dm_password,
         subject_base,
         ca_subject,
@@ -204,6 +222,8 @@ class GCInstance(service.Service):
                                              protocol='ldapi')
         self.dm_password = dm_password
         self.domain = domain_name
+        self.host_netbios_name = host_netbios_name
+        self.netbios_domain_name = netbios_domain_name
         self.subject_base = subject_base
         self.ca_subject = ca_subject
         self.pkcs12_info = pkcs12_info
@@ -218,6 +238,8 @@ class GCInstance(service.Service):
         realm_name,
         fqdn,
         domain_name,
+        host_netbios_name,
+        netbios_domain_name,
         dm_password,
         pkcs12_info=None,
         subject_base=None,
@@ -228,6 +250,8 @@ class GCInstance(service.Service):
             realm_name,
             fqdn,
             domain_name,
+            host_netbios_name,
+            netbios_domain_name,
             dm_password,
             subject_base,
             ca_subject,
@@ -301,6 +325,9 @@ class GCInstance(service.Service):
         domainguid = base64.b64encode(
             uuid.UUID(trustconfig['ipantdomainguid'][0]).bytes
         ).decode('utf-8')
+
+        domainguid_text = trustconfig['ipantdomainguid'][0]
+
         domainsid = base64.b64encode(ndr_pack(
             security.dom_sid(trustconfig['ipantsecurityidentifier'][0]))
         ).decode('utf-8')
@@ -324,8 +351,11 @@ class GCInstance(service.Service):
             MIN_DOMAIN_LEVEL=constants.MIN_DOMAIN_LEVEL,
             NAME=DN(self.suffix)[0].value,
             DOMAINGUID=domainguid,
+            DOMAINGUID_TEXT=domainguid_text,
             DOMAINSID=domainsid,
-            LIBARCH=paths.LIBARCH
+            LIBARCH=paths.LIBARCH,
+            NETBIOS=self.host_netbios_name,
+            WORKGROUP=self.netbios_domain_name
         )
 
     def __create_instance(self):
@@ -672,23 +702,46 @@ class GCInstance(service.Service):
         )
 
     def __add_service_alias(self):
-        # We share principal with the primary ldap service
-        principal = unicode(Principal(
-            (self.service_prefix, self.fqdn), realm=self.realm))
-        api.Command.service_add_principal(principal, self.principal)
+        for (primary, alias) in DC_ALIASES:
+            principal = unicode(Principal(
+                ipautil.template_str(primary, self.sub_dict),
+                realm=self.realm))
+            principal_alias = unicode(Principal(
+                ipautil.template_str(alias, self.sub_dict),
+                realm=self.realm))
+            api.Command.service_add_principal(
+                principal, principal_alias)
 
     def __remove_service_alias(self):
-        # We share principal with the primary ldap service
-        principal = unicode(Principal(
-            (self.service_prefix, api.env.host),
-            realm=api.env.realm))
-        principal_alias = unicode(Principal(
-            (self.service_prefix, api.env.host, api.env.domain),
-            realm=api.env.realm))
+        # self.sub_dict is not populated, so we have to derive values
+        # from a global trust configuration
         try:
-            api.Command.service_remove_principal(principal, principal_alias)
-        except (errors.AttrValueNotFound, errors.NotFound):
-            pass
+            trustconfig = api.Command.trustconfig_show()['result']
+        except errors.NotFound:
+            # No trust configuration anymore, it is real uninstall
+            # Skip the removal
+            return
+
+        sub_dict = dict(
+            FQDN=api.env.host,
+            REALM=api.env.realm,
+            DOMAIN=api.env.domain,
+            DOMAINGUID_TEXT=trustconfig['ipantflatname'][0],
+            NETBIOS=make_netbios_name(api.env.host),
+            WORKGROUP=trustconfig['ipantflatname'][0])
+
+        for (primary, alias) in DC_ALIASES:
+            principal = unicode(Principal(
+                ipautil.template_str(primary, sub_dict),
+                realm=api.env.realm))
+            principal_alias = unicode(Principal(
+                ipautil.template_str(alias, sub_dict),
+                realm=api.env.realm))
+            try:
+                api.Command.service_remove_principal(
+                    principal, principal_alias)
+            except (errors.AttrValueNotFound, errors.NotFound):
+                pass
 
     def __remove_gc_dns_records(self):
         # Remove all the Global Catalog DNS records
