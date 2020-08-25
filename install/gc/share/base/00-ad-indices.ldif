@@ -1,0 +1,50 @@
+dn: cn=samaccounttype,cn=index,cn=userRoot,cn=ldbm database,cn=plugins,cn=config
+changetype: add
+objectClass:top
+objectClass:nsIndex
+cn:samaccounttype
+nsSystemIndex:false
+nsIndexType:pres
+nsIndexType:eq
+
+dn: cn=grouptype,cn=index,cn=userRoot,cn=ldbm database,cn=plugins,cn=config
+changetype: add
+objectClass:top
+objectClass:nsIndex
+cn:grouptype
+nsSystemIndex:false
+nsIndexType:eq
+nsMatchingRule:1.2.840.113556.1.4.803
+nsMatchingRule:1.2.840.113556.1.4.804
+
+dn: cn=name,cn=index,cn=userRoot,cn=ldbm database,cn=plugins,cn=config
+changetype: add
+objectClass:top
+objectClass:nsIndex
+cn:name
+nsSystemIndex:false
+nsIndexType:sub
+
+dn: cn=samaccountname,cn=index,cn=userRoot,cn=ldbm database,cn=plugins,cn=config
+changetype: add
+objectClass:top
+objectClass:nsIndex
+cn:samaccountname
+nsSystemIndex:false
+nsIndexType:sub
+
+dn: cn=displayname,cn=index,cn=userRoot,cn=ldbm database,cn=plugins,cn=config
+changetype: add
+objectClass:top
+objectClass:nsIndex
+cn:displayname
+nsSystemIndex:false
+nsIndexType:sub
+
+dn: cn=msds-phoneticdisplayname,cn=index,cn=userRoot,cn=ldbm database,cn=plugins,cn=config
+changetype: add
+objectClass:top
+objectClass:nsIndex
+cn:msds-phoneticdisplayname
+nsSystemIndex:false
+nsIndexType:sub
