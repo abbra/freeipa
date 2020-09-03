@@ -188,7 +188,7 @@ class GCSyncer(ReconnectLDAPObject, SyncreplConsumer):
                 content = f.read()
             # if the content is an empty string, simply return None
             if content:
-                cookie = content
+                cookie = content.strip()
                 logger.debug("Read cookie %s", cookie)
         except FileNotFoundError:
             # It's ok if no cookie was saved, it may be the first run
@@ -242,6 +242,12 @@ class GCSyncer(ReconnectLDAPObject, SyncreplConsumer):
 
     def syncrepl_set_cookie(self, cookie):
         logger.debug('New cookie is: %s', cookie)
+        if cookie and cookie.endswith('#4294967295'):
+            # Workaround for syncrepl issue 51190
+            # https://pagure.io/389-ds-base/issue/51190
+            # Just ignore this cookie and keep the previous one
+            logger.debug("Ignoring cookie value")
+            return
         self.__data['cookie'] = cookie
 
     def syncrepl_entry(self, dn, attributes, uuid):
