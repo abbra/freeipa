@@ -4,7 +4,6 @@
 
 from __future__ import absolute_import
 
-import json
 import ldap
 import logging
 from io import StringIO
@@ -353,7 +352,6 @@ class GCSyncer(ReconnectLDAPObject, SyncreplConsumer):
     def user_del(self, uuid, entry_dn, oldattrs):
         """Remove an existing user from the Global Catalog."""
         logger.debug("user_del %s", entry_dn)
-        dn = DN(entry_dn)
 
         # The corresponding GC entry must also be deleted but its GC-side DN
         # must be evaluated first by using the cn value.
@@ -369,8 +367,6 @@ class GCSyncer(ReconnectLDAPObject, SyncreplConsumer):
     def user_mod(self, uuid, entry_dn, newattrs, oldattrs):
         """Modify an existing user in the Global Catalog."""
         logger.debug("user_sync %s", entry_dn)
-        olddn = DN(oldattrs['dn'])
-        newdn = DN(entry_dn)
 
         # As we are only monitoring leaf entries, it is easier
         # to simply del the previous one and create a new one instead
@@ -420,7 +416,6 @@ class GCSyncer(ReconnectLDAPObject, SyncreplConsumer):
     def group_del(self, uuid, entry_dn, oldattrs):
         """Remove an existing group from the Global Catalog."""
         logger.debug("group_del %s", entry_dn)
-        dn = DN(entry_dn)
 
         # The corresponding GC entry must also be deleted but its GC-side DN
         # must be evaluated first by using the cn value.
@@ -436,8 +431,6 @@ class GCSyncer(ReconnectLDAPObject, SyncreplConsumer):
     def group_mod(self, uuid, entry_dn, newattrs, oldattrs):
         """Modify an existing group in the Global Catalog."""
         logger.debug("group_sync %s", entry_dn)
-        olddn = DN(oldattrs['dn'])
-        newdn = DN(entry_dn)
 
         # As we are only monitoring leaf entries, it is easier
         # to simply del the previous one and create a new one instead
