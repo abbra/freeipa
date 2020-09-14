@@ -276,12 +276,16 @@ class GCSyncer(ReconnectLDAPObject, SyncreplConsumer):
         if uuid in self.__data['uuids']:
             change_type = 'modify'
             previous_attrs = self.__data['uuids'][uuid]
+            if attributes == previous_attrs.get('syncrepl_attrs'):
+                logger.debug("No interesting change for %s, dropping", dn)
+                return
         else:
             change_type = 'add'
         # Now we store our knowledge of the existence of this entry
         # (including the DN as an attribute for convenience)
         attrs['dn'] = dn
         attrs['cn'] = attributes['cn'][0].decode('utf-8')
+        attrs['syncrepl_attrs'] = attributes
         self.__data['uuids'][uuid] = attrs
         # Debugging
         logger.debug('Detected %s of entry: %s %s', change_type, dn, uuid)
