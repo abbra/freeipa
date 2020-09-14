@@ -344,6 +344,7 @@ class GCSyncer(ReconnectLDAPObject, SyncreplConsumer):
         except ValueError as e:
             logger.error("Failed to create GC entry based on %s (%s)",
                          entry_dn, e)
+            del self.__data['uuids'][uuid]
             return
         logger.debug("Adding user to the Global Catalog %s", ldif_add)
         parser = AddLDIF(ldif_add, self.gc_conn)
@@ -408,6 +409,7 @@ class GCSyncer(ReconnectLDAPObject, SyncreplConsumer):
         except ValueError as e:
             logger.error("Failed to create GC entry based on %s (%s)",
                          entry_dn, e)
+            del self.__data['uuids'][uuid]
             return
         logger.debug("Adding group to the Global Catalog %s", ldif_add)
         parser = AddLDIF(ldif_add, self.gc_conn)
