@@ -419,6 +419,16 @@ class GCSyncer(ReconnectLDAPObject, SyncreplConsumer):
         parser = AddLDIF(ldif_add, self.gc_conn)
         parser.parse()
 
+        # If the group contains external members, we also need to create a
+        # ForeignSecurityPrincipal for each one
+        for memberSid in newattrs.get('ipaexternalmember', []):
+            fsp_ldif = self.gc.create_ldif_foreignsecurityprincipal(
+                memberSid.decode('utf-8'))
+            logger.debug("Adding foreignSecurityPrincipal to the "
+                         "Global Catalog %s", fsp_ldif)
+            parser = AddLDIF(fsp_ldif, self.gc_conn)
+            parser.parse()
+
     def group_del(self, uuid, entry_dn, oldattrs):
         """Remove an existing group from the Global Catalog."""
         logger.debug("group_del %s", entry_dn)

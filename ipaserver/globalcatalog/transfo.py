@@ -197,6 +197,7 @@ class GCTransformer:
         jinja_env = Environment(loader=loader)
         self.user_template = jinja_env.get_template('gc_user_template.tmpl')
         self.group_template = jinja_env.get_template('gc_group_template.tmpl')
+        self.fsp_template = jinja_env.get_template('gc_fsp_template.tmpl')
         self.api = api
         self.ldap_conn = conn
 
@@ -234,4 +235,16 @@ class GCTransformer:
             entry=entry, pkey=pkey, guid=guid,
             sid=sid, suffix=api.env.basedn, groupType=groupType,
             entryuuid=uuid)
+        return ldif_add
+
+    def create_ldif_foreignsecurityprincipal(self, sidstring):
+        """Creates a LDIF allowing to add a ForeignSecurityPrincipal entry
+
+        sidstring: the sid using a string format, for instance
+        S-1-5-21-704000768-2575068322-3001777647-1109
+        """
+        sid = transform_sid_value(sidstring)
+        ldif_add = self.fsp_template.render(
+            sidstring=sidstring, sid=sid,
+            suffix=api.env.basedn)
         return ldif_add
