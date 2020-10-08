@@ -182,7 +182,6 @@ class GCInstance(service.Service):
 
     def __common_setup(self):
         self.step("creating global catalog instance", self.__create_instance)
-        self.step("configure autobind for root", self.__root_autobind)
         self.step("Enable objectGUID generator",
                   self.__add_objectguid_generator)
         self.step("stopping global catalog", self.__stop_instance)
@@ -394,23 +393,14 @@ class GCInstance(service.Service):
         sds.create_from_args(general, slapd, backends, None)
 
         # Now create the new domain root object in the format that IPA expects.
-        # Get the instance ....
+        # Get the instance and setup LDAPI with root autobind.
 
         inst = DirSrv(verbose=True, external_log=logger)
         inst.local_simple_allocate(
             serverid=self.serverid,
             ldapuri=self.ldap_uri,
-            password=self.dm_password
         )
-
-        # local_simple_allocate() configures LDAPI but doesn't set up the
-        # DirSrv object to use LDAPI. Modify the DirSrv() object to use
-        # LDAPI with password bind. autobind is not available, yet.
-        inst.ldapi_enabled = 'on'
-        inst.ldapi_socket = paths.SLAPD_INSTANCE_SOCKET_TEMPLATE % (
-            self.serverid
-        )
-        inst.ldapi_autobind = 'off'
+        inst.setup_ldapi()
 
         # This actually opens the conn and binds.
         inst.open()
@@ -423,6 +413,10 @@ class GCInstance(service.Service):
             })
         finally:
             inst.close()
+
+        # Now initialize our connection to the GC instance
+        self.conn = ipaldap.LDAPClient(self.ldap_uri)
+        self.conn.external_bind()
 
         # Done!
         logger.debug("completed creating global catalog instance")
@@ -859,16 +853,6 @@ class GCInstance(service.Service):
             dirname = config_dirname(serverid)[:-1]
             dsdb = certs.CertDB(self.realm, nssdir=dirname)
             dsdb.untrack_server_cert(self.nickname)
-
-    def __root_autobind(self):
-        ldap_uri = ipaldap.get_ldap_uri(self.fqdn, port=constants.GC_PORT)
-        self._ldap_mod(
-            "root-autobind.ldif",
-            ldap_uri=ldap_uri,
-            dm_password=self.dm_password
-        )
-        self.conn = ipaldap.LDAPClient(self.ldap_uri)
-        self.conn.external_bind()
 
 
 class GCSyncInstance(service.Service):
