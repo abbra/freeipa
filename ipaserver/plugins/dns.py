@@ -326,10 +326,11 @@ register = Registry()
 
 # supported resource record types
 _record_types = (
-    u'A', u'AAAA', u'A6', u'AFSDB', u'APL', u'CERT', u'CNAME', u'DHCID', u'DLV',
-    u'DNAME', u'DS', u'HIP', u'HINFO', u'IPSECKEY', u'KEY', u'KX', u'LOC',
-    u'MD', u'MINFO', u'MX', u'NAPTR', u'NS', u'NSEC', u'NXT', u'PTR', u'RRSIG',
-    u'RP', u'SIG', u'SPF', u'SRV', u'SSHFP', u'TLSA', u'TXT', u"URI"
+    u'A', u'AAAA', u'A6', u'AFSDB', u'APL', u'CAA', u'CERT', u'CNAME',
+    u'DHCID', u'DLV', u'DNAME', u'DS', u'HIP', u'HINFO', u'IPSECKEY', u'KEY',
+    u'KX', u'LOC', u'MD', u'MINFO', u'MX', u'NAPTR', u'NS', u'NSEC', u'NXT',
+    u'PTR', u'RRSIG', u'RP', u'SIG', u'SPF', u'SRV', u'SSHFP', u'TLSA', u'TXT',
+    u"URI"
 )
 
 # DNS zone record identificator
@@ -995,6 +996,32 @@ class APLRecord(UnsupportedDNSRecord):
     rrtype = 'APL'
     rfc = 3123
 
+
+CAA_TAG = re.compile("^[a-z][a-z0-9-]*$")
+
+
+def _validate_caa_tag(ugettext, tag):
+    if not CAA_TAG.match(tag):
+        raise errors.ValidationError(name="CAA tag",
+                                     error=_('invalid tag name'))
+
+
+class CAARecord(DNSRecord):
+    rrtype = 'CAA'
+    rfc = 6844
+    parts = (
+        Int('flags',
+            label=_('CAA flags'),
+            minvalue=0,
+            maxvalue=255,),
+        Str('tag',
+            _validate_caa_tag,
+            label=_('CAA tag'),),
+        Str('value',
+            label=_('CAA value'),),
+    )
+
+
 class CERTRecord(DNSRecord):
     rrtype = 'CERT'
     rfc = 4398
@@ -1510,6 +1537,7 @@ _dns_records = (
     A6Record(),
     AFSDBRecord(),
     APLRecord(),
+    CAARecord(),
     CERTRecord(),
     CNAMERecord(),
     DHCIDRecord(),

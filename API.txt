@@ -1378,7 +1378,7 @@ output: Entry('result')
 output: Output('summary', type=[<type 'unicode'>, <type 'NoneType'>])
 output: PrimaryKey('value')
 command: dnsrecord_add/1
-args: 2,99,3
+args: 2,103,3
 arg: DNSNameParam('dnszoneidnsname', cli_name='dnszone')
 arg: DNSNameParam('idnsname', cli_name='name')
 option: Str('a6_part_data?', cli_name='a6_data', option_group=u'A6 Record')
@@ -1395,6 +1395,10 @@ option: AFSDBRecord('afsdbrecord*', cli_name='afsdb_rec', option_group=u'AFSDB R
 option: Flag('all', autofill=True, cli_name='all', default=False)
 option: APLRecord('aplrecord*', cli_name='apl_rec', option_group=u'APL Record')
 option: ARecord('arecord*', cli_name='a_rec', option_group=u'A Record')
+option: Int('caa_part_flags?', cli_name='caa_flags', option_group=u'CAA Record')
+option: Str('caa_part_tag?', cli_name='caa_tag', option_group=u'CAA Record')
+option: Str('caa_part_value?', cli_name='caa_value', option_group=u'CAA Record')
+option: CAARecord('caarecord*', cli_name='caa_rec', option_group=u'CAA Record')
 option: Int('cert_part_algorithm?', cli_name='cert_algorithm', option_group=u'CERT Record')
 option: Str('cert_part_certificate_or_crl?', cli_name='cert_certificate_or_crl', option_group=u'CERT Record')
 option: Int('cert_part_key_tag?', cli_name='cert_key_tag', option_group=u'CERT Record')
@@ -1484,7 +1488,7 @@ output: Entry('result')
 output: Output('summary', type=[<type 'unicode'>, <type 'NoneType'>])
 output: PrimaryKey('value')
 command: dnsrecord_del/1
-args: 2,36,3
+args: 2,37,3
 arg: DNSNameParam('dnszoneidnsname', cli_name='dnszone')
 arg: DNSNameParam('idnsname', cli_name='name')
 option: A6Record('a6record*', autofill=False, cli_name='a6_rec')
@@ -1492,6 +1496,7 @@ option: AAAARecord('aaaarecord*', autofill=False, cli_name='aaaa_rec')
 option: AFSDBRecord('afsdbrecord*', autofill=False, cli_name='afsdb_rec')
 option: APLRecord('aplrecord*', autofill=False, cli_name='apl_rec')
 option: ARecord('arecord*', autofill=False, cli_name='a_rec')
+option: CAARecord('caarecord*', autofill=False, cli_name='caa_rec')
 option: CERTRecord('certrecord*', autofill=False, cli_name='cert_rec')
 option: CNAMERecord('cnamerecord*', autofill=False, cli_name='cname_rec')
 option: Flag('del_all', autofill=True, default=False)
@@ -1536,7 +1541,7 @@ output: Output('result', type=[<type 'dict'>])
 output: Output('summary', type=[<type 'unicode'>, <type 'NoneType'>])
 output: ListOfPrimaryKeys('value')
 command: dnsrecord_find/1
-args: 2,40,4
+args: 2,41,4
 arg: DNSNameParam('dnszoneidnsname', cli_name='dnszone')
 arg: Str('criteria?')
 option: A6Record('a6record*', autofill=False, cli_name='a6_rec')
@@ -1545,6 +1550,7 @@ option: AFSDBRecord('afsdbrecord*', autofill=False, cli_name='afsdb_rec')
 option: Flag('all', autofill=True, cli_name='all', default=False)
 option: APLRecord('aplrecord*', autofill=False, cli_name='apl_rec')
 option: ARecord('arecord*', autofill=False, cli_name='a_rec')
+option: CAARecord('caarecord*', autofill=False, cli_name='caa_rec')
 option: CERTRecord('certrecord*', autofill=False, cli_name='cert_rec')
 option: CNAMERecord('cnamerecord*', autofill=False, cli_name='cname_rec')
 option: DHCIDRecord('dhcidrecord*', autofill=False, cli_name='dhcid_rec')
@@ -1584,7 +1590,7 @@ output: ListOfEntries('result')
 output: Output('summary', type=[<type 'unicode'>, <type 'NoneType'>])
 output: Output('truncated', type=[<type 'bool'>])
 command: dnsrecord_mod/1
-args: 2,99,3
+args: 2,103,3
 arg: DNSNameParam('dnszoneidnsname', cli_name='dnszone')
 arg: DNSNameParam('idnsname', cli_name='name')
 option: Str('a6_part_data?', autofill=False, cli_name='a6_data', option_group=u'A6 Record')
@@ -1599,6 +1605,10 @@ option: AFSDBRecord('afsdbrecord*', autofill=False, cli_name='afsdb_rec', option
 option: Flag('all', autofill=True, cli_name='all', default=False)
 option: APLRecord('aplrecord*', autofill=False, cli_name='apl_rec', option_group=u'APL Record')
 option: ARecord('arecord*', autofill=False, cli_name='a_rec', option_group=u'A Record')
+option: Int('caa_part_flags?', autofill=False, cli_name='caa_flags', option_group=u'CAA Record')
+option: Str('caa_part_tag?', autofill=False, cli_name='caa_tag', option_group=u'CAA Record')
+option: Str('caa_part_value?', autofill=False, cli_name='caa_value', option_group=u'CAA Record')
+option: CAARecord('caarecord*', autofill=False, cli_name='caa_rec', option_group=u'CAA Record')
 option: Int('cert_part_algorithm?', autofill=False, cli_name='cert_algorithm', option_group=u'CERT Record')
 option: Str('cert_part_certificate_or_crl?', autofill=False, cli_name='cert_certificate_or_crl', option_group=u'CERT Record')
 option: Int('cert_part_key_tag?', autofill=False, cli_name='cert_key_tag', option_group=u'CERT Record')
@@ -6756,6 +6766,7 @@ default: dnsaaaarecord/1
 default: dnsafsdbrecord/1
 default: dnsaplrecord/1
 default: dnsarecord/1
+default: dnscaarecord/1
 default: dnscertrecord/1
 default: dnscnamerecord/1
 default: dnsconfig/1
