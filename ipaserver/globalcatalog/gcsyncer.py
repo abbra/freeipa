@@ -197,25 +197,29 @@ class GCSyncer(ReconnectLDAPObject, SyncreplConsumer):
     def _get_objclass(self, attrs):
         """Get object class.
 
-        Given the set of attributes, find the principal object class.
+        Given the set of attributes, find the main object class.
         The attrs may contain for instance: top, groupofnames, nestedgroup,
-        ipausergroup, ... In this case the most relevant objectclass is
-        groupofnames.
+        ipausergroup, (and for some groups ipantgroupattrs)...
+        In this case the most relevant objectclass is groupofnames.
         For a user, the attrs may contain top, person. organizationalperson,
-        inetorgperson, inetuser, posixaccount, ... and the most relevant
-        objectclass is person.
+        inetorgperson, inetuser, posixaccount, ipantuserattrs... and the most
+        relevant objectclass is person.
         """
-        supported_objclasses = {b'person', b'groupofnames'}
         present_objclasses = set(
             o.lower() for o in attrs[OBJCLASS_ATTR]
-        ).intersection(
-            supported_objclasses
         )
-        # Because the persistent search is done with the filter
-        # (|(objectclass=person)(objectclass=groupofnames)),
-        # the objectclass can be one or the other but nothing else
-        assert len(present_objclasses) == 1, attrs[OBJCLASS_ATTR]
-        return present_objclasses.pop()
+        oc = None
+        if b'ipantuserattrs' in present_objclasses:
+            oc = b'person'
+        elif b'ipantgroupattrs' in present_objclasses:
+            oc = b'groupofnames'
+        elif b'groupofnames' in present_objclasses:
+            # For external groups or non-posix groups,
+            # there is no ipantgroupattrs OC but the group entry
+            # needs to be handled anyway
+            oc = b'groupofnames'
+
+        return oc
 
     def _create_entry_from_attrs(self, dn, attrlist):
         """Create a LDAPEntry from a dn and list of attributes."""
