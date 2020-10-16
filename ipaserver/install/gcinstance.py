@@ -703,8 +703,12 @@ class GCInstance(service.Service):
             principal_alias = unicode(Principal(
                 ipautil.template_str(alias, self.sub_dict),
                 realm=self.realm))
-            api.Command.service_add_principal(
-                principal, principal_alias)
+            try:
+                api.Command.service_add_principal(
+                    principal, principal_alias)
+            except errors.AlreadyContainsValueError:
+                # Alias already defined, ignore
+                pass
 
     def __remove_service_alias(self):
         # self.sub_dict is not populated, so we have to derive values
@@ -720,7 +724,7 @@ class GCInstance(service.Service):
             FQDN=api.env.host,
             REALM=api.env.realm,
             DOMAIN=api.env.domain,
-            DOMAINGUID_TEXT=trustconfig['ipantflatname'][0],
+            DOMAINGUID_TEXT=trustconfig['ipantdomainguid'][0],
             NETBIOS=make_netbios_name(api.env.host),
             WORKGROUP=trustconfig['ipantflatname'][0])
 
