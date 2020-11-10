@@ -3,6 +3,7 @@ srpm:
 	echo "Installing base development environment"
 	dnf install -y dnf-plugins-core
 	echo "Installing FreeIPA development dependencies"
+	dnf install -y krb5-devel
 	dnf builddep -y --skip-broken --spec freeipa.spec.in --best --allowerasing --setopt=install_weak_deps=False
 
 	# Run autoconf
