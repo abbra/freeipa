@@ -843,6 +843,7 @@ class TrustDomainInstance:
         self._policy_handle = None
         self.read_only = False
         self.ftinfo_records = None
+        self.ftinfo_data = None
         self.validation_attempts = 0
 
     def __gen_lsa_connection(self, binding):
@@ -1002,6 +1003,15 @@ class TrustDomainInstance:
 
         self.info['is_pdc'] = (result.role == lsa.LSA_ROLE_PRIMARY)
 
+        if self.info['is_pdc']:
+            try:
+                netr_pipe = netlogon.netlogon(self.binding,
+                                              self.parm, self.creds)
+                self.ftinfo_data = netr_pipe.netr_DsRGetForestTrustInformation(
+                    self.info['dc'], None, 0)
+            except RuntimeError as e:
+                raise assess_dcerpc_error(e)
+
     def generate_auth(self, trustdom_secret):
         password_blob = string_to_array(trustdom_secret.encode('utf-16-le'))
 
@@ -1053,6 +1063,9 @@ class TrustDomainInstance:
 
         Only top level name and top level name exclusions are handled here.
         """
+        if another_domain.ftinfo_data is not None:
+            return another_domain.ftinfo_data
+
         if not another_domain.ftinfo_records:
             return None
 
@@ -1546,7 +1559,7 @@ def fetch_domains(api, mydomain, trustdomain, creds=None, server=None):
     if domains is None:
         return None
 
-    result = {'domains': {}, 'suffixes': {}}
+    result = {'domains': {}, 'suffixes': {}, 'ftinfo_data': domains}
     # netr_DsRGetForestTrustInformation returns two types of entries:
     # domain information  -- name, NetBIOS name, SID of the domain
     # top level name info -- a name suffix associated with the forest
@@ -1741,10 +1754,15 @@ class TrustDomainJoins:
                                                    trustdom_pass,
                                                    trust_type, trust_external)
 
-            # For local domain we don't set topology information
-            self.local_domain.establish_trust(self.remote_domain,
-                                              trustdom_pass,
-                                              trust_type, trust_external)
+            try:
+                self.local_domain.establish_trust(self.remote_domain,
+                                                  trustdom_pass,
+                                                  trust_type, trust_external)
+            except TrustTopologyConflictSolved:
+                self.local_domain.establish_trust(self.remote_domain,
+                                                  trustdom_pass,
+                                                  trust_type, trust_external)
+
             # if trust is inbound, we don't need to verify it because
             # AD DC will respond with WERR_NO_SUCH_DOMAIN --
             # it only does verification for outbound trusts.

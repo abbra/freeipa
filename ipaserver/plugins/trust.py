@@ -1754,6 +1754,13 @@ def add_new_domains_from_trust(myapi, trustinstance, trust_entry,
     if is_nontransitive:
         return result
 
+    ftinfo_data = domains.get('ftinfo_data', None)
+    if ftinfo_data:
+        if trustinstance.remote_domain.ftinfo_data is None:
+            trustinstance.remote_domain.ftinfo_data = ftinfo_data
+
+        trustinstance.local_domain.update_ftinfo(trustinstance.remote_domain)
+
     for dom in six.itervalues(domains['domains']):
         dom['trust_type'] = u'ad'
         try:
