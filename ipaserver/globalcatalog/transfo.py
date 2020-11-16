@@ -85,10 +85,10 @@ def rename_dn(api, dn, conn):
         user = conn.get_entry(
             dn, ["cn"], time_limit=0, size_limit=-1)
         user_cn = user.single_value['cn']
-        return 'CN={},CN=Users,{}'.format(user_cn, api.env.basedn)
+        return 'cn={},cn=users,{}'.format(user_cn, api.env.basedn)
     if dn.find(groups_dn) == 1:
         # The member value is right below the group container
-        return '{},CN=Users,{}'.format(dn[0], api.env.basedn)
+        return '{},cn=users,{}'.format(dn[0], api.env.basedn)
     # Unable to find a corresponding member
     raise ValueError
 
@@ -188,7 +188,7 @@ def get_dn_from_cn(api, cn):
     CN=..,CN=Users,$base
     It's easy to build the GC DN from a cn value.
     """
-    return DN("CN={},CN=Users,{}".format(cn, api.env.basedn))
+    return DN("cn={},cn=users,{}".format(cn, api.env.basedn))
 
 
 class GCTransformer:
