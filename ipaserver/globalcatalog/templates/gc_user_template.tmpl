@@ -1,7 +1,7 @@
 {% macro first_val(attr) -%}
     {{ entry[attr][0] }}
 {%- endmacro %}
-dn: CN={{ first_val('cn') }},CN=Users,{{ suffix }}
+dn: cn={{ first_val('cn') }},cn=users,{{ suffix }}
 objectClass: top
 objectClass: person
 objectClass: organizationalPerson
