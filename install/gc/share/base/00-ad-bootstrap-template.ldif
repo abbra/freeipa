@@ -94,7 +94,7 @@ objectClass: account
 objectClass: top
 uid: read-only-principal
 
-dn: CN=ForeignSecurityPrincipals,$SUFFIX
+dn: cn=ForeignSecurityPrincipals,$SUFFIX
 changetype: add
 objectClass: top
 objectClass: ad-top
