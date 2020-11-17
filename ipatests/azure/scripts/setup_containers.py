@@ -325,7 +325,7 @@ controller.setup_container_messagebus()
 controller.setup_ssh()
 controller.setup_hosts()
 controller.setup_hostname()
-controller.setup_resolvconf()
+# controller.setup_resolvconf()
 controller.setup_container_overrides()
 
 config = {
