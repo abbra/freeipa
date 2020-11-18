@@ -46,6 +46,7 @@ from ipaserver.install.dsinstance import (
     is_ds_running,
 )
 from ipaserver.install.adtrustinstance import make_netbios_name
+from ipaserver.servroles import ENABLED
 from ipapython.dnsutil import DNSName
 from lib389 import DirSrv
 from lib389.idm.ipadomain import IpaDomain
@@ -755,6 +756,10 @@ class GCInstance(service.Service):
                 pass
             except IPADomainIsNotManagedByIPAError:
                 pass
+            except Exception as e:
+                # print an error msg but do not prevent uninstallation
+                logger.error("Failed to delete DNS record for GC %s: %s",
+                             record[0].to_text(), e)
 
     def apply_updates(self):
         # Question: do we need to support loading schema files from
@@ -793,7 +798,15 @@ class GCInstance(service.Service):
                          "service principal manually.")
         else:
             # Remove the DNS records for global catalog
-            self.__remove_gc_dns_records()
+            # if it was the last instance
+            try:
+                api.Command.server_role_find(
+                    role_servrole=u'Global Catalog server',
+                    status=ENABLED
+                )
+            except errors.EmptyResult:
+                # This server was the last GC, delete DNS records
+                self.__remove_gc_dns_records()
 
             # Remove the service container entry
             self.ldap_remove_service_container(self.serverid, api.env.host,
