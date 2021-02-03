@@ -26,8 +26,6 @@ from ipaplatform.paths import paths
 from ipapython import ipautil, ipaldap
 from ipapython import dogtag
 from ipapython.admintool import ScriptError
-from ipapython.certdb import (IPA_CA_TRUST_FLAGS,
-                              EXTERNAL_CA_TRUST_FLAGS)
 from ipapython.dn import DN
 from ipapython.kerberos import Principal
 from ipaserver.dns_data_management import IPA_DEFAULT_GC_SRV_REC
@@ -469,12 +467,12 @@ class GCInstance(service.Service):
             os.chmod(target_fname, 0o440)  # read access for dirsrv user/group
             os.chown(target_fname, pent.pw_uid, pent.pw_gid)
 
-    def start(self, *args, **kwargs):
+    def start(self, *args, **kwargs):  # pylint: disable=W0222
         super(GCInstance, self).start(*args, **kwargs)
         self.conn = ipaldap.LDAPClient(self.ldap_uri)
         self.conn.external_bind()
 
-    def stop(self, *args, **kwargs):
+    def stop(self, *args, **kwargs):  # pylint: disable=W0222
         if self.conn:
             self.conn.close()
             self.conn = None
@@ -562,10 +560,6 @@ class GCInstance(service.Service):
             create=True
         )
         if self.pkcs12_info:
-            if self.ca_is_configured:
-                trust_flags = IPA_CA_TRUST_FLAGS
-            else:
-                trust_flags = EXTERNAL_CA_TRUST_FLAGS
             dsdb.import_pkcs12(
                 self.pkcs12_info[0],
                 self.pkcs12_info[1],
