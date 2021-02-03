@@ -167,35 +167,35 @@ class RedHatGCService(RedHatDirectoryService):
             if 'instance_name' not in kwargs:
                 kwargs['instance_name'] = 'GLOBAL-CATALOG'
 
-    def start(self, *args, **kwargs):
+    def start(self, *args, **kwargs):  # pylint: disable=W0222
         self._update_instance_name(args, kwargs)
         super(RedHatGCService, self).start(*args, **kwargs)
 
-    def stop(self, *args, **kwargs):
+    def stop(self, *args, **kwargs):  # pylint: disable=W0222
         self._update_instance_name(args, kwargs)
         super(RedHatGCService, self).stop(*args, **kwargs)
 
-    def reload_or_restart(self, *args, **kwargs):
+    def reload_or_restart(self, *args, **kwargs):  # pylint: disable=W0222
         self._update_instance_name(args, kwargs)
         super(RedHatGCService, self).reload_or_restart(*args, **kwargs)
 
-    def restart(self, *args, **kwargs):
+    def restart(self, *args, **kwargs):  # pylint: disable=W0222
         self._update_instance_name(args, kwargs)
         super(RedHatGCService, self).restart(*args, **kwargs)
 
-    def enable(self, *args, **kwargs):
+    def enable(self, *args, **kwargs):  # pylint: disable=W0222
         self._update_instance_name(args, kwargs)
         super(RedHatGCService, self).enable(*args, **kwargs)
 
-    def disable(self, *args, **kwargs):
+    def disable(self, *args, **kwargs):  # pylint: disable=W0222
         self._update_instance_name(args, kwargs)
         super(RedHatGCService, self).disable(*args, **kwargs)
 
-    def is_running(self, *args, **kwargs):
+    def is_running(self, *args, **kwargs):  # pylint: disable=W0222
         self._update_instance_name(args, kwargs)
         return super(RedHatGCService, self).is_running(*args, **kwargs)
 
-    def is_enabled(self, *args, **kwargs):
+    def is_enabled(self, *args, **kwargs):  # pylint: disable=W0222
         self._update_instance_name(args, kwargs)
         return super(RedHatGCService, self).is_enabled(*args, **kwargs)
 
