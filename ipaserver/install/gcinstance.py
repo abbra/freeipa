@@ -793,14 +793,23 @@ class GCInstance(service.Service):
         else:
             # Remove the DNS records for global catalog
             # if it was the last instance
+            # If the server was removed with server-del + uninstall,
+            # server-role-find won't return any result.
+            # If the server was removed directly with uninstall,
+            # server-role-find will return only this server
             try:
-                api.Command.server_role_find(
+                res = api.Command.server_role_find(
                     role_servrole=u'Global Catalog server',
                     status=ENABLED
                 )
             except errors.EmptyResult:
                 # This server was the last GC, delete DNS records
                 self.__remove_gc_dns_records()
+            else:
+                if res['count'] == 0 \
+                   or (res['count'] == 1
+                       and api.env.host == res['result'][0]['server_server']):
+                    self.__remove_gc_dns_records()
 
             # Remove the service container entry
             self.ldap_remove_service_container(self.serverid, api.env.host,
