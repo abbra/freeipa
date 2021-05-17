@@ -21,3 +21,4 @@ FreeIPA design documentation
    ldapi-autobind-services.md
    subordinate-ids.md
    external-idp/external-idp.md
+   external-idp/idp-api.md
