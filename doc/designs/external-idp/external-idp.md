@@ -246,12 +246,13 @@ Implement a method to manage IdP references in IPA. It can be done similarly to 
 
 Topic commands:
 ```
-  idplink-add   Add new link to an IdP server.
-  idplink-del   Delete a link to an IdP server.
-  idplink-find  Search for IdP server links.
-  idplink-mod   Modify a link to an IdP server.
-  idplink-show  Display information about a link to an IdP server links.
+  idp-add   Add new external IdP server.
+  idp-del   Delete an external IdP server.
+  idp-find  Search for external IdP servers.
+  idp-mod   Modify an external IdP server.
+  idp-show  Display information about an external IdP server.
 ```
+For more details refer to [idp-api].
 
 #### Extend supported user authentication methods in IPA
 
@@ -280,3 +281,4 @@ Integration between `ipa-otpd` and OAuth 2.0 provider can be tested independentl
 MIT Kerberos needs to be extended to enable back/forth messaging between MIT Kerberos OTP pre-authentication mechanism on the client side and `ipa-otpd` to exchange information a Kerberos client has to show to the user.
 
 
+[idp-api]: ipd-api.md

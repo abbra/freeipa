@@ -18,3 +18,4 @@ FreeIPA design documentation
    hidden-replicas.md
    disable-stale-users.md
    external-idp/external-idp.md
+   external-idp/idp-api.md
