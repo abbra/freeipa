@@ -1,0 +1,76 @@
+digraph {
+    node [fontsize=8  margin=".1,.01" width=.5 height=.5 shape=box]
+    edge [fontsize=8]
+    rankdir=TB;
+    ranksep = .25;
+    nodesep= .5;
+    // splines=ortho;
+    overlap=false;
+    
+
+    subgraph cluster_RHELBU751 {
+        label = "Authentication against external IdP";
+        style=solid;
+
+        {rank=source;
+            client [label="User" shape="star"];
+            client_browser  [label="Browser" style=filled fillcolor="#b5fed9"];
+            client_ssh [label="SSH client" style=filled fillcolor="#b5fed9"];
+        }{rankdir=TB;rank=same;
+            client -> client_ssh [dir=both];
+            client -> client_browser;
+            client_ssh -> client_browser [style=invis];
+        }
+        {rank=sink;
+            client_invisible [style=invis];
+        }
+        {rankdir=LR;
+            subgraph cluster_IPA_Client {
+                style=solid; label="IPA Client";
+                {
+                    sshd [label="SSH daemon"];
+                    sssd [label="SSSD daemon"];
+                    ipa_client_invisible [style=invis];
+                    sshd -> sssd [xlabel="NSS identity",dir=both];
+                    sshd -> sssd [xlabel="PAM authentication",dir=both];
+                }
+
+                {
+                    client_ssh -> sshd;
+
+                }
+            }
+        
+        
+            {
+                sssd -> LDAP [xlabel="Identity"];
+                sssd -> KDC [xlabel="GSSAPI Authentication"];
+                sshd -> client_ssh[style=dashed];
+                sshd -> KDC [xlabel="GSSAPI Authentication",style=dashed];
+            }
+
+            subgraph cluster_IPA_Server {
+                label = "IPA Server";
+                style=solid;
+                LDAP [label="LDAP server"];
+                KDC [label="Kerberos KDC"];
+                ipa_server_invisible [style=invis];
+                KDC -> LDAP;
+                ipa_otpd [label="ipa-otpd"];
+                KDC -> ipa_otpd -> KDC;
+                ipa_otpd -> LDAP;
+                ipa_otpd -> external_idp [xlabel="OAuth 2.0 device authorization grant flow", dir=both];
+            }
+        }
+        client_browser -> client_invisible [style=invis];
+        client_invisible -> ipa_client_invisible [style=invis];
+
+        ipa_client_invisible -> ipa_server_invisible [style=invis];
+        ipa_server_invisible -> external_idp [style=invis];
+ 
+        {rank=sink;
+            external_idp [label="External IdP" style=filled fillcolor="#b5fed9"];
+        }
+
+    }
+}
