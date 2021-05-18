@@ -224,6 +224,12 @@ In either flow, `ipa-otpd` responds to a KDC request with a RADIUS packet constr
 
 This mechanism can be used to implement other authentication flows that can fit into a RADIUS exchange with `Accept-Request` and `Accept-Response` messages. An example of this approach is an Azure AD multi-factor authentication (MFA) extension to Microsoft's RADIUS server, NPS. The detailed flow is described [Azure AD Multi-factor authentication how-to guide](https://docs.microsoft.com/en-us/azure/active-directory/authentication/howto-mfa-nps-extension).
 
+#### General authentication flow against an external IdP
+
+The following figure outlines a general authentication flow against an external IdP. Actual communication with an IdP end-point would be performed by `ipa-otpd` daemon. We expect use of OAuth 2.0 Device Authorization Grant flow to be supported by the IdP.
+
+![](auth-flow.svg)
+
 #### OTP pre-authentication mechanism drawbacks
 
 Current implementations of OTP pre-authentication mechanism in MIT Kerberos and FreeIPA have one issue. Neither MIT Kerberos library and KDC nor `ipa-otpd` daemon support RADIUS flows where multiple messages per communication are required. RADIUS protocol defines `Access-Challenge` message that allows RADIUS server to request a continuation of a state processing between the server and the client. `ipa-otpd` does translate any response from a RADIUS server that is not `Access-Accept` into `Access-Reject` response. On its side, MIT Kerberos OTP pre-authentication implementation only handles `Access-Accept` and `Access-Reject` responses.
