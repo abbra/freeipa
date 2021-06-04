@@ -148,6 +148,7 @@ DEFAULT_CONFIG = (
     ('container_certmaprules', DN(('cn', 'certmaprules'), ('cn', 'certmap'))),
     ('container_ca_renewal',
         DN(('cn', 'ca_renewal'), ('cn', 'ipa'), ('cn', 'etc'))),
+    ('container_idp', DN(('cn', 'idp'))),
 
     # Ports, hosts, and URIs:
     # Following values do not have any reasonable default.
