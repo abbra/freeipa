@@ -4,7 +4,7 @@ variables:
   #
   # replace with 'fedora:rawhide' on fix:
   # https://bugzilla.redhat.com/show_bug.cgi?id=1869612
-  DOCKER_BUILD_IMAGE: 'registry.fedoraproject.org/fedora:rawhide'
+  DOCKER_BUILD_IMAGE: 'registry.fedoraproject.org/fedora-toolbox:latest'
 
   # the Dockerfile to build Docker image for running IPA tests
   DOCKER_DOCKERFILE: 'Dockerfile.build.rawhide'
