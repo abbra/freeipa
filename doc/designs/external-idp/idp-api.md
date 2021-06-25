@@ -30,7 +30,7 @@ This translates into the following attribute type definitions:
 attributeTypes: (2.16.840.1.113730.3.8.23.15 NAME 'ipaIdpAuthEndpoint' DESC 'Identity Provider Device Authorization Endpoint' EQUALITY caseExactMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 X-ORIGIN 'IPA v4.9' )
 attributeTypes: (2.16.840.1.113730.3.8.23.16 NAME 'ipaIdpTokenEndpoint' DESC 'Identity Provider Token Endpoint' EQUALITY caseExactMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 X-ORIGIN 'IPA v4.9' )
 attributeTypes: (2.16.840.1.113730.3.8.23.17 NAME 'ipaIdpClientId' DESC 'Identity Provider Client Identifier' EQUALITY caseExactMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 X-ORIGIN 'IPA v4.9' )
-attributeTypes: (2.16.840.1.113730.3.8.23.18 NAME 'ipaIdpClientSecret' DESC 'Identity Provider Client Secret' EQUALITY caseExactMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 X-ORIGIN 'IPA v4.9' )
+attributeTypes: (2.16.840.1.113730.3.8.23.18 NAME 'ipaIdpClientSecret' DESC 'Identity Provider Client Secret' EQUALITY octetStringMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.40 X-ORIGIN 'IPA v4.9' )
 attributeTypes: (2.16.840.1.113730.3.8.23.19 NAME 'ipaIdpScope' DESC 'Identity Provider Scope' EQUALITY caseExactMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 X-ORIGIN 'IPA v4.9' )
 ```
 
