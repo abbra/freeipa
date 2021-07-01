@@ -1584,7 +1584,7 @@ class TestAuthenticationIndicators(XMLRPC_test):
         indicators_service.update(
             updates={
                 u'krbprincipalauthind': [
-                    u'otp', u'radius', u'pkinit', u'hardened'
+                    u'otp', u'radius', u'pkinit', u'hardened', u'idp'
                 ]
             }
         )
