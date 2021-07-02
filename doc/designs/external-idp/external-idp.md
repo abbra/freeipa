@@ -16,7 +16,7 @@ Usage shift does not, however, dictate an exclusion between the two models. The 
 In this document discussion of 'application-level identities' really means resource owner identities visible through OAuth 2.0 Authorization Framework. This level of abstraction allows discussing of authentication and access to resources regardless of internal details of a specific application.
 
 There are two major use cases covered by this document:
-- FreeIPA is used as a backend to provide identities that some identity provider (IdP) uses to represent as resources in OAuth 2.0 Authorization Framework. This IdP would be called 'an integrated IdP' to FreeIPA.
+- FreeIPA is used as a backend to provide identities that some identity provider (IdP) to authenticate via OpenID Connect. This IdP would be called 'an integrated IdP' to FreeIPA.
 - FreeIPA uses an integrated IdP to perform identity verification and ask for an access grant to itself of identities that were authenticated against some external IdP which exists in a federated relationship with an integrated IdP used by FreeIPA.
 
 Since there is a number of IdP implementations, for the scope of this document we are focusing on how to integrate FreeIPA with [Keycloak](https://www.keycloak.org) project.
@@ -27,7 +27,7 @@ Keycloak already supports integration with FreeIPA as a backend to lookup and au
 - LDAP/Active Directory provider,
 - SSSD provider.
 
-LDAP/Active Directory provider is limited in its abilities to authenticate users in FreeIPA. In particular, it is not possible to implement password-based authentication for users in FreeIPA with RADIUS proxy configuration because such proxying is only available through Kerberos authentication flow.
+LDAP/Active Directory provider is limited in its abilities to authenticate users in FreeIPA. In particular, it is not possible to implement password-based authentication for users in FreeIPA with RADIUS proxy configuration because such proxying is only available through the Kerberos authentication flow. The Kerberos authentication provider in Keycloak is implemented using org.ietf.jgss and javax.security.auth.kerberos frameworks. The latter does not have any support for pre-authentication mechanisms which are required to implement two-factor authentication through Kerberos and also have no support for newer and secure pre-authentication mechanisms like SPAKE. While it is possible to enable use of a native (operating system-provided) GSS-API implementation, such as MIT Kerberos, a support for client-side authentication with OTP pre-authentication mechanism requires additional work on the client (Keycloak plugin) side and a knowledge about the fact that this user identity must have additional processing. This information must be obtained out of band before initiating the authentication request by the User Storage Federation provider. Neither of the existing providers sources and exposes this information (it is also not easily discoverable).
 
 On the other side, SSSD provider is read-only. It is not possible to provision new users in FreeIPA through it. Implementation of SSSD provider requires use of D-BUS and UNIX domain sockets which is relatively unusual for Java ecosystem of Keycloak. As a result, there is a number of external dependencies that must be maintained beyond actual SSSD provider code. On the other hand, SSSD provider authenticates against FreeIPA through the use of Kerberos protocol and supports all types of authentication supported in FreeIPA.
 
@@ -171,6 +171,33 @@ To reduce authentication complexity we can view a whole FreeIPA deployment as a 
 
 Use of a single OAuth client identity still presents an issue with multiple FreeIPA-enrolled clients because they cannot easily share the client identity. Instead, in this design we consider IPA replicas to share OAuth client in a way similar to how they share Kerberos realm master keys: each IPA replica would be able to operate on its own using the same OAuth client identity which is stored in a replicated IPA LDAP tree.
 
+### High-level authentication overview
+
+External IdP integration with FreeIPA is designed with the following assumptions. Identities for users authenticated through the external IdPs stored in FreeIPA as user accounts. They have no passwords associated and instead are forced to authenticate to external IdPs over Kerberos-based authentication flow. The user accounts for externally-authenticated users to be created in advance; this can be achieved manually or automatically with the help of the SCIM v2 bridge.
+
+With the following preconditions
+ - FreeIPA deployment is connected to an integrated IdP (Keycloak) with the help of the SCIM v2 bridge
+ - Integrated IdP (Keycloak) is registered with the external IdP, to allow external IdP's identities to access the integrated IdP resources,
+
+a general authentication workflow for a user registered in External IdP would be split into two separate steps:
+ 1. An initial login to Integrated IdP to create an identity
+   - a user does not yet exist in the SCIM v2 bridge user storage federation provider:
+     - user account in FreeIPA is created automatically, user account's name is derived from the external IdP-provided information
+     - user account information is displayed (and self-managed attributes may be modified, if needed)
+   - a user does exist in SCIM v2 bridge:
+     - user account information is displayed (and self-managed attributes may be modified, if needed)
+ 2. An interactive login to systems enrolled into FreeIPA deployment
+   - the user performs prompt-based authentication to the IPA-enrolled system
+   - upon login, a prompt is shown that guides the user to use a separate device to login to a specified URI
+   - once logged into a specified URI, the user would be asked to confirm the login intent and be told to use a response code back at the original prompt
+   - A response code is entered to the original prompt
+   - A backend process behind the login would perform the validation of the response code
+   - Once the response is validated, a Kerberos ticket is issued for this login attempt
+   - if authentication is successful, an authorization process is performed using standard IPA facilities (HBAC rules, group membership, etc)
+   - if both authentication and authorization are successful, user is logged into the system
+
+Upon successful login, the user with External IdP identity would have an initial Kerberos ticket granting ticket in the login session credentials cache. This ticket is further can be used to perform required authentication to other IPA-provided services during its validity time.
+
 ### OAuth 2.0 Device Authorization Grant
 
 OAuth 2.0 Device Authorization Grant is defined in [RFC 8628](https://www.rfc-editor.org/rfc/rfc8628) and allows devices that either lack a browser or input constrained to obtain user authorization to access protected resources. Instead of performing the authorization flow right at the device where OAuth authorization grant is requested, a user would perform it at a separate device that has required rich browsing or input capabilities.
@@ -209,6 +236,12 @@ Following figure from RFC 8628 demonstrates a generic device authorization flow:
 The use of an integrated IdP instance allows us to require support for OAuth 2.0 Device Authorization Grant flow. Since integrated IdP would have the required capability, it is not necessary that the same capability would be supported by an external IdP. It also does not require registration of the individual IPA OAuth clients to the external IdP.
 
 With the help of OAuth 2.0 Device Authorization Grant, OAuth authentication process can be integrated into Kerberos authentication protocol and would allow to not depend on OAuth2 support in all 'traditional' applications running in FreeIPA deployment.
+
+### OpenID Connect Client-initiated backchannel authentication
+
+An alternative to OAuth 2.0 Device Authorization Grant Flow would be to use CIBA, OpenID Connect Client-initiated backchannel authentication flow, as defined in https://openid.net/specs/openid-client-initiated-backchannel-authentication-core-1_0.html.
+
+CIBA flow is not yet supported in Keycloak.
 
 ### Authentication flow for OAuth2 proxying over Kerberos protocol
 
