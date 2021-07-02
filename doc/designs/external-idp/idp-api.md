@@ -25,19 +25,23 @@ for instance https://oauth2.googleapis.com/token
 a password)
 * scope (case sensitive string)
 
-This translates into the following attribute type definitions:
+Additionally, an idp object needs to be referenced from a user object, thus a link attribute has to be defined. This translates into the following attribute type definitions:
 ```text
 attributeTypes: (2.16.840.1.113730.3.8.23.15 NAME 'ipaIdpAuthEndpoint' DESC 'Identity Provider Device Authorization Endpoint' EQUALITY caseExactMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 X-ORIGIN 'IPA v4.9' )
 attributeTypes: (2.16.840.1.113730.3.8.23.16 NAME 'ipaIdpTokenEndpoint' DESC 'Identity Provider Token Endpoint' EQUALITY caseExactMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 X-ORIGIN 'IPA v4.9' )
 attributeTypes: (2.16.840.1.113730.3.8.23.17 NAME 'ipaIdpClientId' DESC 'Identity Provider Client Identifier' EQUALITY caseExactMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 X-ORIGIN 'IPA v4.9' )
 attributeTypes: (2.16.840.1.113730.3.8.23.18 NAME 'ipaIdpClientSecret' DESC 'Identity Provider Client Secret' EQUALITY octetStringMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.40 X-ORIGIN 'IPA v4.9' )
 attributeTypes: (2.16.840.1.113730.3.8.23.19 NAME 'ipaIdpScope' DESC 'Identity Provider Scope' EQUALITY caseExactMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 X-ORIGIN 'IPA v4.9' )
+attributeTypes: (2.16.840.1.113730.3.8.23.20 NAME 'ipaIdpConfigLink' DESC 'Corresponding Identity Provider Configuration link' SUP distinguishedName EQUALITY distinguishedNameMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.12 SINGLE-VALUE X-ORIGIN 'IPA v4.9')
 ```
 
-### New objectclass for idp
+### New objectclasses for idp
+
+In addition to IdP configuration object, a special object class is added to be able to store IdP configuration link in a user object:
 
 ```text
-objectClasses: (2.16.840.1.113730.3.8.24.6 NAME 'ipaIdP' SUP top STRUCTURAL DESC 'Identity Provider Configuration' MUST ( cn $ ipaIdpAuthEndpoint $ ipaIdpTokenEndpoint $ ipaIdpClientId) MAY ( ipaIdpClientSecret $ ipaIdpScope ) X-ORIGIN 'IPA v4.9' )
+objectClasses: (2.16.840.1.113730.3.8.24.6 NAME 'ipaIdP' SUP top STRUCTURAL DESC 'Identity Provider Configuration' MUST ( cn $ ipaIdpAuthEndpoint $ ipaIdpTokenEndpoint $ ipaIdpClientId) MAY ( description $ ipaIdpClientSecret $ ipaIdpScope ) X-ORIGIN 'IPA v4.9' )
+objectClasses: (2.16.840.1.113730.3.8.24.7 NAME 'ipaIdpUser' SUP top STRUCTURAL DESC 'User from an external Identity Provider ' MAY ( ipaIdpConfigLink ) X-ORIGIN 'IPA v4.9' )
 ```
 
 ### LDAP indices
