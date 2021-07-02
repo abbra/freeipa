@@ -77,6 +77,7 @@ static char *std_principal_attrs[] = {
     IPA_KRB_AUTHZ_DATA_ATTR,
     IPA_USER_AUTH_TYPE,
     "ipatokenRadiusConfigLink",
+    "ipaIdpConfigLink",
     "krbAuthIndMaxTicketLife",
     "krbAuthIndMaxRenewableAge",
     "ipaNTSecurityIdentifier",
@@ -323,6 +324,27 @@ static void ipadb_validate_radius(struct ipadb_context *ipactx,
         ldap_value_free_len(vals);
 }
 
+static void ipadb_validate_idp(struct ipadb_context *ipactx,
+                               LDAPMessage *lentry,
+                               enum ipadb_user_auth *ua)
+{
+    struct berval **vals;
+
+    if (!(*ua & IPADB_USER_AUTH_IDP))
+        return;
+
+    /* Ensure that the user has a link to an IdP config. */
+    vals = ldap_get_values_len(ipactx->lcontext, lentry,
+                               "ipaIdpConfigLink");
+    if (vals == NULL || vals[0] == NULL)
+        *ua &= ~IPADB_USER_AUTH_IDP;
+    else
+        *ua = IPADB_USER_AUTH_IDP;
+
+    if (vals != NULL)
+        ldap_value_free_len(vals);
+}
+
 static enum ipadb_user_auth ipadb_get_user_auth(struct ipadb_context *ipactx,
                                                 LDAPMessage *lentry)
 {
@@ -355,6 +377,7 @@ static enum ipadb_user_auth ipadb_get_user_auth(struct ipadb_context *ipactx,
     /* Perform flag validation. */
     ipadb_validate_otp(ipactx, lentry, &ua);
     ipadb_validate_radius(ipactx, lentry, &ua);
+    ipadb_validate_idp(ipactx, lentry, &ua);
 
     return ua;
 }
@@ -537,6 +560,8 @@ static void ipadb_parse_authind_policies(krb5_context kcontext,
          IPADB_USER_AUTH_PKINIT, IPADB_USER_AUTH_IDX_PKINIT},
         {"krbAuthIndMaxTicketLife;hardened",
          IPADB_USER_AUTH_HARDENED, IPADB_USER_AUTH_IDX_HARDENED},
+        {"krbAuthIndMaxTicketLife;idp",
+         IPADB_USER_AUTH_IDP, IPADB_USER_AUTH_IDX_IDP},
 	    {NULL, IPADB_USER_AUTH_NONE, IPADB_USER_AUTH_IDX_MAX},
     }, age_authind_map[] = {
         {"krbAuthIndMaxRenewableAge;otp",
@@ -547,6 +572,8 @@ static void ipadb_parse_authind_policies(krb5_context kcontext,
          IPADB_USER_AUTH_PKINIT, IPADB_USER_AUTH_IDX_PKINIT},
         {"krbAuthIndMaxRenewableAge;hardened",
          IPADB_USER_AUTH_HARDENED, IPADB_USER_AUTH_IDX_HARDENED},
+        {"krbAuthIndMaxRenewableAge;idp",
+         IPADB_USER_AUTH_IDP, IPADB_USER_AUTH_IDX_IDP},
         {NULL, IPADB_USER_AUTH_NONE, IPADB_USER_AUTH_IDX_MAX},
     };
 
@@ -583,6 +610,7 @@ static krb5_error_code ipadb_parse_ldap_entry(krb5_context kcontext,
 {
     const krb5_octet rad_string[] = "otp\0[{\"indicators\": [\"radius\"]}]";
     const krb5_octet otp_string[] = "otp\0[{\"indicators\": [\"otp\"]}]";
+    const krb5_octet idp_string[] = "idp\0[{\"type\":\"oauth2\",\"indicators\": [\"idp\"]}]";
     struct ipadb_context *ipactx;
     enum ipadb_user_auth ua;
     LDAP *lcontext;
@@ -959,6 +987,11 @@ static krb5_error_code ipadb_parse_ldap_entry(krb5_context kcontext,
     } else if (ua & IPADB_USER_AUTH_RADIUS) {
         kerr = ipadb_set_tl_data(entry, KRB5_TL_STRING_ATTRS,
                                  sizeof(rad_string), rad_string);
+        if (kerr)
+            goto done;
+    } else if (ua & IPADB_USER_AUTH_IDP) {
+        kerr = ipadb_set_tl_data(entry, KRB5_TL_STRING_ATTRS,
+                                 sizeof(idp_string), idp_string);
         if (kerr)
             goto done;
     }
