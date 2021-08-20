@@ -159,7 +159,39 @@ Proof of concept implementation of the Keycloak plugin would need to cover:
 
 -------------------------
 
-WIP part: detail design here
+### Keycloak plugin design
+
+SCIM Keycloak user storage plugin can be added as a User Federation provider in the keycloak admin console. The plugin requires an admin-provided Backend URL (server.example.com:8080), plugin operations will use this URL for CRUD operations against SCIM endpoints.
+
+#### User lookup and import strategy
+
+The SCIM Keycloak plugin utilizes the import implementation strategy. When a user logs in to keycloak, that user will be imported into the local keycloak database. This allows subsequent lookups to use the keycloak local database as a cache, reducing load on the Backend server. Existing in-tree keycloak SSSD and LDAP federation plugins use this approach. To implement this strategy correctly, we must consider how to keep the users in sync between keycloak local storage and in SCIM.
+ - If a linked local keycloak user is modified: Changes will be propagated to SCIM with PUT update user calls. This is handled in keycloak by proxying the local user using the ImportedUserValidation interface.
+ - If a SCIM user is modified: Similar to the LDAP federation provider, Implement ImportSynchronization Interface to allow admin to manually force a sync, or schedule automatic synchronizations.
+
+#### User authentication
+
+Work in Progress
+
+#### User Management
+
+##### Search
+
+Searching for Backend users in the management console will be possible initially with an exact 'username' search, relying on the SCIM server Filtering "eq" equal operator to find a match. If a successful search finds a backend user, keycloak will import that found user into the local keycloak database. The 'View all Users' button will show only locally imported users, currently we do not support mass import functionality.  Support may be added later for:
+ - Substring match support, requires backend server support for SCIM filtering "co" contains operator
+ - Search by email, firstname, lastname
+
+##### Add/Remove Users
+
+Adding users and deleting SCIM users will be supported from the Users management console. SCIM Implementations may perform a soft-delete by disabling the user instead of removing them. Per RFC 7644: 'Service providers MAY choose not to permanently delete the resource'.
+
+##### Modify user attributes
+
+Modify operations of a user's email, firstname, or lastname attributes are supported delegating to the SCIMUserModelDelegate class. 'username' modification (Rename user) is not yet supported.
+
+#### Groups
+
+When a federated SCIM user logs in, this user's groups are added into keycloak and the group memberships are associated to this user. Unlike with users, Searching groups in the management console only works on local keycloak groups - keycloak does not provide interfaces to add, remove, or modify groups in federated SCIM.
 
 -------------------------
 
