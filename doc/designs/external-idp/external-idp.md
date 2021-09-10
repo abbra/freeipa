@@ -299,9 +299,13 @@ The following figure outlines a general authentication flow against an external 
 
 Current implementations of OTP pre-authentication mechanism in MIT Kerberos and FreeIPA have one issue. Neither MIT Kerberos library and KDC nor `ipa-otpd` daemon support RADIUS flows where multiple messages per communication are required. RADIUS protocol defines `Access-Challenge` message that allows RADIUS server to request a continuation of a state processing between the server and the client. `ipa-otpd` does translate any response from a RADIUS server that is not `Access-Accept` into `Access-Reject` response. On its side, MIT Kerberos OTP pre-authentication implementation only handles `Access-Accept` and `Access-Reject` responses.
 
-For OAuth 2.0 Device Authorization Grant flow `ipa-otpd` would need first to communicate to the integrated IdP. This step will produce a User Code and a Verification URI that will need to be sent back to the RADIUS client (KDC) and communicated further to Kerberos client side of OTP pre-authentication mechanism.
+During discussion of the implementation of an extension to existing OTP pre-authentication mechanism in MIT Kerberos, it was [decided](https://github.com/krb5/krb5/pull/1200#issuecomment-911816047) to create a separate pre-authentication module for this workflow to allow KDC and Kerberos client better communicate the user-oriented messaging.
 
-Thus, both `ipa-otpd` and MIT Kerberos need to be extended to handle `Access-Challenge` message.
+A new pre-authentication method ('OAuth2.0') will be a FAST factor, meaning it would require an armor ticket to use. When Kerberos client would advertise the support for this pre-authentication method, KDC will issue a response containing the required information to display to the user. Typically, this information would be a Verification URI of the Device Authorization Grant Flow end-point and a User Code to authorise. Upon receiving the initial response, Kerberos client side of the pre-authentication module would display the message and wait for a user input. In a basic device authorization grant flow the input is empty. The input is then sent back to the KDC as a response.
+
+On the server side, KDB driver would associate 'OAuth2.0' pre-authentication module with those accounts which have external IdP reference defined for them. As a result, new pre-authentication module on the KDC side would detect this metadata and activate itself by sending a request to the default RADIUS server. An expected behavior would be to receive an `Access-Challenge` message from the RADIUS server to request a continuation of a state processing. Such processing would then be turned into token information and passed over to 'OAuth2.0' pre-authentication module on the client side.
+
+Thus, `ipa-otpd` and MIT Kerberos need to be extended to handle `Access-Challenge` message.
 
 ### Individual tasks
 
@@ -337,9 +341,8 @@ Provisionally, both the authentication method and the authentication indicator c
 
 Add new method to perform OAuth 2.0 Device Authorization Grant flow. `ipa-otpd` would retrieve IdP references associated with the user being authenticated and perform OAuth2 flow to verify that user identity and credentials against a linked IdP.
 
-OAuth2 client side implementation in `ipa-otpd` would need to reuse existing open source OAuth 2.0 client implementations rather than writing OAuth 2.0 flow implementation. One possible candidate is [liboauth2](https://github.com/zmartzone/liboauth2) project. A sub-task would be to package `liboauth2` (COPR for PoC).
+OAuth2 client side implementation in `ipa-otpd` would need to check external IdP reference in user entries. If there is an external IdP reference available, the request to external IdP should be performed using the user principal information. A prototype implementation is provided by SSSD project and utilizes libcurl library along with cjose library to talk OAuth 2.0 flow.
 
-Integration between `ipa-otpd` and OAuth 2.0 provider can be tested independently of the rest of MIT Kerberos-related work. A Python library to implement a test RADIUS client/server is [pyrad](https://github.com/pyradius/pyrad).
 
 #### Add support of `Access-Challenge` RADIUS response to MIT Kerberos
 
