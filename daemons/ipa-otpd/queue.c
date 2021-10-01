@@ -46,6 +46,8 @@ krb5_error_code otpd_queue_item_new(krad_packet *req,
 
 void otpd_queue_item_free(struct otpd_queue_item *item)
 {
+    size_t c;
+
     if (item == NULL)
         return;
 
@@ -54,9 +56,21 @@ void otpd_queue_item_free(struct otpd_queue_item *item)
     free(item->user.ipatokenRadiusUserName);
     free(item->user.ipatokenRadiusConfigLink);
     free(item->user.other);
+    free(item->user.ipaidpSub);
+    free(item->user.ipaidpConfigLink);
+    if (item->user.ipauserauthtypes != NULL) {
+        for (c = 0; item->user.ipauserauthtypes[c] != NULL; c++) {
+            free(item->user.ipauserauthtypes[c]);
+        }
+        free(item->user.ipauserauthtypes);
+    }
     free(item->radius.ipatokenRadiusServer);
     free(item->radius.ipatokenRadiusSecret);
     free(item->radius.ipatokenUserMapAttribute);
+    free(item->idp.ipaidpIssuerURL);
+    free(item->idp.ipaidpClientID);
+    free(item->oauth2.device_code_reply);
+    free(item->oauth2.state.data);
     free(item->error);
     krad_packet_free(item->req);
     krad_packet_free(item->rsp);
@@ -187,4 +201,27 @@ void otpd_queue_free_items(struct otpd_queue *q)
 
     q->head = NULL;
     q->tail = NULL;
+}
+
+/* Remove and return an item from the queue. */
+struct otpd_queue_item *otpd_queue_pop_oauth2_state(struct otpd_queue *q,
+                                                    const krb5_data *state)
+{
+    struct otpd_queue_item *item, **prev;
+
+    for (item = q->head, prev = &q->head;
+         item != NULL;
+         prev = &item->next, item = item->next) {
+        if (item->oauth2.state.length == state->length
+                    && memcmp(item->oauth2.state.data,
+                              state->data, state->length) == 0) {
+            *prev = item->next;
+            if (q->head == NULL)
+                q->tail = NULL;
+            item->next = NULL;
+            return item;
+        }
+    }
+
+    return NULL;
 }

@@ -65,6 +65,69 @@ static int get_string(LDAP *ldp, LDAPMessage *entry, const char *name,
     return 0;
 }
 
+/* Convert an LDAP entry into an allocated string array. */
+static int get_string_array(LDAP *ldp, LDAPMessage *entry, const char *name,
+                            char ***out)
+{
+    struct berval **vals;
+    ber_len_t i;
+    char **buf;
+    int tmp;
+    size_t count;
+    size_t c;
+    int ret;
+
+    vals = ldap_get_values_len(ldp, entry, name);
+    if (vals == NULL)
+        return ENOENT;
+
+    tmp = ldap_count_values_len(vals);
+    if (tmp < 0) {
+        ret = ENOENT;
+        goto done;
+    }
+    count = (size_t) tmp;
+
+    buf = calloc(count + 1, sizeof(char *));
+    if (buf == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    for (c = 0; c < count; c++) {
+        buf[c] = calloc(vals[c]->bv_len + 1, sizeof(char));
+        if (buf[c] == NULL) {
+            ret = ENOMEM;
+            goto done;
+        }
+
+        for (i = 0; i < vals[c]->bv_len; i++) {
+            if (!isprint(vals[c]->bv_val[i])) {
+                ret = EINVAL;
+                goto done;
+            }
+
+            buf[c][i] = vals[c]->bv_val[i];
+        }
+    }
+
+    if (*out != NULL)
+        free(*out);
+    *out = buf;
+
+    ret = 0;
+
+done:
+    if (ret != 0 && buf != NULL) {
+        for (c = 0; buf[c] != NULL; c++) {
+            free(buf[c]);
+        }
+        free(buf);
+    }
+    ldap_value_free_len(vals);
+    return ret;
+}
+
 /* Convert an LDAP entry into an unsigned long. */
 static int get_ulong(LDAP *ldp, LDAPMessage *entry, const char *name,
                      unsigned long *out)
@@ -112,11 +175,45 @@ const char *otpd_parse_user(LDAP *ldp, LDAPMessage *entry,
   if (i != 0 && i != ENOENT)
       return strerror(i);
 
+  i = get_string(ldp, entry, "ipaidpSub",
+                 &item->user.ipaidpSub);
+  if (i != 0 && i != ENOENT)
+      return strerror(i);
+
+  i = get_string(ldp, entry, "ipaidpConfigLink",
+                 &item->user.ipaidpConfigLink);
+  if (i != 0 && i != ENOENT)
+      return strerror(i);
+
+  i = get_string_array(ldp, entry, "ipauserauthtype",
+                       &item->user.ipauserauthtypes);
+  if (i != 0 && i != ENOENT)
+      return strerror(i);
+
   /* Get the DN. */
   item->user.dn = ldap_get_dn(ldp, entry);
   if (item->user.dn == NULL) {
       i = ldap_get_option(ldp, LDAP_OPT_RESULT_CODE, &j);
       return ldap_err2string(i == LDAP_OPT_SUCCESS ? j : i);
+  }
+
+  return NULL;
+}
+
+/* Parse the IdP configuration */
+const char *otpd_parse_idp(LDAP *ldp, LDAPMessage *entry,
+                              struct otpd_queue_item *item)
+{
+  int i;
+
+  i = get_string(ldp, entry, "ipaidpIssuerURL", &item->idp.ipaidpIssuerURL);
+  if (i != 0) {
+      return strerror(i);
+  }
+
+  i = get_string(ldp, entry, "ipaidpClientID", &item->idp.ipaidpClientID);
+  if (i != 0) {
+      return strerror(i);
   }
 
   return NULL;
