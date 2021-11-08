@@ -201,7 +201,7 @@ In order to authenticate a user with an OAuth authentication flow to FreeIPA-enr
 
 To reduce authentication complexity we can view a whole FreeIPA deployment as a single OAuth client registered with an integrated IdP. The integrated IdP would then handle authentication of the user. If that process would require, in turn, access to a federated identity provider would not need to be known to FreeIPA OAuth client.
 
-Use of a single OAuth client identity still presents an issue with multiple FreeIPA-enrolled clients because they cannot easily share the client identity. Instead, in this design we consider IPA replicas to share OAuth client in a way similar to how they share Kerberos realm master keys: each IPA replica would be able to operate on its own using the same OAuth client identity which is stored in a replicated IPA LDAP tree.
+Use of a single OAuth client identity still presents an issue with multiple FreeIPA-enrolled clients because they cannot easily share the client identity. Instead, in this design we consider IPA replicas to share OAuth client identity in a way similar to how they share Kerberos realm master keys: each IPA replica would be able to operate on its own using the same OAuth client identity which is stored in a replicated IPA LDAP tree.
 
 ### High-level authentication overview
 
@@ -220,12 +220,12 @@ a general authentication workflow for a user registered in External IdP would be
      - user account information is displayed (and self-managed attributes may be modified, if needed)
  2. An interactive login to systems enrolled into FreeIPA deployment
    - the user performs prompt-based authentication to the IPA-enrolled system
-   - upon login, a prompt is shown that guides the user to use a separate device to login to a specified URI
-   - once logged into a specified URI, the user would be asked to confirm the login intent and be told to use a response code back at the original prompt
-   - A response code is entered to the original prompt
-   - A backend process behind the login would perform the validation of the response code
+   - upon login, a prompt is shown that guides the user to use a separate device to login to a specified URI and verify a device code shown at a prompt
+   - once logged into a specified URI, the user would be asked to confirm the login intent
+   - An empty response is entered to the original prompt following the login and confirmation at a specified URI
+   - A backend process behind the login would perform the validation of the response
    - Once the response is validated, a Kerberos ticket is issued for this login attempt
-   - if authentication is successful, an authorization process is performed using standard IPA facilities (HBAC rules, group membership, etc)
+   - successful authentication leads to an authorization step which is performed using standard IPA facilities (HBAC rules, group membership, etc)
    - if both authentication and authorization are successful, user is logged into the system
 
 Upon successful login, the user with External IdP identity would have an initial Kerberos ticket granting ticket in the login session credentials cache. This ticket is further can be used to perform required authentication to other IPA-provided services during its validity time.
@@ -287,13 +287,17 @@ FreeIPA implements a shim RADIUS proxy, called `ipa-otpd`, which listens on a UN
   
 In either flow, `ipa-otpd` responds to a KDC request with a RADIUS packet constructed out of the result of authentication. KDC then performs the remaining communication as defined in RFC 6560.
 
-This mechanism can be used to implement other authentication flows that can fit into a RADIUS exchange with `Accept-Request` and `Accept-Response` messages. An example of this approach is an Azure AD multi-factor authentication (MFA) extension to Microsoft's RADIUS server, NPS. The detailed flow is described [Azure AD Multi-factor authentication how-to guide](https://docs.microsoft.com/en-us/azure/active-directory/authentication/howto-mfa-nps-extension).
+This approach can be used to implement other authentication flows that can fit into a RADIUS exchange with `Accept-Request` and `Accept-Response` messages. An example of this approach is an Azure AD multi-factor authentication (MFA) extension to Microsoft's RADIUS server, NPS. The detailed flow is described [Azure AD Multi-factor authentication how-to guide](https://docs.microsoft.com/en-us/azure/active-directory/authentication/howto-mfa-nps-extension).
+
+Together with MIT Kerberos developers during a prototype investigation it was decided to not extend existing OTP pre-authentication mechanism to add support for external IdPs support but rather implement a separate Kerberos pre-authentication mechanism based on similar ideas. The code would be developed as a part of SSSD distribution and would provide both client and server (KDC) plugins necessary to implement the flow. SSSD would also provide an extension of the `ipa-otpd` to perform actual authentication against an external IdP.
 
 #### General authentication flow against an external IdP
 
 The following figure outlines a general authentication flow against an external IdP. Actual communication with an IdP end-point would be performed by `ipa-otpd` daemon. We expect use of OAuth 2.0 Device Authorization Grant flow to be supported by the IdP.
 
 ![](auth-flow.svg)
+
+
 
 #### OTP pre-authentication mechanism drawbacks
 
