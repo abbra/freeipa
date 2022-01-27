@@ -80,8 +80,15 @@ struct otpd_queue_item {
     } radius;
 
     struct {
+        char *name;
         char *ipaidpIssuerURL;
+        char *ipaidpAuthEndpoint;
+        char *ipaidpTokenEndpoint;
+        char *ipaidpUserInfoEndpoint;
+        char *ipaidpKeysEndpoint;
         char *ipaidpClientID;
+        char *ipaidpScope;
+        krb5_boolean valid;
     } idp;
 
     struct {

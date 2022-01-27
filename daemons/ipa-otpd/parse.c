@@ -25,7 +25,9 @@
  */
 
 #include "internal.h"
+#include <asm-generic/errno-base.h>
 #include <ctype.h>
+#include <krb5/krb5.h>
 
 #define DEFAULT_TIMEOUT 15
 #define DEFAULT_RETRIES 3
@@ -204,19 +206,55 @@ const char *otpd_parse_user(LDAP *ldp, LDAPMessage *entry,
 const char *otpd_parse_idp(LDAP *ldp, LDAPMessage *entry,
                               struct otpd_queue_item *item)
 {
-  int i;
+    int i;
 
-  i = get_string(ldp, entry, "ipaidpIssuerURL", &item->idp.ipaidpIssuerURL);
-  if (i != 0) {
-      return strerror(i);
-  }
+    item->idp.valid = FALSE;
+    i = get_string(ldp, entry, "cn", &item->idp.name);
+    if (i != 0) {
+        return strerror(i);
+    }
 
-  i = get_string(ldp, entry, "ipaidpClientID", &item->idp.ipaidpClientID);
-  if (i != 0) {
-      return strerror(i);
-  }
+    i = get_string(ldp, entry, "ipaidpIssuerURL", &item->idp.ipaidpIssuerURL);
+    if ((i != 0) && (i != ENOENT)) {
+        return strerror(i);
+    }
 
-  return NULL;
+    /* We support either passing issuer URL or individual end-points */
+    if (i == ENOENT) {
+        i = get_string(ldp, entry, "ipaidpAuthEndpoint", &item->idp.ipaidpAuthEndpoint);
+        if (i != 0) {
+            return strerror(i);
+        }
+
+        i = get_string(ldp, entry, "ipaidpTokenEndpoint", &item->idp.ipaidpTokenEndpoint);
+        if (i != 0) {
+            return strerror(i);
+        }
+
+        i = get_string(ldp, entry, "ipaidpUserInfoEndpoint", &item->idp.ipaidpUserInfoEndpoint);
+        if (i != 0) {
+            return strerror(i);
+        }
+
+        /* JWKS end-point may be optional */
+        i = get_string(ldp, entry, "ipaidpKeysEndpoint", &item->idp.ipaidpKeysEndpoint);
+        if ((i != 0) && (i != ENOENT)) {
+            return strerror(i);
+        }
+    }
+
+    i = get_string(ldp, entry, "ipaidpClientID", &item->idp.ipaidpClientID);
+    if (i != 0) {
+        return strerror(i);
+    }
+
+    i = get_string(ldp, entry, "ipaidpScope", &item->idp.ipaidpScope);
+    if ((i != 0) && (i != ENOENT)) {
+        return strerror(i);
+    }
+
+    item->idp.valid = TRUE;
+    return NULL;
 }
 
 /* Parse the user's RADIUS configuration. */

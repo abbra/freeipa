@@ -339,7 +339,16 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
     int pipefd_to_child[2] = { -1, -1};
     int pipefd_from_child[2] = { -1, -1};
     struct child_ctx *child_ctx;
-    char *args[] = {OIDC_CHILD_PATH, NULL, "--issuer-url", NULL, "--client-id", NULL, "-d", "10", "--libcurl-debug", NULL};
+    char *args_issuer[] = {OIDC_CHILD_PATH, NULL, "--issuer-url", NULL, "--client-id", NULL, "-d", "10", "--libcurl-debug", NULL};
+    char *args_endpoints[] = {OIDC_CHILD_PATH, NULL,
+                              "--device-auth-endpoint", NULL,
+                              "--token-endpoint", NULL,
+                              "--userinfo-endpoint", NULL,
+                              "--jwks-uri", NULL,
+                              "--client-id", NULL,
+                              "--scope", NULL,
+                              "-d", "10", "--libcurl-debug", NULL};
+    char **args = NULL;
     const krb5_data *data_state;
     struct otpd_queue_item *saved_item;
 
@@ -382,13 +391,29 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
     otpd_log_req((*item)->req, "oauth2 start: %s",
                                oauth2_state_to_str(oauth2_state));
 
+    if ((*item)->idp.ipaidpIssuerURL != NULL) {
+        args = args_issuer;
+    } else {
+        args = args_endpoints;
+    }
+
     if (oauth2_state == OAUTH2_GET_DEVICE_CODE) {
         args[1] = "--get-device-code";
     } else {
         args[1] = "--get-access-token";
     }
-    args[3] = (*item)->idp.ipaidpIssuerURL;
-    args[5] = (*item)->idp.ipaidpClientID;
+
+    if ((*item)->idp.ipaidpIssuerURL != NULL) {
+        args[3] = (*item)->idp.ipaidpIssuerURL;
+        args[5] = (*item)->idp.ipaidpClientID;
+    } else {
+        args[3] = (*item)->idp.ipaidpAuthEndpoint;
+        args[5] = (*item)->idp.ipaidpTokenEndpoint;
+        args[7] = (*item)->idp.ipaidpUserInfoEndpoint;
+        args[9] = (*item)->idp.ipaidpKeysEndpoint ? (*item)->idp.ipaidpKeysEndpoint : "";
+        args[11] = (*item)->idp.ipaidpClientID;
+        args[13] = (*item)->idp.ipaidpScope ? (*item)->idp.ipaidpScope : "";
+    }
 
     ret = pipe(pipefd_from_child);
     if (ret == -1) {

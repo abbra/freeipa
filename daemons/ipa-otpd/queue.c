@@ -68,7 +68,13 @@ void otpd_queue_item_free(struct otpd_queue_item *item)
     free(item->radius.ipatokenRadiusSecret);
     free(item->radius.ipatokenUserMapAttribute);
     free(item->idp.ipaidpIssuerURL);
+    free(item->idp.ipaidpAuthEndpoint);
+    free(item->idp.ipaidpTokenEndpoint);
+    free(item->idp.ipaidpUserInfoEndpoint);
+    free(item->idp.ipaidpKeysEndpoint);
+    free(item->idp.name);
     free(item->idp.ipaidpClientID);
+    free(item->idp.ipaidpScope);
     free(item->oauth2.device_code_reply);
     free(item->oauth2.state.data);
     free(item->error);
