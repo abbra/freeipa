@@ -172,7 +172,7 @@ static enum oauth2_state get_oauth2_state(enum ldap_query ldap_query,
 
     if (data_pwd == NULL && data_state == NULL) {
         oauth2_state = OAUTH2_GET_DEVICE_CODE;
-    } else if (data_pwd != NULL && data_state != NULL) {
+    } else if (data_pwd == NULL && data_state != NULL) {
         oauth2_state = OAUTH2_GET_ACCESS_TOKEN;
     }
 
