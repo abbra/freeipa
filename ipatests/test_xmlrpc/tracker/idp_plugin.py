@@ -46,7 +46,7 @@ class IdpTracker(Tracker):
             cn=[self.cn],
             objectclass=objectclasses.idp,
         )
-        for key in self.kwargs:
+        for key in self.kwargs.items():
             if key == 'ipaidpclientsecret':
                 self.attrs[key] = [self.kwargs[key].encode('utf-8')]
                 continue
