@@ -1,24 +1,21 @@
+{%- set ns = namespace(objectclasses=['top', 'ad-top', 'group', 'securityprincipal', 'nsmemberof', 'gcobject']) -%}
+{%- import "gc_base.tmpl" as base -%}
+{{- base.add_objectclass('gidnumber', 'posixgroup', entry, ns) -}}
 dn: cn={{ pkey }},cn=users,{{ suffix }}
-objectClass: top
-objectClass: ad-top
-objectClass: group
-objectClass: securityprincipal
-objectClass: nsmemberof
-objectClass: gcobject
 cn: {{ pkey }}
+{%- for el in ns.objectclasses %}
+objectclass: {{ el }}
+{%- endfor %}
 instanceType: 4
+groupType: {{ groupType }}
+gcuuid: {{ entryuuid }}
 name: {{ pkey }}
 objectGUID:: {{ guid }}
 objectSid:: {{ sid }}
-sAMAccountName:  {{ pkey }}
+sAMAccountName: {{ pkey }}
 sAMAccountType: 268435456
 objectCategory: CN=Group,CN=Schema,CN=Configuration,{{ suffix }}
 ntsecuritydescriptor: D:(A;;RPWPCRCCDCLCLORCWOWDSDDTSW;;;DA)(A;;RPWPCRCCDCLCLORCWOWDSDDTSW;;;SY)(A;;RPLCLORC;;;AU)(A;;RPWPCRCCDCLCLORCWOWDSDDTSW;;;AO)(A;;RPLCLORC;;;PS)(OA;;CR;ab721a55-1e2f-11d0-9819-00aa0040529b;;AU)
-{%- for member in entry['member'] %}
-member: {{ member }}
-{%- endfor %}
-{%- for group in entry['memberof'] %}
-memberof: {{ group }}
-{%- endfor %}
-groupType: {{ groupType }}
-gcuuid: {{ entryuuid }}
+{{- base.print_attr('member', entry) -}}
+{{- base.print_attr('memberof', entry) -}}
+{{- base.print_attr('gidnumber', entry) -}}
