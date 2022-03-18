@@ -1,0 +1,14 @@
+{% macro add_objectclass(attr, objectclass, entry, ns) -%}
+{%- if attr in entry -%}
+{%- if not (objectclass in ns.objectclasses) -%}
+{%- set ns.objectclasses = ns.objectclasses + [objectclass] -%}
+{%- endif -%}
+{%- endif -%}
+{%- endmacro -%}
+{%- macro print_attr(attr, entry) %}
+{%- if attr in entry -%}
+{%- for el in entry[attr] %}
+{{ attr }}: {{- el -}}
+{% endfor -%}
+{% endif -%}
+{% endmacro -%}
