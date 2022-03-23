@@ -167,8 +167,10 @@ static enum oauth2_state get_oauth2_state(enum ldap_query ldap_query,
     const krb5_data *data_state;
     enum oauth2_state oauth2_state = OAUTH2_NO;
 
-    data_pwd = krad_packet_get_attr(item->req, krad_attr_name2num("User-Password"), 0);
-    data_state = krad_packet_get_attr(item->req, krad_attr_name2num("State"), 0);
+    data_pwd = krad_packet_get_attr(item->req,
+                                    krad_attr_name2num("User-Password"), 0);
+    data_state = krad_packet_get_attr(item->req,
+                                      krad_attr_name2num("State"), 0);
 
     if (data_pwd == NULL && data_state == NULL) {
         oauth2_state = OAUTH2_GET_DEVICE_CODE;
@@ -204,17 +206,20 @@ static enum oauth2_state get_oauth2_state(enum ldap_query ldap_query,
             if (item->idp.ipaidpAuthEndpoint == NULL) {
                 oauth2_state = OAUTH2_NO;
                 otpd_log_req(item->req,
-                            "OAuth2 not possible, Missing authentication end-point in idp entry");
+                             "OAuth2 not possible, "
+                             "Missing authentication end-point in idp entry");
             }
             if (item->idp.ipaidpTokenEndpoint == NULL) {
                 oauth2_state = OAUTH2_NO;
                 otpd_log_req(item->req,
-                            "OAuth2 not possible, Missing access token end-point in idp entry");
+                             "OAuth2 not possible, "
+                             "Missing access token end-point in idp entry");
             }
             if (item->idp.ipaidpUserInfoEndpoint == NULL) {
                 oauth2_state = OAUTH2_NO;
                 otpd_log_req(item->req,
-                            "OAuth2 not possible, Missing userinfo end-point in idp entry");
+                             "OAuth2 not possible, "
+                             "Missing userinfo end-point in idp entry");
             }
         }
         if (item->idp.ipaidpClientID == NULL) {
@@ -347,7 +352,8 @@ static void on_query_readable(verto_ctx *vctx, verto_ev *ev)
     if (item->error != NULL)
         goto egress;
 
-    if (item->ldap_query == LDAP_QUERY_USER && item->user.ipatokenRadiusConfigLink != NULL) {
+    if (item->ldap_query == LDAP_QUERY_USER &&
+        item->user.ipatokenRadiusConfigLink != NULL) {
 
         push = &ctx.query.requests;
         event = ctx.query.io;

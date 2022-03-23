@@ -75,6 +75,7 @@ void otpd_queue_item_free(struct otpd_queue_item *item)
     free(item->idp.name);
     free(item->idp.ipaidpClientID);
     free(item->idp.ipaidpScope);
+    free(item->idp.ipaidpDebugLevelStr);
     free(item->oauth2.device_code_reply);
     free(item->oauth2.state.data);
     free(item->error);
@@ -207,27 +208,4 @@ void otpd_queue_free_items(struct otpd_queue *q)
 
     q->head = NULL;
     q->tail = NULL;
-}
-
-/* Remove and return an item from the queue. */
-struct otpd_queue_item *otpd_queue_pop_oauth2_state(struct otpd_queue *q,
-                                                    const krb5_data *state)
-{
-    struct otpd_queue_item *item, **prev;
-
-    for (item = q->head, prev = &q->head;
-         item != NULL;
-         prev = &item->next, item = item->next) {
-        if (item->oauth2.state.length == state->length
-                    && memcmp(item->oauth2.state.data,
-                              state->data, state->length) == 0) {
-            *prev = item->next;
-            if (q->head == NULL)
-                q->tail = NULL;
-            item->next = NULL;
-            return item;
-        }
-    }
-
-    return NULL;
 }

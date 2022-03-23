@@ -24,6 +24,7 @@
  * This file parses the user's configuration received from LDAP (see query.c).
  */
 
+#define _GNU_SOURCE  /* for asprintf() */
 #include "internal.h"
 #include <asm-generic/errno-base.h>
 #include <ctype.h>
@@ -202,11 +203,15 @@ const char *otpd_parse_user(LDAP *ldp, LDAPMessage *entry,
   return NULL;
 }
 
+#define ENV_OIDC_CHILD_DEBUG_LEVEL "oidc_child_debug_level"
 /* Parse the IdP configuration */
 const char *otpd_parse_idp(LDAP *ldp, LDAPMessage *entry,
                               struct otpd_queue_item *item)
 {
     int i;
+    long dbg_lvl = 0;
+    const char *dbg_env = NULL;
+    char *endptr = NULL;
 
     item->idp.valid = FALSE;
     i = get_string(ldp, entry, "cn", &item->idp.name);
@@ -251,6 +256,32 @@ const char *otpd_parse_idp(LDAP *ldp, LDAPMessage *entry,
     i = get_string(ldp, entry, "ipaidpScope", &item->idp.ipaidpScope);
     if ((i != 0) && (i != ENOENT)) {
         return strerror(i);
+    }
+
+    item->idp.ipaidpDebugLevelStr = NULL;
+    item->idp.ipaidpDebugCurl = FALSE;
+    dbg_env = getenv(ENV_OIDC_CHILD_DEBUG_LEVEL);
+    if (dbg_env != NULL && *dbg_env != '\0') {
+        errno = 0;
+        dbg_lvl = strtoul(dbg_env, &endptr, 10);
+        if (errno == 0 && *endptr == '\0') {
+            if (dbg_lvl < 0) {
+                dbg_lvl = 0;
+            } else if (dbg_lvl > 10) {
+                dbg_lvl = 10;
+            }
+            if (asprintf(&item->idp.ipaidpDebugLevelStr, "%ld", dbg_lvl) != -1) {
+                if (dbg_lvl > 5) {
+                    item->idp.ipaidpDebugCurl = TRUE;
+                }
+            } else {
+                otpd_log_req(item->req, "Failed to copy debug level");
+            }
+        } else {
+            otpd_log_req(item->req,
+                         "Cannot parse value [%s] from environment variable [%s]",
+                         dbg_env, ENV_OIDC_CHILD_DEBUG_LEVEL);
+        }
     }
 
     item->idp.valid = TRUE;

@@ -89,6 +89,8 @@ struct otpd_queue_item {
         char *ipaidpClientID;
         char *ipaidpScope;
         krb5_boolean valid;
+        char* ipaidpDebugLevelStr;
+        krb5_boolean ipaidpDebugCurl;
     } idp;
 
     struct {
@@ -171,9 +173,6 @@ struct otpd_queue_item *otpd_queue_pop(struct otpd_queue *q);
 struct otpd_queue_item *otpd_queue_pop_msgid(struct otpd_queue *q, int msgid);
 
 void otpd_queue_free_items(struct otpd_queue *q);
-
-struct otpd_queue_item *otpd_queue_pop_oauth2_state(struct otpd_queue *q,
-                                                    const krb5_data *state);
 
 void otpd_on_stdin_readable(verto_ctx *vctx, verto_ev *ev);
 

@@ -134,7 +134,14 @@ static void oauth2_on_child_writable(verto_ctx *vctx, verto_ev *ev)
     verto_del(ev);
 }
 
-#define RAD_STATE_LEN 16
+/* oidc_child will return two lines.
+ * The first is a JSON formatted string containing the device code and other
+ * data needed to get the access token in the second round. This will be
+ * returned to the caller as Radius State so that the caller will send it back
+ * in the next round.
+ * The second line is the string expected by the krb5 oauth2 pre-auth plugin
+ * and will be send to the caller as Radius Reply-Message.
+ */
 static int handle_device_code_reply(struct child_ctx *child_ctx,
                                     const char *dc_reply, char *rad_reply)
 {
@@ -159,7 +166,8 @@ static int handle_device_code_reply(struct child_ctx *child_ctx,
 
     state_item->oauth2.state.data = strdup(dc_reply);
     if (state_item->oauth2.state.data == NULL) {
-        otpd_log_req(child_ctx->item->req, "Failed to copy device code reply to krad.");
+        otpd_log_req(child_ctx->item->req,
+                     "Failed to copy device code reply to krad.");
         goto done;
     }
     state_item->oauth2.state.length = strlen(dc_reply);
@@ -189,7 +197,8 @@ static int handle_device_code_reply(struct child_ctx *child_ctx,
                      "Failed to reply to attribute set");
         goto done;
     }
-    otpd_log_req(child_ctx->item->req, "reply: %d [%s]", data.length, data.data);
+    otpd_log_req(child_ctx->item->req, "reply: %d [%s]", data.length,
+                                                         data.data);
 
     ret = krad_packet_new_response(ctx.kctx, SECRET,
                                    krad_code_name2num("Access-Challenge"),
@@ -339,7 +348,10 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
     int pipefd_to_child[2] = { -1, -1};
     int pipefd_from_child[2] = { -1, -1};
     struct child_ctx *child_ctx;
-    char *args_issuer[] = {OIDC_CHILD_PATH, NULL, "--issuer-url", NULL, "--client-id", NULL, "-d", "10", "--libcurl-debug", NULL};
+    char *args_issuer[] = {OIDC_CHILD_PATH, NULL,
+                           "--issuer-url", NULL,
+                           "--client-id", NULL,
+                           "-d", NULL, "--libcurl-debug", NULL};
     char *args_endpoints[] = {OIDC_CHILD_PATH, NULL,
                               "--device-auth-endpoint", NULL,
                               "--token-endpoint", NULL,
@@ -347,8 +359,9 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
                               "--jwks-uri", NULL,
                               "--client-id", NULL,
                               "--scope", NULL,
-                              "-d", "10", "--libcurl-debug", NULL};
+                              "-d", NULL, "--libcurl-debug", NULL};
     char **args = NULL;
+    size_t args_debug_offset = 0;
     const krb5_data *data_state;
     struct otpd_queue_item *saved_item;
 
@@ -372,7 +385,8 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
             otpd_log_req((*item)->req, "No matching saved state found");
             return EINVAL;
         }
-        saved_item->oauth2.device_code_reply = strndup(data_state->data, data_state->length);
+        saved_item->oauth2.device_code_reply = strndup(data_state->data,
+                                                       data_state->length);
         if (saved_item->oauth2.device_code_reply == NULL) {
             otpd_log_req((*item)->req, "Failed to copy device code reply");
             return EINVAL;
@@ -393,8 +407,10 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
 
     if ((*item)->idp.ipaidpIssuerURL != NULL) {
         args = args_issuer;
+        args_debug_offset = 0;
     } else {
         args = args_endpoints;
+        args_debug_offset = 8;
     }
 
     if (oauth2_state == OAUTH2_GET_DEVICE_CODE) {
@@ -410,9 +426,20 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
         args[3] = (*item)->idp.ipaidpAuthEndpoint;
         args[5] = (*item)->idp.ipaidpTokenEndpoint;
         args[7] = (*item)->idp.ipaidpUserInfoEndpoint;
-        args[9] = (*item)->idp.ipaidpKeysEndpoint ? (*item)->idp.ipaidpKeysEndpoint : "";
+        args[9] = (*item)->idp.ipaidpKeysEndpoint
+                                     ? (*item)->idp.ipaidpKeysEndpoint : "";
         args[11] = (*item)->idp.ipaidpClientID;
         args[13] = (*item)->idp.ipaidpScope ? (*item)->idp.ipaidpScope : "";
+    }
+
+    if ((*item)->idp.ipaidpDebugLevelStr == NULL) {
+        args[args_debug_offset + 6] = NULL;
+        args[args_debug_offset + 8] = NULL;
+    } else {
+        args[args_debug_offset + 7] = (*item)->idp.ipaidpDebugLevelStr;
+        if (!(*item)->idp.ipaidpDebugCurl) {
+            args[args_debug_offset + 8] = NULL;
+        }
     }
 
     ret = pipe(pipefd_from_child);
@@ -483,6 +510,9 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
         verto_set_private(child_ctx->child_ev, child_ctx, free_child_ctx);
 
     } else { /* error */
+        ret = errno;
+        otpd_log_err(ret, "Failed to fork oidc_child");
+        goto done;
     }
 
     ret = 0;
