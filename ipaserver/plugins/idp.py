@@ -2,6 +2,7 @@
 # Copyright (C) 2021  FreeIPA Contributors see COPYING for license
 #
 import logging
+import string
 from urllib.parse import urlparse
 
 from .baseldap import (
@@ -14,6 +15,9 @@ from .baseldap import (
 from ipalib import api, errors, Password, Str, StrEnum, _, ngettext
 from ipalib.plugable import Registry
 from ipapython.dn import DN
+from ipapython.ipautil import template_str
+from copy import deepcopy
+from itertools import chain
 
 logger = logging.getLogger(__name__)
 
@@ -74,11 +78,16 @@ class idp(LDAPObject):
     object_name_plural = _('Identity Provider servers')
     object_class = ['ipaidp']
     default_attributes = [
-        'cn', 'ipaidpauthendpoint',
-        'ipaidptokenendpoint', 'ipaidpclientid', 'ipaidpscope'
+        'cn', 'ipaidpauthendpoint', 'ipaidpdevauthendpoint',
+        'ipaidpuserinfoendpoint', 'ipaidpkeysendpoint',
+        'ipaidptokenendpoint', 'ipaidpissuerurl',
+        'ipaidpclientid', 'ipaidpscope', 'ipaidpsub',
     ]
     search_attributes = [
-        'cn', 'ipaidpauthendpoint', 'ipaidptokenendpoint', 'ipaidpscope']
+        'cn', 'ipaidpauthendpoint', 'ipaidpdevauthendpoint',
+        'ipaidptokenendpoint', 'ipaidpuserinfoendpoint',
+        'ipaidpkeysendpoint', 'ipaidpscope', 'ipaidpsub',
+    ]
     allow_rename = True
     label = _('Identity Provider servers')
     label_singular = _('Identity Provider server')
@@ -89,17 +98,41 @@ class idp(LDAPObject):
             label=_('Identity Provider server name'),
             primary_key=True,
             ),
-        Str('ipaidpauthendpoint',
+        Str('ipaidpauthendpoint?',
             validate_uri,
             cli_name='auth_uri',
             label=_('Authorization URI'),
+            doc=_('OAuth 2.0 authorization endpoint'),
+            ),
+        Str('ipaidpdevauthendpoint?',
+            validate_uri,
+            cli_name='dev_auth_uri',
+            label=_('Device authorization URI'),
             doc=_('Device authorization endpoint'),
             ),
-        Str('ipaidptokenendpoint',
+        Str('ipaidptokenendpoint?',
             validate_uri,
             cli_name='token_uri',
             label=_('Token URI'),
             doc=_('Token endpoint'),
+            ),
+        Str('ipaidpuserinfoendpoint?',
+            validate_uri,
+            cli_name='userinfo_uri',
+            label=_('User info URI'),
+            doc=_('User information endpoint'),
+            ),
+        Str('ipaidpkeysendpoint?',
+            validate_uri,
+            cli_name='keys_uri',
+            label=_('JWKS URI'),
+            doc=_('JWKS endpoint'),
+            ),
+        Str('ipaidpissuerurl?',
+            cli_name='issuer_url',
+            label=_('OIDC URL'),
+            doc=_(
+                'The Identity Provider OIDC URL'),
             ),
         Str('ipaidpclientid',
             cli_name='client_id',
@@ -119,6 +152,11 @@ class idp(LDAPObject):
             label=_('Scope'),
             doc=_('Scope of the access request'),
             ),
+        Str('ipaidpsub?',
+            cli_name='subject',
+            label=_('Subject'),
+            doc=_('Attribute holding user identity in User info'),
+            ),
     )
 
     permission_filter_objectclasses = ['ipaidp']
@@ -134,8 +172,10 @@ class idp(LDAPObject):
             'ipapermright': {'read', 'search', 'compare'},
             'ipapermdefaultattr': {
                 'cn', 'objectclass', 'ipaidpauthendpoint',
-                'ipaidptokenendpoint', 'ipaidpclientid',
-                'ipaidpscope'
+                'ipaidpdevauthendpoint', 'ipaidpuserinfoendpoint',
+                'ipaidptokenendpoint', 'ipaidpkeysendpoint',
+                'ipaidpissuerurl', 'ipaidpclientid', 'ipaidpscope',
+                'ipaidpsub',
             },
             'ipapermlocation': DN(container_dn, api.env.basedn),
             'ipapermtargetfilter': {
@@ -147,8 +187,10 @@ class idp(LDAPObject):
             'ipapermlocation': DN(container_dn, api.env.basedn),
             'ipapermdefaultattr': {
                 'cn', 'objectclass', 'ipaidpauthendpoint',
-                'ipaidptokenendpoint', 'ipaidpclientid',
-                'ipaidpscope', 'ipaidpclientsecret',
+                'ipaidpdevauthendpoint', 'ipaidpuserinfoendpoint',
+                'ipaidptokenendpoint', 'ipaidpkeysendpoint',
+                'ipaidpissuerurl', 'ipaidpclientid', 'ipaidpscope',
+                'ipaidpclientsecret', 'ipaidpsub',
             },
             'default_privileges': {'External IdP server Administrators'}
         },
@@ -164,8 +206,10 @@ class idp(LDAPObject):
             'ipapermlocation': DN(container_dn, api.env.basedn),
             'ipapermdefaultattr': {
                 'cn', 'objectclass', 'ipaidpauthendpoint',
-                'ipaidptokenendpoint', 'ipaidpclientid',
-                'ipaidpscope', 'ipaidpclientsecret'
+                'ipaidpdevauthendpoint', 'ipaidpuserinfoendpoint',
+                'ipaidptokenendpoint', 'ipaidpissuerurl',
+                'ipaidpkeysendpoint', 'ipaidpclientid', 'ipaidpscope',
+                'ipaidpclientsecret', 'ipaidpsub',
             },
             'ipapermtargetfilter': {
                 '(objectclass=ipaidp)'},
@@ -179,27 +223,48 @@ class idp_add(LDAPCreate):
     msg_summary = _('Added Identity Provider server "%(value)s"')
 
     # List of pre-populated idp endpoints
-    # key = provider, value = tuple of (auth-uri, token-uri)
+    # key = provider,
+    # value = dictionary of overidden attributes
     idp_providers = {
-        'google': (
-            'https://oauth2.googleapis.com/device/code',
-            'https://oauth2.googleapis.com/token'),
-        'github': (
-            'https://github.com/login/device',
-            'https://github.com/login/oauth/access_token'),
-        'microsoft-common': (
-            'https://login.microsoftonline.com/common/oauth2/v2.0/devicecode',
-            'https://login.microsoftonline.com/common/oauth2/v2.0/token'),
-        'microsoft-consumer': (
-            'https://login.microsoftonline.com/consumer/oauth2/v2.0/'
-            'devicecode',
-            'https://login.microsoftonline.com/consumer/oauth2/v2.0/token'
-        ),
-        'microsoft-organizations': (
-            'https://login.microsoftonline.com/organizations/oauth2/v2.0/'
-            'devicecode',
-            'https://login.microsoftonline.com/organizations/oauth2/v2.0/token'
-        ),
+        'google': {
+            'ipaidpauthendpoint':
+                'https://accounts.google.com/o/oauth2/auth',
+            'ipaidpdevauthendpoint':
+                'https://oauth2.googleapis.com/device/code',
+            'ipaidptokenendpoint':
+                'https://oauth2.googleapis.com/token',
+            'ipaidpuserinfoendpoint':
+                'https://openidconnect.googleapis.com/v1/userinfo',
+            'ipaidpkeysendpoint':
+                'https://www.googleapis.com/oauth2/v3/certs',
+            'ipaidpscope': 'openid email',
+            'ipaidpsub': 'email'},
+        'github': {
+            'ipaidpauthendpoint':
+                'https://github.com/login/oauth/authorize',
+            'ipaidpdevauthendpoint':
+                'https://github.com/login/device/code',
+            'ipaidptokenendpoint':
+                'https://github.com/login/oauth/access_token',
+            'ipaidpuserinfoendpoint':
+                'https://api.github.com/user',
+            'ipaidpsub': 'login user'},
+        'microsoft': {
+            'ipaidpauthendpoint':
+                'https://login.microsoftonline.com/${org}/oauth2/v2.0/'
+                'authorize',
+            'ipaidpdevauthendpoint':
+                'https://login.microsoftonline.com/${org}/oauth2/v2.0/'
+                'devicecode',
+            'ipaidptokenendpoint':
+                'https://login.microsoftonline.com/${org}/oauth2/v2.0/token',
+            'ipaidpuserinfoendpoint':
+                'https://graph.microsoft.com/oidc/userinfo',
+            'ipaidpkeysendpoint':
+                'https://login.microsoftonline.com/common/discovery/v2.0/keys',
+            'ipaidpscope': 'openid email',
+            'ipaidpsub': 'email',
+        },
     }
 
     takes_options = LDAPCreate.takes_options + (
@@ -208,11 +273,17 @@ class idp_add(LDAPCreate):
             cli_name='provider',
             label=_(''),
             flags={'virtual_attribute', 'no_create', 'no_update', 'nosearch'},
-            values=tuple(idp_providers),
+            values=tuple(idp_providers.keys()),
         ),
+        Str('org?',
+            cli_name='organization',
+            label=_('Organization'),
+            doc=_('Organization ID or Realm name for IdP provider templates'),
+            flags={'virtual_attribute', 'no_create', 'no_update', 'nosearch'}),
     )
 
-    def _convert_provider_to_endpoints(self, entry_attrs, provider=None):
+    def _convert_provider_to_endpoints(self, entry_attrs,
+                                       provider=None, elements=None):
         """
         Converts provider options to auth-uri and token-uri
         """
@@ -222,16 +293,30 @@ class idp_add(LDAPCreate):
                     name='provider',
                     error=_('unknown provider')
                 )
-            (auth_endpoint, token_endpoint) = self.idp_providers[provider]
-
-            entry_attrs['ipaidpauthendpoint'] = auth_endpoint
-            entry_attrs['ipaidptokenendpoint'] = token_endpoint
+            # For each string in the template check if a variable
+            # is required, it is provided as an option
+            points = deepcopy(self.idp_providers[provider])
+            r = string.Template.pattern
+            for (k,v) in points.items():
+                # build list of variables to be replaced
+                subs = list(chain.from_iterable(
+                            (filter(None, s) for s in r.findall(v))))
+                if subs:
+                    for s in subs:
+                        if s not in elements:
+                            raise errors.ValidationError(
+                                name=self.options[s].cli_name,
+                                error=_('value is missing'))
+                    points[k] = template_str(v, elements)
+            entry_attrs.update(points)
 
     def get_options(self):
-        # token and auth URIs are not mandatory as they can be built
-        # from the value of provider
+        # Some URIs are not mandatory as they can be built from the value of
+        # provider.
         for option in super(idp_add, self).get_options():
-            if option.name in ('ipaidpauthendpoint', 'ipaidptokenendpoint'):
+            if option.name in ('ipaidpauthendpoint', 'ipaidpdevauthendpoint',
+                               'ipaidptokenendpoint', 'ipaidpuserinfoendpoint',
+                               'ipaidpkeysendpoint'):
                 yield option.clone(required=False, alwaysask=False)
             else:
                 yield option
@@ -239,33 +324,45 @@ class idp_add(LDAPCreate):
     def pre_callback(self, ldap, dn, entry_attrs, attrs_list, *keys,
                      **options):
         # The valid calls are
-        # ipa idp-add --provider provider IDP
-        # ipa idp-add --auth-uri auth --token-uri token IDP
+        # ipa idp-add --provider provider IDP [client details]
+        # ipa idp-add --dev-auth-uri auth --token-uri token-uri IDP
         auth = options.get('ipaidpauthendpoint')
+        devauth = options.get('ipaidpdevauthendpoint')
         token = options.get('ipaidptokenendpoint')
+        userinfo = options.get('ipaidpuserinfoendpoint')
+        jwks = options.get('ipaidpkeysendpoint')
         provider = options.get('ipaidpprovider')
 
-        # If the provider is supplied, don't provide auth or token uris
-        if auth or token:
+        # If the provider is supplied, reject individual endpoints
+        if any([devauth, auth, token, userinfo, jwks]):
             if provider:
                 raise errors.MutuallyExclusiveError(
-                    reason=_('cannot specify both auth-uri/token-uri '
-                             'and provider'))
+                    reason=_('cannot specify both individual endpoints '
+                             'and IdP provider'))
 
-        # If there is no --provider, --auth-uri and --token-uri are required
+        # If there is no --provider, individual endpoints required
+        if not provider and not devauth:
+            raise errors.RequirementError(name='dev-auth-uri or provider')
         if not provider and not auth:
             raise errors.RequirementError(name='auth-uri or provider')
         if not provider and not token:
             raise errors.RequirementError(name='token-uri or provider')
+        if not provider and not userinfo:
+            raise errors.RequirementError(name='userinfo-uri or provider')
 
         # if the command is called with --provider we need to add
-        # ipaidpauthendpoint and ipaidptokenendpoint to the attrs list
-        # in order to display the resulting value in the command output
-        for endpoint in ['ipaidpauthendpoint', 'ipaidptokenendpoint']:
+        # ipaidpdevauthendpoint, ipaidpauthendpoint, and ipaidptokenendpoint
+        # to the attrs list in order to display the resulting value in
+        # the command output
+        for endpoint in ['ipaidpauthendpoint', 'ipaidpdevauthendpoint',
+                         'ipaidptokenendpoint', 'ipaidpuserinfoendpoint',
+                         'ipaidpkeysendpoint']:
             if endpoint not in attrs_list:
                 attrs_list.append(endpoint)
 
-        self._convert_provider_to_endpoints(entry_attrs, provider=provider)
+        self._convert_provider_to_endpoints(entry_attrs,
+                                            provider=provider,
+                                            elements=options)
         return dn
 
 
