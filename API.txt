@@ -3052,16 +3052,20 @@ output: Entry('result')
 output: Output('summary', type=[<type 'unicode'>, <type 'NoneType'>])
 output: PrimaryKey('value')
 command: idp_add/1
-args: 1,11,3
+args: 1,15,3
 arg: Str('cn', cli_name='name')
 option: Str('addattr*', cli_name='addattr')
 option: Flag('all', autofill=True, cli_name='all', default=False)
 option: Str('ipaidpauthendpoint?', alwaysask=False, cli_name='auth_uri')
 option: Str('ipaidpclientid', cli_name='client_id')
 option: Password('ipaidpclientsecret?', cli_name='secret', confirm=True)
+option: Str('ipaidpissuerurl?', cli_name='issuer_url')
+option: Str('ipaidpkeysendpoint?', alwaysask=False, cli_name='keys_uri')
 option: StrEnum('ipaidpprovider?', cli_name='provider', values=[u'google', u'github', u'microsoft-common', u'microsoft-consumer', u'microsoft-organizations'])
 option: Str('ipaidpscope?', cli_name='scope')
+option: Str('ipaidpsub?', cli_name='subject')
 option: Str('ipaidptokenendpoint?', alwaysask=False, cli_name='token_uri')
+option: Str('ipaidpuserinfoendpoint?', alwaysask=False, cli_name='userinfo_uri')
 option: Flag('raw', autofill=True, cli_name='raw', default=False)
 option: Str('setattr*', cli_name='setattr')
 option: Str('version?')
@@ -3077,15 +3081,19 @@ output: Output('result', type=[<type 'dict'>])
 output: Output('summary', type=[<type 'unicode'>, <type 'NoneType'>])
 output: ListOfPrimaryKeys('value')
 command: idp_find/1
-args: 1,12,4
+args: 1,16,4
 arg: Str('criteria?')
 option: Flag('all', autofill=True, cli_name='all', default=False)
 option: Str('cn?', autofill=False, cli_name='name')
 option: Str('ipaidpauthendpoint?', autofill=False, cli_name='auth_uri')
 option: Str('ipaidpclientid?', autofill=False, cli_name='client_id')
 option: Password('ipaidpclientsecret?', autofill=False, cli_name='secret', confirm=True)
+option: Str('ipaidpissuerurl?', autofill=False, cli_name='issuer_url')
+option: Str('ipaidpkeysendpoint?', autofill=False, cli_name='keys_uri')
 option: Str('ipaidpscope?', autofill=False, cli_name='scope')
+option: Str('ipaidpsub?', autofill=False, cli_name='subject')
 option: Str('ipaidptokenendpoint?', autofill=False, cli_name='token_uri')
+option: Str('ipaidpuserinfoendpoint?', autofill=False, cli_name='userinfo_uri')
 option: Flag('pkey_only?', autofill=True, default=False)
 option: Flag('raw', autofill=True, cli_name='raw', default=False)
 option: Int('sizelimit?', autofill=False)
@@ -3096,7 +3104,7 @@ output: ListOfEntries('result')
 output: Output('summary', type=[<type 'unicode'>, <type 'NoneType'>])
 output: Output('truncated', type=[<type 'bool'>])
 command: idp_mod/1
-args: 1,13,3
+args: 1,17,3
 arg: Str('cn', cli_name='name')
 option: Str('addattr*', cli_name='addattr')
 option: Flag('all', autofill=True, cli_name='all', default=False)
@@ -3104,8 +3112,12 @@ option: Str('delattr*', cli_name='delattr')
 option: Str('ipaidpauthendpoint?', autofill=False, cli_name='auth_uri')
 option: Str('ipaidpclientid?', autofill=False, cli_name='client_id')
 option: Password('ipaidpclientsecret?', autofill=False, cli_name='secret', confirm=True)
+option: Str('ipaidpissuerurl?', autofill=False, cli_name='issuer_url')
+option: Str('ipaidpkeysendpoint?', autofill=False, cli_name='keys_uri')
 option: Str('ipaidpscope?', autofill=False, cli_name='scope')
+option: Str('ipaidpsub?', autofill=False, cli_name='subject')
 option: Str('ipaidptokenendpoint?', autofill=False, cli_name='token_uri')
+option: Str('ipaidpuserinfoendpoint?', autofill=False, cli_name='userinfo_uri')
 option: Flag('raw', autofill=True, cli_name='raw', default=False)
 option: Str('rename?', cli_name='rename')
 option: Flag('rights', autofill=True, default=False)
@@ -5051,7 +5063,7 @@ output: Entry('result')
 output: Output('summary', type=[<type 'unicode'>, <type 'NoneType'>])
 output: PrimaryKey('value')
 command: stageuser_add/1
-args: 1,46,3
+args: 1,47,3
 arg: Str('uid', cli_name='login')
 option: Str('addattr*', cli_name='addattr')
 option: Flag('all', autofill=True, cli_name='all', default=False)
@@ -5069,6 +5081,7 @@ option: Str('givenname', cli_name='first')
 option: Str('homedirectory?', cli_name='homedir')
 option: Str('initials?', autofill=True)
 option: Str('ipaidpconfiglink?', cli_name='idp')
+option: Str('ipaidpsub?', cli_name='idp_user')
 option: Str('ipasshpubkey*', cli_name='sshpubkey')
 option: Str('ipatokenradiusconfiglink?', cli_name='radius')
 option: Str('ipatokenradiususername?', cli_name='radius_username')
@@ -5158,7 +5171,7 @@ output: Output('result', type=[<type 'dict'>])
 output: Output('summary', type=[<type 'unicode'>, <type 'NoneType'>])
 output: ListOfPrimaryKeys('value')
 command: stageuser_find/1
-args: 1,61,4
+args: 1,62,4
 arg: Str('criteria?')
 option: Flag('all', autofill=True, cli_name='all', default=False)
 option: Str('carlicense*', autofill=False)
@@ -5180,6 +5193,7 @@ option: Str('in_subid*', cli_name='in_subids')
 option: Str('in_sudorule*', cli_name='in_sudorules')
 option: Str('initials?', autofill=False)
 option: Str('ipaidpconfiglink?', autofill=False, cli_name='idp')
+option: Str('ipaidpsub?', autofill=False, cli_name='idp_user')
 option: Str('ipanthomedirectory?', autofill=False, cli_name='smb_home_dir')
 option: StrEnum('ipanthomedirectorydrive?', autofill=False, cli_name='smb_home_drive', values=[u'A:', u'B:', u'C:', u'D:', u'E:', u'F:', u'G:', u'H:', u'I:', u'J:', u'K:', u'L:', u'M:', u'N:', u'O:', u'P:', u'Q:', u'R:', u'S:', u'T:', u'U:', u'V:', u'W:', u'X:', u'Y:', u'Z:'])
 option: Str('ipantlogonscript?', autofill=False, cli_name='smb_logon_script')
@@ -5226,7 +5240,7 @@ output: ListOfEntries('result')
 output: Output('summary', type=[<type 'unicode'>, <type 'NoneType'>])
 output: Output('truncated', type=[<type 'bool'>])
 command: stageuser_mod/1
-args: 1,52,3
+args: 1,53,3
 arg: Str('uid', cli_name='login')
 option: Str('addattr*', cli_name='addattr')
 option: Flag('all', autofill=True, cli_name='all', default=False)
@@ -5244,6 +5258,7 @@ option: Str('givenname?', autofill=False, cli_name='first')
 option: Str('homedirectory?', autofill=False, cli_name='homedir')
 option: Str('initials?', autofill=False)
 option: Str('ipaidpconfiglink?', autofill=False, cli_name='idp')
+option: Str('ipaidpsub?', autofill=False, cli_name='idp_user')
 option: Str('ipanthomedirectory?', autofill=False, cli_name='smb_home_dir')
 option: StrEnum('ipanthomedirectorydrive?', autofill=False, cli_name='smb_home_drive', values=[u'A:', u'B:', u'C:', u'D:', u'E:', u'F:', u'G:', u'H:', u'I:', u'J:', u'K:', u'L:', u'M:', u'N:', u'O:', u'P:', u'Q:', u'R:', u'S:', u'T:', u'U:', u'V:', u'W:', u'X:', u'Y:', u'Z:'])
 option: Str('ipantlogonscript?', autofill=False, cli_name='smb_logon_script')
@@ -6234,7 +6249,7 @@ output: Entry('result')
 output: Output('summary', type=[<type 'unicode'>, <type 'NoneType'>])
 output: PrimaryKey('value')
 command: user_add/1
-args: 1,47,3
+args: 1,48,3
 arg: Str('uid', cli_name='login')
 option: Str('addattr*', cli_name='addattr')
 option: Flag('all', autofill=True, cli_name='all', default=False)
@@ -6251,6 +6266,7 @@ option: Str('givenname', cli_name='first')
 option: Str('homedirectory?', cli_name='homedir')
 option: Str('initials?', autofill=True)
 option: Str('ipaidpconfiglink?', cli_name='idp')
+option: Str('ipaidpsub?', cli_name='idp_user')
 option: Str('ipasshpubkey*', cli_name='sshpubkey')
 option: Str('ipatokenradiusconfiglink?', cli_name='radius')
 option: Str('ipatokenradiususername?', cli_name='radius_username')
@@ -6357,7 +6373,7 @@ output: Output('result', type=[<type 'bool'>])
 output: Output('summary', type=[<type 'unicode'>, <type 'NoneType'>])
 output: PrimaryKey('value')
 command: user_find/1
-args: 1,64,4
+args: 1,65,4
 arg: Str('criteria?')
 option: Flag('all', autofill=True, cli_name='all', default=False)
 option: Str('carlicense*', autofill=False)
@@ -6379,6 +6395,7 @@ option: Str('in_subid*', cli_name='in_subids')
 option: Str('in_sudorule*', cli_name='in_sudorules')
 option: Str('initials?', autofill=False)
 option: Str('ipaidpconfiglink?', autofill=False, cli_name='idp')
+option: Str('ipaidpsub?', autofill=False, cli_name='idp_user')
 option: Str('ipanthomedirectory?', autofill=False, cli_name='smb_home_dir')
 option: StrEnum('ipanthomedirectorydrive?', autofill=False, cli_name='smb_home_drive', values=[u'A:', u'B:', u'C:', u'D:', u'E:', u'F:', u'G:', u'H:', u'I:', u'J:', u'K:', u'L:', u'M:', u'N:', u'O:', u'P:', u'Q:', u'R:', u'S:', u'T:', u'U:', u'V:', u'W:', u'X:', u'Y:', u'Z:'])
 option: Str('ipantlogonscript?', autofill=False, cli_name='smb_logon_script')
@@ -6428,7 +6445,7 @@ output: ListOfEntries('result')
 output: Output('summary', type=[<type 'unicode'>, <type 'NoneType'>])
 output: Output('truncated', type=[<type 'bool'>])
 command: user_mod/1
-args: 1,53,3
+args: 1,54,3
 arg: Str('uid', cli_name='login')
 option: Str('addattr*', cli_name='addattr')
 option: Flag('all', autofill=True, cli_name='all', default=False)
@@ -6446,6 +6463,7 @@ option: Str('givenname?', autofill=False, cli_name='first')
 option: Str('homedirectory?', autofill=False, cli_name='homedir')
 option: Str('initials?', autofill=False)
 option: Str('ipaidpconfiglink?', autofill=False, cli_name='idp')
+option: Str('ipaidpsub?', autofill=False, cli_name='idp_user')
 option: Str('ipanthomedirectory?', autofill=False, cli_name='smb_home_dir')
 option: StrEnum('ipanthomedirectorydrive?', autofill=False, cli_name='smb_home_drive', values=[u'A:', u'B:', u'C:', u'D:', u'E:', u'F:', u'G:', u'H:', u'I:', u'J:', u'K:', u'L:', u'M:', u'N:', u'O:', u'P:', u'Q:', u'R:', u'S:', u'T:', u'U:', u'V:', u'W:', u'X:', u'Y:', u'Z:'])
 option: Str('ipantlogonscript?', autofill=False, cli_name='smb_logon_script')
@@ -7416,10 +7434,10 @@ default: vaultcontainer_del/1
 default: vaultcontainer_remove_owner/1
 default: vaultcontainer_show/1
 default: whoami/1
+capability: vault_aes_keywrap 2.246
 capability: messages 2.52
 capability: optional_uid_params 2.54
 capability: permissions2 2.69
 capability: primary_key_types 2.83
 capability: datetime_values 2.84
 capability: dns_name_values 2.88
-capability: vault_aes_keywrap 2.246

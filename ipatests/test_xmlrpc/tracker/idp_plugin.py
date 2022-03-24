@@ -13,8 +13,9 @@ class IdpTracker(Tracker):
     """Class for ipd tests"""
 
     retrieve_keys = {
-        'dn', 'cn', 'ipaidpauthendpoint', 'ipaidptokenendpoint',
-        'ipaidpclientid', 'ipaidpscope'}
+        'dn', 'cn', 'ipaidpauthendpoint', 'ipaidpuserinfoendpoint',
+        'ipaidpkeysendpoint', 'ipaidptokenendpoint', 'ipaidpissuerurl',
+        'ipaidpclientid', 'ipaidpscope', 'ipaidpsub'}
 
     retrieve_all_keys = retrieve_keys | {
         'objectclass', 'ipaidpclientsecret'
@@ -46,14 +47,14 @@ class IdpTracker(Tracker):
             cn=[self.cn],
             objectclass=objectclasses.idp,
         )
-        for key in self.kwargs.items():
+        for key, value in self.kwargs.items():
             if key == 'ipaidpclientsecret':
-                self.attrs[key] = [self.kwargs[key].encode('utf-8')]
+                self.attrs[key] = [value.encode('utf-8')]
                 continue
-            if type(self.kwargs[key]) is not list:
-                self.attrs[key] = [self.kwargs[key]]
+            if type(value) is not list:
+                self.attrs[key] = [value]
             else:
-                self.attrs[key] = self.kwargs[key]
+                self.attrs[key] = value
         self.exists = True
 
     def check_create(self, result, extra_keys=()):

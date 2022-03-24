@@ -13,11 +13,11 @@ from ipatests.test_xmlrpc.xmlrpc_test import (
     XMLRPC_test, raises_exact)
 from ipatests.test_xmlrpc.tracker.idp_plugin import IdpTracker
 
-
 google_auth = "https://oauth2.googleapis.com/device/code"
 google_token = "https://oauth2.googleapis.com/token"
-github_auth = "https://github.com/login/device"
-github_token = "https://github.com/login/oauth/access_token"
+google_userinfo = "https://openidconnect.googleapis.com/v1/userinfo"
+google_jwks = "https://www.googleapis.com/oauth2/v3/certs"
+
 idp_scope = "profile email"
 
 
@@ -25,6 +25,8 @@ idp_scope = "profile email"
 def idp(request, xmlrpc_setup):
     tracker = IdpTracker('idp1', ipaidpauthendpoint=google_auth,
                          ipaidptokenendpoint=google_token,
+                         ipaidpuserinfoendpoint=google_userinfo,
+                         ipaidpkeysendpoint=google_jwks,
                          ipaidpclientid="idp1client",
                          ipaidpclientsecret="Secret123",
                          ipaidpscope=idp_scope)
@@ -35,6 +37,8 @@ def idp(request, xmlrpc_setup):
 def renamedidp(request, xmlrpc_setup):
     tracker = IdpTracker('idp2', ipaidpauthendpoint=google_auth,
                          ipaidptokenendpoint=google_token,
+                         ipaidpuserinfoendpoint=google_userinfo,
+                         ipaidpkeysendpoint=google_jwks,
                          ipaidpclientid="idp1client",
                          ipaidpclientsecret="Secret123",
                          ipaidpscope=idp_scope)
@@ -144,6 +148,8 @@ class TestCreateIdp(XMLRPC_test):
         """ Creation with only mandatory parameters """
         idp_min = IdpTracker('min_idp', ipaidpauthendpoint=google_auth,
                              ipaidptokenendpoint=google_token,
+                             ipaidpuserinfoendpoint=google_userinfo,
+                             ipaidpkeysendpoint=google_jwks,
                              ipaidpclientid="idp1client")
         idp_min.track_create()
         command = idp_min.make_create_command()
