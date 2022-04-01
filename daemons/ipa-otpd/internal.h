@@ -28,6 +28,13 @@
 
 #include <errno.h>
 
+#ifndef UCHAR_MAX
+#define UCHAR_MAX 255
+#endif
+
+/* RFC 2865 */
+#define MAX_ATTRSIZE (UCHAR_MAX - 2)
+
 #define SECRET ""
 #define otpd_log_req(req, ...) \
     otpd_log_req_(__FILE__, __LINE__, (req), __VA_ARGS__)

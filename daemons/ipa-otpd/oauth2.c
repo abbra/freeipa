@@ -26,6 +26,7 @@
  * accordingly. The result is placed in the stdout queue (stdio.c).
  */
 
+#include <krb5/krb5.h>
 #include <stdbool.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -134,11 +135,87 @@ static void oauth2_on_child_writable(verto_ctx *vctx, verto_ev *ev)
     verto_del(ev);
 }
 
+#define min(a,b) ((a) > (b) ? (b) : (a))
+static int add_krad_attr_to_set(struct child_ctx *child_ctx,
+                                krad_attrset *attrset,
+                                krb5_data *datap,
+                                krad_attr attr, const char *message)
+{
+    krb5_data state = {0};
+    char *p = datap->data;
+    unsigned int len = datap->length;
+    int ret = 0;
+
+    do {
+        state.data = p;
+        state.length = min(MAX_ATTRSIZE - 5, len);
+        p += state.length;
+
+        ret = krad_attrset_add(attrset, attr, &(state));
+        if (ret != 0) {
+            otpd_log_req(child_ctx->item->req, message);
+            break;
+        }
+        len -= state.length;
+    } while (len > 0);
+
+    return ret;
+}
+
+/* Most attributes have limited length (MAX_ATTRSIZE). In order to accept longer
+ * values, we will concatenate all the attribute values to single krb5_data. */
+static int get_krad_attr_from_packet(const krad_packet *rres,
+                                     krad_attr attr, krb5_data *_data)
+{
+    const krb5_data *rmsg;
+    krb5_data data = {0};
+    unsigned int memindex;
+    unsigned int i;
+
+    i = 0;
+    do {
+        rmsg = krad_packet_get_attr(rres, attr, i);
+        if (rmsg != NULL) {
+            data.length += rmsg->length;
+        }
+        i++;
+    } while (rmsg != NULL);
+
+    if (data.length == 0) {
+        return ENOENT;
+    }
+
+    data.data = malloc(data.length);
+    if (data.data == NULL) {
+        return ENOMEM;
+    }
+
+    i = 0;
+    memindex = 0;
+    do {
+        rmsg = krad_packet_get_attr(rres, attr, i);
+        if (rmsg != NULL) {
+            memcpy(&data.data[memindex], rmsg->data, rmsg->length);
+            memindex += rmsg->length;
+        }
+        i++;
+    } while (rmsg != NULL);
+
+    if (memindex != data.length) {
+        free(data.data);
+        return ERANGE;
+    }
+
+    *_data = data;
+
+    return 0;
+}
+
 /* oidc_child will return two lines.
  * The first is a JSON formatted string containing the device code and other
  * data needed to get the access token in the second round. This will be
- * returned to the caller as Radius State so that the caller will send it back
- * in the next round.
+ * returned to the caller as Radius Proxy-State so that the caller will send
+ * it back in the next round.
  * The second line is the string expected by the krb5 oauth2 pre-auth plugin
  * and will be send to the caller as Radius Reply-Message.
  */
@@ -162,6 +239,13 @@ static int handle_device_code_reply(struct child_ctx *child_ctx,
         goto done;
     }
 
+    ret = krad_attrset_new(ctx.kctx, &attrset);
+    if (ret != 0) {
+        otpd_log_req(child_ctx->item->req,
+                     "Failed to create radius attribute set");
+        goto done;
+    }
+
     state_item->oauth2.state.magic = 0;
 
     state_item->oauth2.state.data = strdup(dc_reply);
@@ -172,33 +256,22 @@ static int handle_device_code_reply(struct child_ctx *child_ctx,
     }
     state_item->oauth2.state.length = strlen(dc_reply);
 
-
-    ret = krad_attrset_new(ctx.kctx, &attrset);
+    ret = add_krad_attr_to_set(child_ctx, attrset, &(state_item->oauth2.state),
+                               krad_attr_name2num("Proxy-State"),
+                               "Failed to serialize state to attribute set");
     if (ret != 0) {
-        otpd_log_req(child_ctx->item->req,
-                     "Failed to create radius attribute set");
-        goto done;
-    }
-
-    ret = krad_attrset_add(attrset, krad_attr_name2num("State"),
-                           &(state_item->oauth2.state));
-    if (ret != 0) {
-        otpd_log_req(child_ctx->item->req,
-                     "Failed to state to attribute set");
         goto done;
     }
 
     data.magic = 0;
     data.data = rad_reply;
     data.length = strlen(rad_reply);
-    ret = krad_attrset_add(attrset, krad_attr_name2num("Reply-Message"), &data);
+    ret = add_krad_attr_to_set(child_ctx, attrset, &data,
+                               krad_attr_name2num("Reply-Message"),
+                               "Failed to serialize reply to attribute set");
     if (ret != 0) {
-        otpd_log_req(child_ctx->item->req,
-                     "Failed to reply to attribute set");
         goto done;
     }
-    otpd_log_req(child_ctx->item->req, "reply: %d [%s]", data.length,
-                                                         data.data);
 
     ret = krad_packet_new_response(ctx.kctx, SECRET,
                                    krad_code_name2num("Access-Challenge"),
@@ -352,7 +425,7 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
      * is controlled inside this function. Right now max used is below 20 */
     char *args[50] = {NULL};
     size_t args_idx = 0;
-    const krb5_data *data_state;
+    krb5_data data_state = {0};
     struct otpd_queue_item *saved_item;
 
     if (oauth2_state != OAUTH2_GET_DEVICE_CODE
@@ -363,10 +436,11 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
     }
 
     if (oauth2_state == OAUTH2_GET_ACCESS_TOKEN) {
-        data_state = krad_packet_get_attr((*item)->req,
-                                          krad_attr_name2num("State"), 0);
-        if (data_state == NULL) {
-            otpd_log_req((*item)->req, "Missing Radius State attribute");
+        ret = get_krad_attr_from_packet((*item)->req,
+                                               krad_attr_name2num("Proxy-State"),
+                                               &data_state);
+        if ((ret != 0) || (data_state.length == 0)) {
+            otpd_log_req((*item)->req, "Missing Radius Proxy-State attribute");
             return EINVAL;
         }
 
@@ -375,12 +449,13 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
             otpd_log_req((*item)->req, "No matching saved state found");
             return EINVAL;
         }
-        saved_item->oauth2.device_code_reply = strndup(data_state->data,
-                                                       data_state->length);
+        saved_item->oauth2.device_code_reply = strndup(data_state.data,
+                                                       data_state.length);
         if (saved_item->oauth2.device_code_reply == NULL) {
             otpd_log_req((*item)->req, "Failed to copy device code reply");
             return EINVAL;
         }
+        krb5_free_data_contents(NULL, &data_state);
     }
 
     child_ctx = calloc(sizeof(struct child_ctx), 1);

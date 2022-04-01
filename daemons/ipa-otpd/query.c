@@ -171,7 +171,7 @@ static enum oauth2_state get_oauth2_state(enum ldap_query ldap_query,
     data_pwd = krad_packet_get_attr(item->req,
                                     krad_attr_name2num("User-Password"), 0);
     data_state = krad_packet_get_attr(item->req,
-                                      krad_attr_name2num("State"), 0);
+                                      krad_attr_name2num("Proxy-State"), 0);
 
     if (data_pwd == NULL && data_state == NULL) {
         oauth2_state = OAUTH2_GET_DEVICE_CODE;
