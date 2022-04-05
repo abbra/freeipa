@@ -316,8 +316,12 @@ static void ipadb_validate_radius(struct ipadb_context *ipactx,
                                "ipatokenRadiusConfigLink");
     if (vals == NULL || vals[0] == NULL)
         *ua &= ~IPADB_USER_AUTH_RADIUS;
-    else
-        *ua = IPADB_USER_AUTH_RADIUS;
+    else {
+        /* OTP use implies presence of password in IPA LDAP,
+         * this is incompatible with RADIUS proxy case where
+         * a password in LDAP is not used anymore. */
+        *ua &= ~IPADB_USER_AUTH_OTP;
+    }
 
     if (vals != NULL)
         ldap_value_free_len(vals);
