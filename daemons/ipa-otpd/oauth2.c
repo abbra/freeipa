@@ -501,6 +501,11 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
     args[args_idx++] = "--client-id";
     args[args_idx++] = (*item)->idp.ipaidpClientID;
 
+    if ((*item)->idp.ipaidpClientSecret) {
+        args[args_idx++] = "--client-secret";
+        args[args_idx++] = (*item)->idp.ipaidpClientSecret;
+    }
+
     if ((*item)->idp.ipaidpScope) {
         args[args_idx++] = "--scope";
         args[args_idx++] = (*item)->idp.ipaidpScope;
@@ -519,6 +524,12 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
     if ((*item)->idp.ipaidpDebugCurl) {
         args[args_idx++] = "--libcurl-debug";
     }
+
+#if 0
+    for (int i; args[i]; i++) {
+        otpd_log_req((*item)->req, "oidc_child exec: %s", args[i]);
+    }
+#endif
 
     ret = pipe(pipefd_from_child);
     if (ret == -1) {

@@ -74,6 +74,11 @@ void otpd_queue_item_free(struct otpd_queue_item *item)
     free(item->idp.ipaidpKeysEndpoint);
     free(item->idp.name);
     free(item->idp.ipaidpClientID);
+    if (item->idp.ipaidpClientSecret != NULL) {
+        size_t len = strlen(item->idp.ipaidpClientSecret);
+        (void*) memset(item->idp.ipaidpClientSecret, 0, len);
+        free(item->idp.ipaidpClientSecret);
+    }
     free(item->idp.ipaidpScope);
     free(item->idp.ipaidpSub);
     free(item->idp.ipaidpDebugLevelStr);

@@ -253,6 +253,11 @@ const char *otpd_parse_idp(LDAP *ldp, LDAPMessage *entry,
         return strerror(i);
     }
 
+    i = get_string(ldp, entry, "ipaidpClientSecret", &item->idp.ipaidpClientSecret);
+    if ((i != 0) && (i != ENOENT)) {
+        return strerror(i);
+    }
+
     i = get_string(ldp, entry, "ipaidpScope", &item->idp.ipaidpScope);
     if ((i != 0) && (i != ENOENT)) {
         return strerror(i);

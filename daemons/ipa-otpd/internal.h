@@ -94,6 +94,7 @@ struct otpd_queue_item {
         char *ipaidpUserInfoEndpoint;
         char *ipaidpKeysEndpoint;
         char *ipaidpClientID;
+        char *ipaidpClientSecret;
         char *ipaidpScope;
         char *ipaidpSub;
         krb5_boolean valid;

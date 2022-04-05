@@ -57,6 +57,7 @@ static char *radius[] = {
 
 static char *idp[] = {
     "ipaidpClientID",
+    "ipaidpClientSecret",
     "ipaidpIssuerURL",
     "ipaidpDevAuthEndpoint",
     "ipaidpTokenEndpoint",
