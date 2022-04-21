@@ -56,6 +56,12 @@ EXAMPLES:
 register = Registry()
 
 
+def normalize_baseurl(url):
+    if url.startswith('https://'):
+        return url[len('https://'):]
+    return url
+
+
 def validate_uri(ugettext, uri):
     try:
         parsed = urlparse(uri, 'https')
@@ -265,6 +271,17 @@ class idp_add(LDAPCreate):
             'ipaidpscope': 'openid email',
             'ipaidpsub': 'email',
         },
+        'okta': {
+            'ipaidpauthendpoint':
+                'https://${baseurl}/oauth2/v1/authorize',
+            'ipaidpdevauthendpoint':
+                'https://${baseurl}/oauth2/v1/device/authorize',
+            'ipaidptokenendpoint':
+                'https://${baseurl}/oauth2/v1/token',
+            'ipaidpuserinfoendpoint':
+                'https://${baseurl}/oauth2/v1/userinfo',
+            'ipaidpscope': 'openid email',
+            'ipaidpsub': 'email'},
     }
 
     takes_options = LDAPCreate.takes_options + (
@@ -279,6 +296,12 @@ class idp_add(LDAPCreate):
             cli_name='organization',
             label=_('Organization'),
             doc=_('Organization ID or Realm name for IdP provider templates'),
+            flags={'virtual_attribute', 'no_create', 'no_update', 'nosearch'}),
+        Str('baseurl?',
+            cli_name='base_url',
+            label=_('Base URL'),
+            doc=_('Base URL for IdP provider templates'),
+            normalizer=normalize_baseurl,
             flags={'virtual_attribute', 'no_create', 'no_update', 'nosearch'}),
     )
 
