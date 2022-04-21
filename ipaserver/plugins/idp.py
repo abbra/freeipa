@@ -282,6 +282,21 @@ class idp_add(LDAPCreate):
                 'https://${baseurl}/oauth2/v1/userinfo',
             'ipaidpscope': 'openid email',
             'ipaidpsub': 'email'},
+        'keycloak': {
+            'ipaidpauthendpoint':
+                'https://${baseurl}/auth/realms/${org}/protocol/'
+                'openid-connect/auth',
+            'ipaidpdevauthendpoint':
+                'https://${baseurl}/auth/realms/${org}/protocol/'
+                'openid-connect/auth/device',
+            'ipaidptokenendpoint':
+                'https://${baseurl}/auth/realms/${org}/protocol/'
+                'openid-connect/token',
+            'ipaidpuserinfoendpoint':
+                'https://${baseurl}/auth/realms/${org}/protocol/'
+                'openid-connect/userinfo',
+            'ipaidpscope': 'openid email',
+            'ipaidpsub': 'email'},
     }
 
     takes_options = LDAPCreate.takes_options + (
