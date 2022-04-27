@@ -2,6 +2,7 @@
  */
 
 define([
+        'dojo/on',
         './ipa',
         './jquery',
         './menu',
@@ -12,7 +13,7 @@ define([
         './entity',
         './dialogs/password'
        ],
-            function(IPA, $, menu, phases, reg) {
+            function(on, IPA, $, menu, phases, reg) {
 
 /**
  * Radius module
@@ -56,7 +57,7 @@ return {
                         'ipaidpkeysendpoint',
                         'ipaidpissuerurl',
                         'ipaidpclientid',
-			 {
+             {
                             name:'ipaidpclientsecret',
                             flags: ['w_if_no_aci']
                          }
@@ -76,13 +77,34 @@ return {
     ],
     adder_dialog: {
         title: '@i18n:objects.idp.add',
+        policies: [
+            IPA.add_idp_policy
+        ],
         fields: [
             'cn',
+        {
+        name: 'type',
+        label: 'Provider type',
+        $type: 'radio',
+        flags: ['no_command'],
+        layout: 'vertical',
+        default_value: 'template',
+        options: [
+            {
+                value: 'template',
+                label: 'Pre-populated templates',
+            },
+            {
+                value: 'custom',
+                label: 'Custom',
+            }
+        ]
+        },
             {
                 label: '@i18n:idp.provider',
-		name: 'ipaidpprovider',
-		$type: 'select',
-		options: IPA.create_options(['', 'google', 'github', 'microsoft', 'okta', 'keycloak'])
+                name: 'ipaidpprovider',
+                $type: 'select',
+                options: IPA.create_options(['', 'google', 'github', 'microsoft', 'okta', 'keycloak'])
             },
             'ipaidpclientid',
             {
@@ -108,6 +130,46 @@ return {
         title: '@i18n:objects.idp.remove'
     }
 };};
+
+IPA.add_idp_policy = function() {
+
+    var that = IPA.facet_policy();
+
+    that.init = function() {
+        var type_f = that.container.fields.get_field('type');
+        on(type_f, 'value-change', that.on_type_change);
+    };
+
+    that.on_type_change = function() {
+        var type_f = that.container.fields.get_field('type');
+        var mode = type_f.get_value()[0];
+        var show_custom = true;
+        var show_templates = true;
+
+        // Pre-populated templates
+        var ipaidpprovider_f = that.container.fields.get_field('ipaidpprovider');
+
+        // Custom provider
+        var ipaidpscope_f = that.container.fields.get_field('ipaidpscope');
+        var ipaidpsub_f = that.container.fields.get_field('ipaidpsub');
+
+        if (mode === 'template') show_custom = false;
+        else if (mode === 'custom') show_templates = false;
+
+
+        ipaidpprovider_f.set_enabled(show_templates);
+        // ipaidpprovider_f.widget.set_visible(show_templates);
+
+        ipaidpscope_f.set_enabled(show_custom);
+        // ipaidpscope_f.widget.set_visible(show_custom);
+
+        ipaidpsub_f.set_enabled(show_custom);
+        // ipaidpsub_f.widget.set_visible(show_custom);
+
+    };
+
+    return that;
+};
 
 /**
  * Radius specification object
