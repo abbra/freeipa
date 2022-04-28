@@ -1092,6 +1092,16 @@ class i18n_messages(Command):
                     "Remove host groups from host group '${primary_key}'"
                 ),
             },
+            "idp": {
+                "template_keycloak": _("Keycloak or Red Hat SSO"),
+                "template_google": _("Google"),
+                "template_github": _("Github"),
+                "template_microsoft": _("Microsoft or Azure"),
+                "template_okta": _("Okta"),
+                "label_idpclient": _("OAuth 2.0 client details"),
+                "label_idp": _("Identity provider details"),
+                "verify_secret": _("Verify secret"),
+            },
             "idoverrideuser": {
                 "anchor_label": _("User to override"),
                 "anchor_tooltip": _("Enter trusted or IPA user login. Note: search doesn't list users from trusted domains."),

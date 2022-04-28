@@ -257,13 +257,14 @@ class idp_add(LDAPCreate):
             'ipaidpsub': 'login user'},
         'microsoft': {
             'ipaidpauthendpoint':
-                'https://login.microsoftonline.com/${org}/oauth2/v2.0/'
+                'https://login.microsoftonline.com/${ipaidporg}/oauth2/v2.0/'
                 'authorize',
             'ipaidpdevauthendpoint':
-                'https://login.microsoftonline.com/${org}/oauth2/v2.0/'
+                'https://login.microsoftonline.com/${ipaidporg}/oauth2/v2.0/'
                 'devicecode',
             'ipaidptokenendpoint':
-                'https://login.microsoftonline.com/${org}/oauth2/v2.0/token',
+                'https://login.microsoftonline.com/${ipaidporg}/oauth2/v2.0/'
+                'token',
             'ipaidpuserinfoendpoint':
                 'https://graph.microsoft.com/oidc/userinfo',
             'ipaidpkeysendpoint':
@@ -273,27 +274,27 @@ class idp_add(LDAPCreate):
         },
         'okta': {
             'ipaidpauthendpoint':
-                'https://${baseurl}/oauth2/v1/authorize',
+                'https://${ipaidpbaseurl}/oauth2/v1/authorize',
             'ipaidpdevauthendpoint':
-                'https://${baseurl}/oauth2/v1/device/authorize',
+                'https://${ipaidpbaseurl}/oauth2/v1/device/authorize',
             'ipaidptokenendpoint':
-                'https://${baseurl}/oauth2/v1/token',
+                'https://${ipaidpbaseurl}/oauth2/v1/token',
             'ipaidpuserinfoendpoint':
-                'https://${baseurl}/oauth2/v1/userinfo',
+                'https://${ipaidpbaseurl}/oauth2/v1/userinfo',
             'ipaidpscope': 'openid email',
             'ipaidpsub': 'email'},
         'keycloak': {
             'ipaidpauthendpoint':
-                'https://${baseurl}/auth/realms/${org}/protocol/'
+                'https://${ipaidpbaseurl}/auth/realms/${ipaidporg}/protocol/'
                 'openid-connect/auth',
             'ipaidpdevauthendpoint':
-                'https://${baseurl}/auth/realms/${org}/protocol/'
+                'https://${ipaidpbaseurl}/auth/realms/${ipaidporg}/protocol/'
                 'openid-connect/auth/device',
             'ipaidptokenendpoint':
-                'https://${baseurl}/auth/realms/${org}/protocol/'
+                'https://${ipaidpbaseurl}/auth/realms/${ipaidporg}/protocol/'
                 'openid-connect/token',
             'ipaidpuserinfoendpoint':
-                'https://${baseurl}/auth/realms/${org}/protocol/'
+                'https://${ipaidpbaseurl}/auth/realms/${ipaidporg}/protocol/'
                 'openid-connect/userinfo',
             'ipaidpscope': 'openid email',
             'ipaidpsub': 'email'},
@@ -303,16 +304,16 @@ class idp_add(LDAPCreate):
         StrEnum(
             'ipaidpprovider?',
             cli_name='provider',
-            label=_(''),
+            label=_('IdP provider template'),
             flags={'virtual_attribute', 'no_create', 'no_update', 'nosearch'},
             values=tuple(idp_providers.keys()),
         ),
-        Str('org?',
+        Str('ipaidporg?',
             cli_name='organization',
             label=_('Organization'),
             doc=_('Organization ID or Realm name for IdP provider templates'),
             flags={'virtual_attribute', 'no_create', 'no_update', 'nosearch'}),
-        Str('baseurl?',
+        Str('ipaidpbaseurl?',
             cli_name='base_url',
             label=_('Base URL'),
             doc=_('Base URL for IdP provider templates'),
