@@ -181,6 +181,55 @@ UI, a general OAuth 2.0 authorization endpoint is required. Thus, this endpoint
 information is stored in the object but not otherwise used by the Kerberos
 flow.
 
+#### Google IdPs
+
+Choosing `--provider=google` would expand to use the following options:
+
+| Option                | Value                                              |
+|:--------------------- | :---------------------                             |
+| `--auth-uri`=URI      | `https://accounts.google.com/o/oauth2/auth`        |
+| `--dev-auth-uri`=URI  | `https://oauth2.googleapis.com/device/code`        |
+| `--token-uri`=URI     | `https://oauth2.googleapis.com/token`              |
+| `--userinfo-uri`=URI  | `https://openidconnect.googleapis.com/v1/userinfo` |
+| `--keys-uri`=URI      | `https://www.googleapis.com/oauth2/v3/certs`       |
+| `--scope`=STR         | `openid email`                                     |
+| `--subject`=STR       | `email`                                            |
+
+#### Github IdPs
+
+Choosing `--provider=github` would expand to use the following options:
+
+| Option                | Value                                              |
+|:--------------------- | :---------------------                             |
+| `--auth-uri`=URI      | `https://github.com/login/oauth/authorize`         |
+| `--dev-auth-uri`=URI  | `https://github.com/login/device/code`             |
+| `--token-uri`=URI     | `https://github.com/login/oauth/access_token`      |
+| `--userinfo-uri`=URI  | `https://openidconnect.googleapis.com/v1/userinfo` |
+| `--keys-uri`=URI      | `https://api.github.com/user`                      |
+| `--scope`=STR         | `login user`                                       |
+| `--subject`=STR       | `login`                                            |
+
+Please note that Github explicitly states that a user login is not unique and
+can be reused after a user account was deleted. The configuration above aims
+for an easy setup for testing. If production deployment with Github IdP would
+be required, it is recommended to change `--subject` to a more unique subject
+like `id`. Unfortunately, Github UI does not give an easy way to discover a
+user ID. Other IdPs also lack an easy way to resolve these internal identifiers
+when not authorized by the user themselves.
+
+For Github, user's ID can be looked up without authentication through the Users
+API. Assuming we have `curl` and `jq` utilities available, a request to
+discover an ID of a `test` Github usere would look like:
+
+```
+$ curl --silent \
+  -H "Accept: application/vnd.github.v3+json" \
+  https://api.github.com/users/test | jq .id
+
+383316
+```
+
+
 #### Microsoft IdPs
 
 Microsoft Azure IdPs allow parametrization based on the Azure tenant ID
@@ -191,6 +240,20 @@ live.com IdP is required, specify organization ID `common`, e.g.
 ipa idp-add LiveCom --provider microsoft --org common --client-id some-client-id
 ```
 
+Choosing `--provider=microsoft` would expand to use the following options. A string
+`${ipaidporg}` will be replaced by the value of `--org` option.
+
+| Option                | Value                                                                  |
+|:--------------------- | :---------------------                                                 |
+| `--auth-uri`=URI      | `https://login.microsoftonline.com/${ipaidporg}/oauth2/v2.0/authorize` |
+| `--dev-auth-uri`=URI  | `https://login.microsoftonline.com/${ipaidporg}/oauth2/v2.0/devicecode`|
+| `--token-uri`=URI     | `https://login.microsoftonline.com/${ipaidporg}/oauth2/v2.0/token`     |
+| `--userinfo-uri`=URI  | `https://graph.microsoft.com/oidc/userinfo`                            |
+| `--keys-uri`=URI      | `https://login.microsoftonline.com/common/discovery/v2.0/keys`         |
+| `--scope`=STR         | `openid email`                                                         |
+| `--subject`=STR       | `email`                                                                |
+
+
 #### Okta IdPs
 
 Upon registration of a new organization in Okta, a new base URL is associated
@@ -200,9 +263,22 @@ with it. It can be specified with `--base-url` option to `ipa idp-add`:
 ipa idp-add MyOkta --provider okta --base-url dev-12345.okta.com --client-id some-client-id
 ```
 
+Choosing `--provider=okta` would expand to use the following options. A string
+`${ipaidpbaseurl}` will be replaced by the value of `--base-url` option.
+
+| Option                | Value                                                                  |
+|:--------------------- | :---------------------                                                 |
+| `--auth-uri`=URI      | `https://${ipaidpbaseurl}/oauth2/v1/authorize`                         |
+| `--dev-auth-uri`=URI  | `https://${ipaidpbaseurl}/oauth2/v1/device/authorize`                  |
+| `--token-uri`=URI     | `https://${ipaidpbaseurl}/oauth2/v1/token`                             |
+| `--userinfo-uri`=URI  | `https://${ipaidpbaseurl}/oauth2/v1/userinfo`                          |
+| `--scope`=STR         | `openid email`                                                         |
+| `--subject`=STR       | `email`                                                                |
+
+
 #### Keycloak IdPs
 
-Keycloak allows to define multiple realms (organizations). Since it is often a
+Keycloak allows defining multiple realms (organizations). Since it is often a
 part of a custom deployment, both base URL and realm ID are required and
 can be specified with `--base-url` and `--org` options to `ipa idp-add`:
 
@@ -211,6 +287,24 @@ ipa idp-add MySSO --provider keycloak \
     --org master --base-url keycloak.$DOMAIN:$PORT/prefix \
     --client-id some-client-id
 ```
+
+Quarkus version of the Keycloak 17 or later has removed `/auth/` part of the URI. If
+your deployment is using non-Quarkus distribution of the Keycloak, `--base-url`
+would need to include `/auth/` component as well.
+
+Choosing `--provider=keycloak` would expand to use the following options. A string
+`${ipaidpbaseurl}` will be replaced by the value of `--base-url` option. A string
+`${ipaidporg}` will be replaced by the value of `--org` option.
+
+| Option                | Value                                                                              |
+|:--------------------- | :---------------------                                                             |
+| `--auth-uri`=URI      | `https://${ipaidpbaseurl}/realms/${ipaidporg}/protocol/openid-connect/auth`        |
+| `--dev-auth-uri`=URI  | `https://${ipaidpbaseurl}/realms/${ipaidporg}/protocol/openid-connect/auth/device` |
+| `--token-uri`=URI     | `https://${ipaidpbaseurl}/realms/${ipaidporg}/protocol/openid-connect/token`       |
+| `--userinfo-uri`=URI  | `https://${ipaidpbaseurl}/realms/${ipaidporg}/protocol/openid-connect/userinfo`    |
+| `--scope`=STR         | `openid email`                                                                     |
+| `--subject`=STR       | `email`                                                                            |
+
 
 #### User-specific options
 
@@ -236,6 +330,12 @@ the help of these templates, user's email can be set to `--idp-user` to match
 the resource owner subject. Please read Security section for details on when
 this is inappropriate.
 
+Below is an example how to associate a user account with a specific IdP reference:
+
+```
+ipa user-mod test --user-auth-type=idp --idp google --idp-user test@example.test
+```
+
 ### WebUI
 
 The IdP server objects need to be accessible in the WebUI. A new tab for
@@ -245,7 +345,9 @@ list of IdP objects, enabling to add or delete an object.
 Each object must be clickable in order to be edited.
 
 In the _settings_ page for IdP objects, all the properties must be editable
-but the client secret must not be displayed.
+but the client secret must not be displayed unless the authenticated user permitted
+with the help of the `System: Read External IdP client secret` permission.
+
 In order to change the client secret, the admin will click on
 _Actions:Reset secret_.
 
@@ -284,11 +386,11 @@ Kerberos pre-authentication method `idp` relies on the user subject
 Kerberos principal and the OAuth 2.0 resource owner. When `openid` OAuth 2.0
 scope is used, this typically maps to `sub` value. Since there are no ways to
 pull this value for all users in advance, pre-populated IdP templates set OAuth
-2.0 scopes to include `email` and then use `email` to map IdP subject. There
-are some well-known IdPs which allow reuse of user accounts and emails, this
+2.0 scopes to include `email` and then use `email` to map IdP subject where possible.
+There are some well-known IdPs which allow reuse of user accounts and emails, this
 applies to both Github and Gitlab. Since Gitlab does not support OAuth 2.0
-Device authorization grant flow, it is not an issue in itself. However, for
-Github it is known that user accounts can be recycled after their removal. In
+Device authorization grant flow, it is not an issue in itself for this project. However,
+for Github it is known that user accounts can be recycled after their removal. In
 this case we would recommend to use internal Github identifier instead.
 
 ## Upgrade and backward compatibility

@@ -254,7 +254,8 @@ class idp_add(LDAPCreate):
                 'https://github.com/login/oauth/access_token',
             'ipaidpuserinfoendpoint':
                 'https://api.github.com/user',
-            'ipaidpsub': 'login user'},
+            'ipaidpscope': 'login user',
+            'ipaidpsub': 'login'},
         'microsoft': {
             'ipaidpauthendpoint':
                 'https://login.microsoftonline.com/${ipaidporg}/oauth2/v2.0/'
@@ -285,16 +286,16 @@ class idp_add(LDAPCreate):
             'ipaidpsub': 'email'},
         'keycloak': {
             'ipaidpauthendpoint':
-                'https://${ipaidpbaseurl}/auth/realms/${ipaidporg}/protocol/'
+                'https://${ipaidpbaseurl}/realms/${ipaidporg}/protocol/'
                 'openid-connect/auth',
             'ipaidpdevauthendpoint':
-                'https://${ipaidpbaseurl}/auth/realms/${ipaidporg}/protocol/'
+                'https://${ipaidpbaseurl}/realms/${ipaidporg}/protocol/'
                 'openid-connect/auth/device',
             'ipaidptokenendpoint':
-                'https://${ipaidpbaseurl}/auth/realms/${ipaidporg}/protocol/'
+                'https://${ipaidpbaseurl}/realms/${ipaidporg}/protocol/'
                 'openid-connect/token',
             'ipaidpuserinfoendpoint':
-                'https://${ipaidpbaseurl}/auth/realms/${ipaidporg}/protocol/'
+                'https://${ipaidpbaseurl}/realms/${ipaidporg}/protocol/'
                 'openid-connect/userinfo',
             'ipaidpscope': 'openid email',
             'ipaidpsub': 'email'},
