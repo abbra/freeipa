@@ -309,6 +309,7 @@ krb5_error_code ipadb_get_pwd_expiration(krb5_context context,
 
 /* MS-PAC FUNCTIONS */
 
+#if (KRB5_KDB_DAL_MAJOR_VERSION < 9)
 krb5_error_code ipadb_sign_authdata(krb5_context context,
                                     unsigned int flags,
                                     krb5_const_principal client_princ,
@@ -322,6 +323,18 @@ krb5_error_code ipadb_sign_authdata(krb5_context context,
                                     krb5_timestamp authtime,
                                     krb5_authdata **tgt_auth_data,
                                     krb5_authdata ***signed_auth_data);
+
+#else
+/* DAL 9 or later uses issue_pac */
+krb5_error ipadb_v9_issue_pac(krb5_context context, unsigned int flags,
+                              krb5_db_entry *client,
+                              krb5_keyblock *replaced_reply_key,
+                              krb5_db_entry *server,
+                              krb5_db_entry *signing_krbtgt,
+                              krb5_timestamp authtime, krb5_pac old_pac,
+                              krb5_pac new_pac,
+                              krb5_data ***auth_indicators);
+#endif
 
 krb5_error_code ipadb_reinit_mspac(struct ipadb_context *ipactx, bool force_reinit);
 
