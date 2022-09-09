@@ -33,6 +33,7 @@ import traceback
 from io import BytesIO
 from sys import version_info
 from urllib.parse import parse_qs
+from urllib import quote
 from xmlrpc.client import Fault
 
 import gssapi
@@ -1389,3 +1390,115 @@ class xmlserver_session(xmlserver, KerberosSession):
             destroy_context()
 
         return response
+
+class oauth_idp(Backend, HTTP_Status):
+
+    content_type = 'text/plain'
+    key = '/auth'
+    callbacks = ['authorize', 'token']
+
+    def _on_finalize(self):
+        super(oauth_idp, self)._on_finalize()
+        for key in self.callbacks:
+            self.api.Backend.wsgi_dispatch.mount(self, self.key + '/' + key)
+
+    def __call__(self, environ, start_response):
+        logger.info('WSGI oauth_idp.__call__:')
+        
+        name = environ['PATH_INFO'].strip('/')
+        if name not in self.callbacks:
+            return self.bad_request(
+                environ, start_response, "cannot handle request"
+            )
+
+        def prepare_request(environ):
+            pass
+        from ipaserver.oauth2 import ExternalIdPValidator
+        from oauthlib.oauth2 import WebApplicationServer
+
+        validator = ExternalIdPValidator(self.api)
+        server = WebApplicationServer(validator)
+
+        def authorize_callback():
+            scopes, credentials = server.validate_authorization_request(
+                environ['SCRIPT_URI'], environ['SCRIPT_SCHEME'],
+                read_input(environ), headers)
+
+
+        def token_callback():
+            server.validate_token_request()
+
+        # Get the user and password parameters from the request
+        content_type = environ.get('CONTENT_TYPE', '').lower()
+        if not content_type.startswith('application/x-www-form-urlencoded'):
+            return self.bad_request(environ, start_response, "Content-Type must be application/x-www-form-urlencoded")
+
+        method = environ.get('REQUEST_METHOD', '').upper()
+        if method == 'POST':
+            query_string = read_input(environ)
+        else:
+            return self.bad_request(environ, start_response, "HTTP request method must be POST")
+
+        try:
+            query_dict = parse_qs(query_string)
+        except Exception:
+            return self.bad_request(
+                environ, start_response, "cannot parse query data"
+            )
+
+        # start building the response
+        logger.info("WSGI oauth_idp: start password change of user '%s'",
+                    data['user'])
+        status = HTTP_STATUS_SUCCESS
+        response_headers = [('Content-Type', 'text/html; charset=utf-8')]
+        title = 'Password change rejected'
+        result = 'error'
+        policy_error = None
+
+        bind_dn = DN((self.api.Object.user.primary_key.name, data['user']),
+                     self.api.env.container_user, self.api.env.basedn)
+
+        try:
+            pw = data['old_password']
+            if data.get('otp'):
+                pw = data['old_password'] + data['otp']
+            conn = ldap2(self.api)
+            conn.connect(bind_dn=bind_dn, bind_pw=pw)
+        except (NotFound, ACIError):
+            result = 'invalid-password'
+            message = 'The old password or username is not correct.'
+        except Exception as e:
+            message = "Could not connect to LDAP server."
+            logger.error("change_password: cannot authenticate '%s' to LDAP "
+                         "server: %s",
+                         data['user'], str(e))
+        else:
+            try:
+                conn.modify_password(bind_dn, data['new_password'], data['old_password'], skip_bind=True)
+            except ExecutionError as e:
+                result = 'policy-error'
+                policy_error = escape(str(e))
+                message = "Password change was rejected: %s" % escape(str(e))
+            except Exception as e:
+                message = "Could not change the password"
+                logger.error("change_password: cannot change password of "
+                             "'%s': %s",
+                             data['user'], str(e))
+            else:
+                result = 'ok'
+                title = "Password change successful"
+                message = "Password was changed."
+            finally:
+                if conn.isconnected():
+                    conn.disconnect()
+
+        logger.info('%s: %s', status, message)
+
+        response_headers.append(('X-IPA-Pwchange-Result', result))
+        if policy_error:
+            response_headers.append(('X-IPA-Pwchange-Policy-Error', policy_error))
+
+        start_response(status, response_headers)
+        output = _success_template % dict(title=str(title),
+                                          message=str(message))
+        return [output.encode('utf-8')]
