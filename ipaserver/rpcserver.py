@@ -1423,3 +1423,76 @@ class xmlserver_session(xmlserver, KerberosSession):
             destroy_context()
 
         return response
+
+
+class oauth_idp(Backend, HTTP_Status):
+
+    content_type = 'text/plain'
+    key = '/auth'
+    callbacks = ['authorize', 'token']
+
+    def _on_finalize(self):
+        super(oauth_idp, self)._on_finalize()
+        for key in self.callbacks:
+            self.api.Backend.wsgi_dispatch.mount(self, self.key + '/' + key)
+
+    def __call__(self, environ, start_response):
+        logger.info('WSGI oauth_idp.__call__:')
+        logger.info('WSGI oauth_idp: env is %s', str(environ))
+
+        name = environ['PATH_INFO'].split('/')[-1]
+        if name not in self.callbacks:
+            return self.bad_request(
+                environ, start_response, "cannot handle request"
+            )
+
+        def prepare_request(environ):
+            pass
+        from ipaserver.oauth2 import ExternalIdPValidator
+        from oauthlib.oauth2 import WebApplicationServer
+
+        validator = ExternalIdPValidator(self.api)
+        server = WebApplicationServer(validator)
+
+        def authorize_callback(query_string):
+            scopes, credentials = server.validate_authorization_request(
+                uri=environ['SCRIPT_URI'], http_method=environ['REQUEST_METHOD'],
+                body=query_string)
+            logger.info("WSGI oauth_idp: scopes = %s, credentials = %s", str(scopes), str(credentials))
+
+
+        def token_callback():
+            server.validate_token_request()
+
+        # Get the user and password parameters from the request
+        content_type = environ.get('CONTENT_TYPE', '').lower()
+        if not content_type.startswith('application/x-www-form-urlencoded'):
+            return self.bad_request(environ, start_response, "Content-Type must be application/x-www-form-urlencoded")
+
+        method = environ.get('REQUEST_METHOD', '').upper()
+        if method == 'POST':
+            query_string = read_input(environ)
+        else:
+            return self.bad_request(environ, start_response, "HTTP request method must be POST")
+
+        try:
+            data = parse_qs(query_string)
+        except Exception:
+            return self.bad_request(
+                environ, start_response, "cannot parse query data"
+            )
+
+        # start building the response
+        logger.info("WSGI oauth_idp: data passed '%s'", str(data))
+
+        status = HTTP_STATUS_SUCCESS
+        response_headers = [('Content-Type', 'text/html; charset=utf-8')]
+
+        if name == 'authorize':
+            scopes, creds = authorize_callback(query_string)
+            response_headers.append(('OAuth-Response', str(creds)))
+
+
+        logger.info('%s: %s', status, str(response_headers))
+
+        start_response(status, response_headers)
