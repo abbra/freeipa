@@ -962,6 +962,7 @@ class TrustDomainInstance:
         conn = ldap_initialize(ldap_uri)
         conn.set_option(_ldap.OPT_SERVER_CONTROLS, [ExtendedDNControl()])
         search_result = None
+        is_ipa = False
         try:
             _objtype, res = conn.search_s('', _ldap.SCOPE_BASE)[0]
             for o in res.keys():
@@ -972,8 +973,15 @@ class TrustDomainInstance:
                             t[z] = v.decode('utf-8')
                 elif isinstance(res[o], bytes):
                     res[o] = res[o].decode('utf-8')
-            search_result = res['defaultNamingContext'][0]
-            self.info['dns_hostname'] = res['dnsHostName'][0]
+
+            if 'defaultnamingcontext' in res:
+                search_result = res['defaultnamingcontext'][0]
+            if 'dnsHostName' in res:
+                self.info['dns_hostname'] = res['dnsHostName'][0]
+            else:
+                self.info['dns_hostname'] = unicode(result.pdc_dns_name)
+            if 'ipaDomainLevel' in res:
+                is_ipa = True
         except _ldap.LDAPError as e:
             logger.error(
                 "LDAP error when connecting to %s: %s",
@@ -986,7 +994,37 @@ class TrustDomainInstance:
                          unicode(result.pdc_name))
 
         if search_result:
-            self.info['sid'] = self.parse_naming_context(search_result)
+            if is_ipa:
+                try:
+                    _objtype, res = conn.search_s(
+                        search_result,
+                        _ldap.SCOPE_SUBTREE,
+                        '(&(objectclass=posixaccount)'
+                        '(objectclass=ipaNTUserAttrs)(uid=admin))',
+                        ['ipaNTSecurityIdentifier'])[0]
+                    for o in res.keys():
+                        if isinstance(res[o], list):
+                            t = res[o]
+                            for z, v in enumerate(t):
+                                if isinstance(v, bytes):
+                                    t[z] = v.decode('utf-8')
+                        elif isinstance(res[o], bytes):
+                            res[o] = res[o].decode('utf-8')
+                    if 'ipaNTSecurityIdentifier' in res:
+                        # Parse SID to see if it is really in a SID format
+                        try:
+                            test_sid = security.dom_sid(
+                                res['ipaNTSecurityIdentifier'][0])
+                        except TypeError:
+                            raise errors.ValidationError(
+                                name='sid', error=_('SID is not valid'))
+                        self.info['sid'] = unicode(test_sid.split()[0])
+                except _ldap.LDAPError as e:
+                    logger.error(
+                        "LDAP error when connecting to %s: %s",
+                        unicode(result.pdc_name), str(e))
+            else:
+                self.info['sid'] = self.parse_naming_context(search_result)
         return True
 
     def parse_naming_context(self, context):
@@ -1307,9 +1345,7 @@ class TrustDomainInstance:
             conflict=another_domain.info['dns_domain'],
             domains=domains)
 
-
-
-    def update_ftinfo(self, another_domain):
+    def update_ftinfo(self, another_domain, handle=None):
         """
         Updates forest trust information in this forest corresponding
         to the another domain's information.
@@ -1323,11 +1359,12 @@ class TrustDomainInstance:
             ftlevel = lsa.LSA_FOREST_TRUST_DOMAIN_INFO
             # RSetForestTrustInformation returns collision information
             # for trust topology
+            hnd = handle or self._policy_handle
             cinfo = self._pipe.lsaRSetForestTrustInformation(
-                        self._policy_handle,
-                        ldname,
-                        ftlevel,
-                        ftinfo, 0)
+                hnd,
+                ldname,
+                ftlevel,
+                ftinfo, 0)
             if cinfo:
                 logger.error("When setting forest trust information, "
                              "got collision info back:\n%s",
@@ -1464,7 +1501,7 @@ class TrustDomainInstance:
         # -------------------------
         # Thus, we must not update forest trust info for the external trust
         if self.info['is_pdc'] and not trust_external:
-            self.update_ftinfo(another_domain)
+            self.update_ftinfo(another_domain, handle=trustdom_handle)
 
     def verify_trust(self, another_domain):
         def retrieve_netlogon_info_2(logon_server, domain, function_code, data):
@@ -1477,6 +1514,9 @@ class TrustDomainInstance:
                                            level=2,
                                            data=data)
                 return result
+            except samba.WERRORError as e:
+                if e.args[1] != "WERR_NOT_SUPPORTED":
+                    raise assess_dcerpc_error(e)
             except RuntimeError as e:
                 raise assess_dcerpc_error(e)
 
