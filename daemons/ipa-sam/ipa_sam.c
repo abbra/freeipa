@@ -1932,8 +1932,7 @@ static bool search_krb_princ(struct ipasam_private *ipasam_state,
  * of the default encryption types so that we can exclude
  * it when running in a FIPS mode where it is not allowed
  */
-#define DEF_ENCTYPE_NUM 3
-long default_enctypes[DEF_ENCTYPE_NUM] = {
+long default_enctypes[] = {
     ENCTYPE_AES256_CTS_HMAC_SHA1_96,
     ENCTYPE_AES128_CTS_HMAC_SHA1_96,
     ENCTYPE_ARCFOUR_HMAC
@@ -1949,11 +1948,11 @@ static int set_cross_realm_pw(struct ipasam_private *ipasam_state,
 	struct berval reqdata = { 0 };
 	struct berval *retdata = NULL;
         char *retoid;
-	int enctypes_num = DEF_ENCTYPE_NUM;
+	int enctypes_num = sizeof(default_enctypes) / sizeof(default_enctypes[0]);
 
         if (ipasam_state->fips_enabled) {
 		DEBUG(1, ("FIPS mode enabled: TDO account credentials will not have RC4-HMAC!\n"));
-                enctypes_num = DEF_ENCTYPE_NUM - 1;
+                enctypes_num--;
         }
         ret = ipaasn1_enc_getkt(true, princ, pwd,
                                 default_enctypes, enctypes_num,
