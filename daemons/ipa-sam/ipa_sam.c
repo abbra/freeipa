@@ -1933,6 +1933,8 @@ static bool search_krb_princ(struct ipasam_private *ipasam_state,
  * it when running in a FIPS mode where it is not allowed
  */
 long default_enctypes[] = {
+    ENCTYPE_AES256_CTS_HMAC_SHA384_192,
+    ENCTYPE_AES128_CTS_HMAC_SHA256_128,
     ENCTYPE_AES256_CTS_HMAC_SHA1_96,
     ENCTYPE_AES128_CTS_HMAC_SHA1_96,
     ENCTYPE_ARCFOUR_HMAC
