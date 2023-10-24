@@ -1745,8 +1745,8 @@ static krb5_error_code check_logon_info_consistent(krb5_context context,
     result = dom_sid_check(&ipactx->mspac->domsid,
                            info->info->info3.base.domain_sid, true);
     if (!result) {
-        /* In S4U case we might be dealing with the PAC issued by the trusted domain */
-        if (is_s4u && (ipactx->mspac->trusts != NULL)) {
+        /* we might be dealing with the PAC issued by the trusted domain */
+        if (ipactx->mspac->trusts != NULL) {
             /* Iterate through list of trusts and check if this SID belongs to
              * one of the domains we trust */
             for(size_t i = 0 ; i < ipactx->mspac->num_trusts ; i++) {
