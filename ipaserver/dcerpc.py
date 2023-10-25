@@ -1501,7 +1501,13 @@ class TrustDomainInstance:
         # -------------------------
         # Thus, we must not update forest trust info for the external trust
         if self.info['is_pdc'] and not trust_external:
-            self.update_ftinfo(another_domain, handle=trustdom_handle)
+            try:
+                self.update_ftinfo(another_domain, handle=trustdom_handle)
+            except samba.NTSTATUSError as e:
+                if e.args[0] != 3221225480:
+                    raise assess_dcerpc_error(e)
+                # Invalid handle was passed, try again with the default handle
+                self.update_ftinfo(another_domain, handle=None)
 
     def verify_trust(self, another_domain):
         def retrieve_netlogon_info_2(logon_server, domain, function_code, data):
