@@ -37,3 +37,4 @@ FreeIPA design documentation
    rbcd.md
    id-mapping.md
    audit-ipa-api.md
+   ipa_to_ipa_trust.md
