@@ -39,3 +39,4 @@ FreeIPA design documentation
    audit-ipa-api.md
    sysaccounts.md
    namespace.md
+   ipa_to_ipa_trust.md
