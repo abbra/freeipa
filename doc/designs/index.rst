@@ -39,3 +39,4 @@ FreeIPA design documentation
    namespace.md
    webui-oauth2-login.md
    akamu-acme-integration.md
+   ipa_to_ipa_trust.md
