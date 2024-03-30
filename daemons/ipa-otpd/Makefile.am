@@ -5,7 +5,7 @@ AM_LDFLAGS := @LDAP_LIBS@ @LIBVERTO_LIBS@ @KRAD_LIBS@ @KRB5_LIBS@ @JANSSON_LIBS@
 noinst_HEADERS = internal.h
 appdir = $(libexecdir)/ipa/
 app_PROGRAMS = ipa-otpd
-ipa_otpd_LDADD = $(top_builddir)/util/libutil.la
+ipa_otpd_LDADD = $(top_builddir)/util/libutil.la $(INI_LIBS)
 dist_noinst_DATA = ipa-otpd.socket.in ipa-otpd@.service.in test.py
 systemdsystemunit_DATA = ipa-otpd.socket ipa-otpd@.service
 
