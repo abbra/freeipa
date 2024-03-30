@@ -48,6 +48,7 @@
 #include "ipa-client-common.h"
 #include "ipa_ldap.h"
 #include "ipa_hostname.h"
+#include "ipa_config.h"
 
 #define NAME "ipa-join"
 
@@ -1284,13 +1285,20 @@ unenroll_host(const char *server, const char *hostname, const char *ktname, bool
     if (server) {
         ipaserver = strdup(server);
     } else {
-        char * conf_data = read_config_file(IPA_CONFIG);
-        if ((ipaserver = getIPAserver(conf_data)) == NULL) {
+	struct ipa_config *ipacfg = NULL;
+	rval = ipa_read_config(IPA_CONFIG, &ipacfg);
+	if (rval) {
+	    exit(1);
+	}
+
+	if (ipacfg->server_name == NULL) {
             fprintf(stderr, _("Unable to determine IPA server from %s\n"),
                     IPA_CONFIG);
             exit(1);
         }
-        free(conf_data);
+        ipaserver = (char *)ipacfg->server_name;
+        free((char *)ipacfg->domain);
+        free(ipacfg);
     }
 
     krberr = krb5_init_context(&krbctx);
