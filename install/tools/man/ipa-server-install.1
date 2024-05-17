@@ -38,6 +38,9 @@ Create home directories for users on their first login.
 \fB\-\-hostname\fR=\fIHOST_NAME\fR
 The fully\-qualified DNS name of this server.
 .TP
+\fB\-\-host\-aliases\fR=\fI"HOST_NAME1, HOST_NAME2, .."\fR
+The fully\-qualified DNS name aliases of this server. Can only be specified if the system uses multi-homed environment.
+.TP
 \fB\-\-ip\-address\fR=\fIIP_ADDRESS\fR
 The IP address of this server. If this address does not match the address the host resolves to and \-\-setup\-dns is not selected, the installation will fail. If the server hostname is not resolvable, a record for the hostname and IP_ADDRESS is added to /etc/hosts.
 This option can be used multiple times to specify more IP addresses of the server (e.g. multihomed and/or dualstacked server).
