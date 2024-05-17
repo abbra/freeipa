@@ -144,7 +144,7 @@ class subid(LDAPObject):
             doc=_("Subordinate id description"),
         ),
         Str(
-            "ipaowner",
+            "ipaowner?",
             cli_name="owner",
             label=_("Owner"),
             doc=_("Owning user of subordinate id entry"),
@@ -233,12 +233,14 @@ class subid(LDAPObject):
         """Get owning user entry entry (username or DN)"""
         owner = keys[-1]
         userobj = self.api.Object.user
+        overrideobj = self.api.Object.idoverrideuser
         if isinstance(owner, DN):
             # it's already a DN, validate it's either an active or preserved
             # user. Ref integrity plugin checks that it's not a dangling DN.
             user_dns = (
                 DN(userobj.active_container_dn, self.api.env.basedn),
                 DN(userobj.delete_container_dn, self.api.env.basedn),
+                DN(('cn', 'default trust view'), overrideobj.container_dn, self.api.env.basedn),
             )
             if not owner.endswith(user_dns):
                 raise errors.ValidationError(
@@ -249,19 +251,24 @@ class subid(LDAPObject):
 
         # similar to user.get_either_dn() but with error reporting and
         # returns an entry
-        ldap = self.backend
-        try:
-            active_dn = userobj.get_dn(owner, **options)
-            entry = ldap.get_entry(active_dn, attrs_list=[])
-            return entry.dn
-        except errors.NotFound:
-            # fall back to deleted user
+            owner_whoami = self.api.Command.whoami()
+            owner_dn = DN(
+            self.api.Command[owner_whoami['command']](*owner_whoami['arguments'],
+                                                      raw=True)['result']['dn'])
+        supported_objects = (self.api.Object.user, self.api.Object.idoverrideuser)
+        object_dn = None
+        for obj in supported_objects:
             try:
-                delete_dn = userobj.get_delete_dn(owner, **options)
-                entry = ldap.get_entry(delete_dn, attrs_list=[])
-                return entry.dn
+                object_dn = obj.get_dn_if_exists(owner, **options)
+                break
             except errors.NotFound:
-                raise userobj.handle_not_found(owner)
+                pass
+        if object_dn is None:
+                raise errors.ValidationError(
+                    name="ipaowner",
+                    error=_("'%(owner)s is not a valid user") % {"owner": owner},
+                )
+        return object_dn
 
     def handle_subordinate_ids(self, ldap, dn, entry_attrs):
         """Handle ipaSubordinateId object class"""
@@ -357,10 +364,17 @@ class subid_add(LDAPCreate):
     def pre_callback(
         self, ldap, dn, entry_attrs, attrs_list, *keys, **options
     ):
-        # XXX let ref integrity plugin validate DN?
-        owner_dn = self.obj.get_owner_dn(entry_attrs["ipaowner"], **options)
-        context.subid_owner_dn = owner_dn
-        entry_attrs["ipaowner"] = owner_dn
+        if entry_attrs.get('ipaowner', None):
+            # XXX let ref integrity plugin validate DN?
+            owner_dn = self.obj.get_owner_dn(entry_attrs["ipaowner"], **options)
+            context.subid_owner_dn = owner_dn
+            entry_attrs["ipaowner"] = owner_dn
+        else:
+            owner_whoami = self.api.Command.whoami()
+            owner_dn = DN(
+            self.api.Command[owner_whoami['command']](*owner_whoami['arguments'],
+                                                      raw=True)['result']['dn'])
+            entry_attrs["ipaowner"] = owner_dn
 
         self.obj.handle_subordinate_ids(ldap, dn, entry_attrs)
         attrs_list.append("objectclass")
@@ -473,13 +487,7 @@ class subid_generate(LDAPQuery):
         return []
 
     def execute(self, *keys, **options):
-        owner_uid = options.get("ipaowner")
-        # default to current user
-        if owner_uid is None:
-            owner_dn = DN(self.api.Backend.ldap2.conn.whoami_s()[4:])
-            # validate it's a user and not a service or host
-            owner_dn = self.obj.get_owner_dn(owner_dn)
-            owner_uid = owner_dn[0].value
+        owner_uid = getattr(options, "ipaowner", "")
 
         return self.api.Command.subid_add(
             description="auto-assigned subid",
