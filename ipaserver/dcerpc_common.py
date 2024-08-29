@@ -12,6 +12,9 @@ TRUST_BIDIRECTIONAL = 3
 # External trust -- allow creating trust to a non-root domain in the forest
 TRUST_JOIN_EXTERNAL = 1
 
+IPATRUST_TYPE_AD = 1
+IPATRUST_TYPE_IPA = 2
+
 # We don't want to import any of Samba Python code here just for constants
 # Since these constants set in MS-ADTS, we can rely on their stability
 LSA_TRUST_ATTRIBUTE_NON_TRANSITIVE = 0x00000001
@@ -71,3 +74,29 @@ def trust_direction_string(level):
 def trust_status_string(level):
     string = _trust_status_dict.get(level, _trust_type_dict_unknown)
     return unicode(string)
+
+
+def ipatrust_encode_type(trust_type, bidirectional=False):
+    """
+    Returns an integer representing IPA trust type
+    ipaPartnerTrustType attribute will encode:
+       bits 0..1 -- direction of trust
+          bit 0  -- one-way incoming trust
+          bit 1  -- one-way outgoing trust
+       bits 4..7 -- type of trust
+          bit 4  -- trust to Active Directory
+          bit 5  -- trust to IPA
+    """
+    trust = 0
+    direction = 0
+    if bidirectional:
+        direction = TRUST_BIDIRECTIONAL
+    else:
+        direction = TRUST_ONEWAY
+
+    if trust_type == 'ad':
+        trust = IPATRUST_TYPE_AD
+    elif trust_type == 'ipa':
+        trust = IPATRUST_TYPE_IPA
+
+    return int((trust << 4) | (direction))

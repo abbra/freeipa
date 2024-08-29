@@ -56,7 +56,8 @@ from ipaserver.dcerpc_common import (TRUST_ONEWAY,
                                      LSA_TRUST_ATTRIBUTE_NON_TRANSITIVE,
                                      trust_type_string,
                                      trust_direction_string,
-                                     trust_status_string)
+                                     trust_status_string,
+                                     ipatrust_encode_type)
 from ipaserver.plugins.privilege import principal_has_privilege
 
 if six.PY3:
@@ -177,7 +178,7 @@ _trust_type_option = StrEnum(
          'trust_type',
          cli_name='type',
          label=_('Trust type (ad for Active Directory, default)'),
-         values=(u'ad',),
+         values=(u'ad', u'ipa'),
          default=u'ad',
          autofill=True,
         )
@@ -494,13 +495,15 @@ class trust(LDAPObject):
     object_name = _('trust')
     object_name_plural = _('trusts')
     object_class = ['ipaNTTrustedDomain', 'ipaIDObject']
+    possible_objectclasses = ['ipaTrustObject']
     default_attributes = ['cn', 'ipantflatname', 'ipanttrusteddomainsid',
                           'ipanttrusttype', 'ipanttrustattributes',
                           'ipanttrustdirection', 'ipanttrustpartner',
                           'ipanttrustforesttrustinfo',
                           'ipanttrustposixoffset',
                           'ipantsupportedencryptiontypes',
-                          'ipantadditionalsuffixes']
+                          'ipantadditionalsuffixes',
+                          'ipapartnertrusttype']
     search_display_attributes = ['cn', 'ipantflatname',
                                  'ipanttrusteddomainsid', 'ipanttrusttype',
                                  'ipanttrustattributes',
@@ -519,6 +522,7 @@ class trust(LDAPObject):
                 'ipanttrusteddomainsid', 'ipanttrustpartner',
                 'ipantsidblacklistincoming', 'ipantsidblacklistoutgoing',
                 'ipanttrustdirection', 'ipantadditionalsuffixes',
+                'ipapartnertrusttype',
             },
         },
 
@@ -766,7 +770,13 @@ ipa idrange-del before retrying the command with the desired range type.
 
         full_join = self.validate_options(*keys, **options)
         old_range, range_name, dom_sid = self.validate_range(*keys, **options)
-        result = self.execute_ad(full_join, *keys, **options)
+
+        # Dispatch to the correct trust establishing procedure
+        # Right now they are the same but allow differentiating to future
+        if options.get('trust_type') == 'ad':
+            result = self.execute_ad(full_join, *keys, **options)
+        elif options.get('trust_type') == 'ipa':
+            result = self.execute_ad(full_join, *keys, **options)
 
         if not old_range:
             # Store the created range type, since for POSIX trusts no
@@ -777,7 +787,7 @@ ipa idrange-del before retrying the command with the desired range type.
                 *keys, **options
             )
 
-        attrs_list = self.obj.default_attributes
+        attrs_list = self.obj.default_attributes + ['objectclass']
         if options.get('all', False):
             attrs_list.append('*')
 
@@ -789,6 +799,14 @@ ipa idrange-del before retrying the command with the desired range type.
         )
 
         result['result'] = entry_to_dict(trusts[0], **options)
+
+        # Encode trust type
+        trusts[0]['ipapartnertrusttype'] = ipatrust_encode_type(
+            options.get('trust_type'),
+            options.get('bidirectional', False))
+        trusts[0]['objectclass'].extend(['ipatrustobject'])
+        ldap.update_entry(trusts[0])
+        del trusts[0]['objectclass']
 
         # Fetch topology of the trust forest -- we need always to do it
         # for AD trusts, regardless of the type of idranges associated with it
@@ -844,10 +862,10 @@ ipa idrange-del before retrying the command with the desired range type.
         if 'trust_type' not in options:
             raise errors.RequirementError(name='trust_type')
 
-        if options['trust_type'] != u'ad':
+        if options['trust_type'] not in ('ad', 'ipa'):
             raise errors.ValidationError(
                 name=_('trust type'),
-                error=_('only "ad" is supported')
+                error=_('only "ad" and "ipa" types are supported')
             )
 
         # Detect IPA-AD domain clash
@@ -949,6 +967,16 @@ ipa idrange-del before retrying the command with the desired range type.
                     error=_(
                         'Only the ipa-ad-trust and ipa-ad-trust-posix are '
                         'allowed values for --range-type when adding an AD '
+                        'trust.'
+                    ))
+
+        if options.get('trust_type') == 'ipa':
+            if range_type and range_type != 'ipa-ad-trust-posix':
+                raise errors.ValidationError(
+                    name=_('id range type'),
+                    error=_(
+                        'Only the ipa-ad-trust-posix is '
+                        'allowed values for --range-type when adding an IPA '
                         'trust.'
                     ))
 
