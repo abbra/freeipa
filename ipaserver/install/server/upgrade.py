@@ -384,6 +384,7 @@ def upgrade_adtrust_config():
         if e.returncode != 255:
             logger.warning("Error updating Samba registry: %s", e)
 
+
 def upgrade_global_catalog(fstore):
     logger.info('[Upgrading Global Catalog]')
 
