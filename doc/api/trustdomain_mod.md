@@ -13,7 +13,7 @@ Modify trustdomain of the trust
  * Default: False
 * trust_type : :ref:`StrEnum<StrEnum>` **(Required)**
  * Default: ad
- * Values: ('ad',)
+ * Values: ('ad', 'ipa')
 * all : :ref:`Flag<Flag>` **(Required)**
  * Default: False
 * raw : :ref:`Flag<Flag>` **(Required)**
