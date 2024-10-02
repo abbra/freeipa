@@ -1456,7 +1456,8 @@ class oauth_idp(Backend, HTTP_Status):
 
         def authorize_callback(query_string):
             scopes, credentials = server.validate_authorization_request(
-                uri=environ['SCRIPT_URI'], http_method=environ['REQUEST_METHOD'],
+                uri=environ['SCRIPT_URI'],
+                http_method=environ['REQUEST_METHOD'],
                 body=query_string)
             logger.info("WSGI oauth_idp: scopes = %s, credentials = %s", str(scopes), str(credentials))
 
