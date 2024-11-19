@@ -747,6 +747,24 @@ def install_check(installer):
         # check addresses here, dns module is doing own check
         no_matching_interface_for_ip_address_warning(ip_addresses)
 
+    if 'host_aliases' in api.env is not None:
+        # create /etc/ipa/server.conf with host_aliases to use after installer
+        # context is not used
+        gopts = [
+            ipaconf.setOption('host_aliases', api.env['host_aliases'])
+        ]
+        opts = [
+            ipaconf.setSection('global', gopts),
+            {'name': 'empty', 'type': 'empty'}
+        ]
+
+        target_fname = paths.IPA_SERVER_CONF
+        ipaconf.newConf(target_fname, opts)
+
+        # Must be readable for everyone
+        os.chmod(target_fname, 0o644)
+
+
     instance_name = "-".join(realm_name.split("."))
     dirsrv = services.knownservices.dirsrv
     if (options.external_cert_files
@@ -771,6 +789,8 @@ def install_check(installer):
     print()
     print("The IPA Master Server will be configured with:")
     print("Hostname:       %s" % host_name)
+    if 'host_aliases' in api.env:
+        print("Host aliases:   %s" % api.env['host_aliases'])
     print("IP address(es): %s" % ", ".join(str(ip) for ip in ip_addresses))
     print("Domain name:    %s" % domain_name)
     print("Realm name:     %s" % realm_name)
@@ -824,6 +844,8 @@ def install_check(installer):
     options.admin_password = admin_password
     options._host_name_overridden = bool(options.host_name)
     options.host_name = host_name
+    if 'host_aliases' in api.env:
+        options.host_aliases = ipautil.split_string(api.env['host_aliases'])
     options.ip_addresses = ip_addresses
 
     installer._fstore = fstore
