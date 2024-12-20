@@ -72,13 +72,18 @@ Preparation
 ===========
 
 Some preparation is needed prior to the workshop.  The workshop is
-designed to be carried out in a Vagrant_ environment that configures
-three networked virtual machines (VMs) with all software needed for
-the workshop.  **The goal of this preparation** is to ``vagrant up``
-the VMs.  After this preparation is completed you are ready to begin
-the workshop.
+designed to be carried out in an environment built from Podman rootless
+containers.  These containers created using ``ipalab-config`` tool and can be
+instantiated with ``podman-compose up``.
 
-.. _Vagrant: https://www.vagrantup.com/
+``ipalab-config`` tool is designed to provide Podman configuration which can be
+used together with ``ansible-freeipa`` project. ``ansible-freeipa`` allows to
+automate typical FreeIPA operations like deploying a server or a replica and
+administrative actions through simple playbooks. The purpose of this workshop
+is to learn how to use FreeIPA environment; one can skip manual installation
+steps by running an "install cluster" playbook provided by ``ansible-freeipa``
+collection. When following this path, first two units of the workshop can be
+skipped.
 
 
 Requirements
@@ -86,75 +91,34 @@ Requirements
 
 For the FreeIPA workshop you will need to:
 
-- Install **Vagrant** and **VirtualBox**. (On Fedora, you can use **libvirt**
-  instead of VirtualBox).
+- Install Podman and ``podman-compose`` tools.
 
-- Use Git to clone the repository containing the ``Vagrantfile``
+- Use Git to clone the repository containing the workshop data
 
-- Fetch the Vagrant *box* for the workshop
-
-- Add entries for the guest VMs to your hosts file (so you can
-  access them by their hostname)
+- Build container image using provided container definition file
+  (``lab/containerfile-fedora``)
 
 Please set up these items **prior to the workshop**.  More detailed
 instructions follow.
 
 
-Install Vagrant and VirtualBox
+Install and configure Podman
 ------------------------------
+
+Podman allows to run containers as unprivileged user. The following tutorial
+explains how to configure your system for unprivileged (rootless) containers:
+https://github.com/containers/podman/blob/main/docs/tutorials/rootless_tutorial.md
 
 Fedora
 ^^^^^^
 
-If you intend to use the ``libvirt`` provider (recommended), install
-``vagrant-libvirt`` and ``vagrant-libvirt-doc``::
+On Fedora Podman tools can be installed with ``podman`` and ``podman-compose``
+packages::
 
-  $ sudo dnf install -y vagrant-libvirt vagrant-libvirt-doc
+  $ sudo dnf install -y podman podman-compose
 
 Also ensure you have the latest versions of ``selinux-policy`` and
 ``selinux-policy-targeted``.
-
-Allow your regular user ID to start and stop Vagrant boxes using ``libvirt``.
-Add your user to ``libvirt`` group so you don't need to enter your administrator
-password everytime::
-
-  $ sudo gpasswd -a ${USER} libvirt
-  $ newgrp libvirt
-
-Finally restart the services::
-
-  $ systemctl restart libvirtd
-
-More information: https://docs.fedoraproject.org/en-US/quick-docs/getting-started-with-virtualization/
-
-Otherwise, you will use VirtualBox and the ``virtualbox`` provider.
-VirtualBox needs to build kernel modules, and that means that you must
-first install kernel headers and Dynamic Kernel Module Support::
-
-  $ sudo dnf install -y vagrant kernel-devel dkms
-
-Next, install VirtualBox from the official VirtualBox package repository.
-Before using the repo, check that its contents match what appears
-in the transcript below (to make sure it wasn't tampered with)::
-
-  $ sudo curl -o /etc/yum.repos.d/virtualbox.repo \
-    http://download.virtualbox.org/virtualbox/rpm/fedora/virtualbox.repo
-
-  $ cat /etc/yum.repos.d/virtualbox.repo
-  [virtualbox]
-  name=Fedora $releasever - $basearch - VirtualBox
-  baseurl=http://download.virtualbox.org/virtualbox/rpm/fedora/$releasever/$basearch
-  enabled=1
-  gpgcheck=1
-  repo_gpgcheck=1
-  gpgkey=https://www.virtualbox.org/download/oracle_vbox.asc
-
-  $ sudo dnf install -y VirtualBox-6.1
-
-Finally, load the kernel modules (you may need to restart your system for this to work)::
-
-  $ sudo modprobe vboxdrv vboxnetadp
-
 
 Mac OS X
 ^^^^^^^^

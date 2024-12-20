@@ -1,0 +1,46 @@
+# Build configuration from the workshop source directory:
+#     $ ipalab-config -f lab/containerfile-fedora lab/workshop.yaml
+# As a result, folder ipa-workshop will be created in the workshop source
+# directory, this folder contains generated container configuration
+# that can be utilized by podman-compose tool.
+---
+lab_name: ipa-workshop
+container_fqdn: true
+containerfiles:
+  - lab/containerfile-fedora
+ipa_deployments:
+  - name: workshop
+    domain: workshop.test
+    admin_password: Secret123
+    dm_password: Secret123
+    distro: containerfile-fedora
+    cluster:
+      servers:
+        - name: server
+          capabilities:
+            - CA
+            - DNS
+            - AD
+          memory: 2gb
+          vars:
+            ipaserver_netbios_name: S1
+            ipaserver_idstart: 51000
+            ipaserver_idmax: 52000
+            ipaserver_rid_base: 53000
+            ipaserver_secondary_rid_base: 55000
+        - name: replica
+          capabilities:
+            - DNS
+            - AD
+          memory: 2gb
+          vars:
+            ipaserver_netbios_name: S1
+            ipaserver_idstart: 61000
+            ipaserver_idmax: 62000
+            ipaserver_rid_base: 63000
+            ipaserver_secondary_rid_base: 70000
+        - name: replica
+      clients:
+        - name: client
+          memory: 1gb
+...
