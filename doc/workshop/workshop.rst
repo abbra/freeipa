@@ -120,18 +120,28 @@ packages::
 Also ensure you have the latest versions of ``selinux-policy`` and
 ``selinux-policy-targeted``.
 
-Mac OS X
-^^^^^^^^
+macOS
+^^^^^^
 
-Install Vagrant for Mac OS X from
-https://www.vagrantup.com/downloads.html.
+Install ``podman`` and ``podman-compose`` using any packagem manager that
+provides both tools, for example `Homebrew <brew.sh>`.
 
-Install VirtualBox 6.1 for **OS X hosts** from
-https://www.virtualbox.org/wiki/Downloads.
+If using brew you can install the tools with::
 
-Install Git from https://git-scm.com/download/mac or via your
-preferred package manager.
+  $ brew install podman podman-compose
 
+As the containers run within a virtual machine on macOS, you will need to
+initialize the virtual machine with enough memory no run the cluster, plus
+some spare space for the VM operating system.
+
+As the default machine is created with only 2Gb of memory, create a custom
+machine with, at least, 6Gb of memory::
+
+  $ podman machine init --memory 6144
+  $ podman machine start
+
+This may require using updating Rosetta no macOS, just follow the system
+instructions.
 
 Debian / Ubuntu
 ^^^^^^^^^^^^^^^
