@@ -1,4 +1,8 @@
-FROM registry.fedoraproject.org/fedora-toolbox:41
+FROM registry.fedoraproject.org/fedora-toolbox:41 as amd64
+FROM registry.fedoraproject.org/fedora-toolbox:40-aarch64 as arm64
+
+FROM $TARGETARCH as workshopimage
+
 MAINTAINER [FreeIPA Developers freeipa-devel@lists.fedorahosted.org]
 ENV container=docker LANG=en_US.utf8 LANGUAGE=en_US.utf8 LC_ALL=en_US.utf8
 
