@@ -24,22 +24,17 @@ ipa_deployments:
           memory: 2gb
           vars:
             ipaserver_netbios_name: S1
-            ipaserver_idstart: 51000
-            ipaserver_idmax: 52000
-            ipaserver_rid_base: 53000
-            ipaserver_secondary_rid_base: 55000
+            ipaserver_idstart: 61000
+            ipaserver_idmax: 62000
+            ipaserver_rid_base: 63000
+            ipaserver_secondary_rid_base: 65000
         - name: replica
           capabilities:
             - DNS
             - AD
           memory: 2gb
           vars:
-            ipaserver_netbios_name: S1
-            ipaserver_idstart: 61000
-            ipaserver_idmax: 62000
-            ipaserver_rid_base: 63000
-            ipaserver_secondary_rid_base: 70000
-        - name: replica
+            ipareplica_netbios_name: S1
       clients:
         - name: client
           memory: 1gb
