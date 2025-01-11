@@ -943,7 +943,8 @@ class jsonserver_session(jsonserver, KerberosSession):
             return self.need_login(start_response)
 
         try:
-            response = super(jsonserver_session, self).__call__(environ, start_response)
+            response = super(jsonserver_session,
+                             self).__call__(environ, start_response)
         finally:
             destroy_context()
 
@@ -976,7 +977,9 @@ class KerberosLogin(Backend, KerberosSession):
         if user_ccache_name is None:
             return self.need_login(start_response)
 
-        return self.finalize_kerberos_acquisition('login_kerberos', user_ccache_name, environ, start_response)
+        return self.finalize_kerberos_acquisition(
+            "login_kerberos", user_ccache_name, environ, start_response
+        )
 
 
 class login_kerberos(KerberosLogin):
@@ -1046,27 +1049,39 @@ class login_password(Backend, KerberosSession):
         # Get the user and password parameters from the request
         content_type = environ.get('CONTENT_TYPE', '').lower()
         if not content_type.startswith('application/x-www-form-urlencoded'):
-            return self.bad_request(environ, start_response, "Content-Type must be application/x-www-form-urlencoded")
+            return self.bad_request(
+                environ,
+                start_response,
+                "Content-Type must be application/x-www-form-urlencoded",
+            )
 
         method = environ.get('REQUEST_METHOD', '').upper()
         if method == 'POST':
             query_string = read_input(environ)
         else:
-            return self.bad_request(environ, start_response, "HTTP request method must be POST")
+            return self.bad_request(
+                environ, start_response, "HTTP request method must be POST"
+            )
 
         try:
             query_dict = parse_qs(query_string)
         except Exception:
-            return self.bad_request(environ, start_response, "cannot parse query data")
+            return self.bad_request(
+                environ, start_response, "cannot parse query data"
+            )
 
         user = query_dict.get('user', None)
         if user is not None:
             if len(user) == 1:
                 user = user[0]
             else:
-                return self.bad_request(environ, start_response, "more than one user parameter")
+                return self.bad_request(
+                    environ, start_response, "more than one user parameter"
+                )
         else:
-            return self.bad_request(environ, start_response, "no user specified")
+            return self.bad_request(
+                environ, start_response, "no user specified"
+            )
 
         # allows login in the form user@SERVER_REALM or user@server_realm
         # we kinit as enterprise principal so we can assume that unknown realms
@@ -1083,11 +1098,16 @@ class login_password(Backend, KerberosSession):
             if len(password) == 1:
                 password = password[0]
             else:
-                return self.bad_request(environ, start_response, "more than one password parameter")
+                return self.bad_request(
+                    environ, start_response, "more than one password parameter"
+                )
         else:
-            return self.bad_request(environ, start_response, "no password specified")
+            return self.bad_request(
+                environ, start_response, "no password specified"
+            )
 
-        # Get the ccache we'll use and attempt to get credentials in it with user,password
+        # Get the ccache we'll use and attempt to get credentials
+        # in it with user,password
         ipa_ccache_name = os.path.join(paths.IPA_CCACHES,
                                        'kinit_{}'.format(os.getpid()))
         try:
@@ -1182,13 +1202,19 @@ class change_password(Backend, HTTP_Status):
         # Get the user and password parameters from the request
         content_type = environ.get('CONTENT_TYPE', '').lower()
         if not content_type.startswith('application/x-www-form-urlencoded'):
-            return self.bad_request(environ, start_response, "Content-Type must be application/x-www-form-urlencoded")
+            return self.bad_request(
+                environ,
+                start_response,
+                "Content-Type must be application/x-www-form-urlencoded",
+            )
 
         method = environ.get('REQUEST_METHOD', '').upper()
         if method == 'POST':
             query_string = read_input(environ)
         else:
-            return self.bad_request(environ, start_response, "HTTP request method must be POST")
+            return self.bad_request(
+                environ, start_response, "HTTP request method must be POST"
+            )
 
         try:
             query_dict = parse_qs(query_string)
@@ -1204,10 +1230,14 @@ class change_password(Backend, HTTP_Status):
                 if len(value) == 1:
                     data[field] = value[0]
                 else:
-                    return self.bad_request(environ, start_response, "more than one %s parameter"
-                                            % field)
+                    return self.bad_request(
+                        environ, start_response,
+                        "more than one %s parameter" % field
+                    )
             elif field != 'otp':  # otp is optional
-                return self.bad_request(environ, start_response, "no %s specified" % field)
+                return self.bad_request(
+                    environ, start_response, "no %s specified" % field
+                )
 
         # start building the response
         logger.info("WSGI change_password: start password change of user '%s'",
@@ -1237,7 +1267,10 @@ class change_password(Backend, HTTP_Status):
                          data['user'], str(e))
         else:
             try:
-                conn.modify_password(bind_dn, data['new_password'], data['old_password'], skip_bind=True)
+                conn.modify_password(
+                    bind_dn, data["new_password"], data["old_password"],
+                    skip_bind=True
+                )
             except ExecutionError as e:
                 result = 'policy-error'
                 policy_error = escape(str(e))
@@ -1259,12 +1292,15 @@ class change_password(Backend, HTTP_Status):
 
         response_headers.append(('X-IPA-Pwchange-Result', result))
         if policy_error:
-            response_headers.append(('X-IPA-Pwchange-Policy-Error', policy_error))
+            response_headers.append(
+                ("X-IPA-Pwchange-Policy-Error", policy_error)
+            )
 
         start_response(status, response_headers)
         output = _success_template % dict(title=str(title),
                                           message=str(message))
         return [output.encode('utf-8')]
+
 
 class sync_token(Backend, HTTP_Status):
     content_type = 'text/plain'
@@ -1287,14 +1323,20 @@ class sync_token(Backend, HTTP_Status):
         # Make sure this is a form request.
         content_type = environ.get('CONTENT_TYPE', '').lower()
         if not content_type.startswith('application/x-www-form-urlencoded'):
-            return self.bad_request(environ, start_response, "Content-Type must be application/x-www-form-urlencoded")
+            return self.bad_request(
+                environ,
+                start_response,
+                "Content-Type must be application/x-www-form-urlencoded",
+            )
 
         # Make sure this is a POST request.
         method = environ.get('REQUEST_METHOD', '').upper()
         if method == 'POST':
             query_string = read_input(environ)
         else:
-            return self.bad_request(environ, start_response, "HTTP request method must be POST")
+            return self.bad_request(
+                environ, start_response, "HTTP request method must be POST"
+            )
 
         # Parse the query string to a dictionary.
         try:
@@ -1304,16 +1346,21 @@ class sync_token(Backend, HTTP_Status):
                 environ, start_response, "cannot parse query data"
             )
         data = {}
-        for field in ('user', 'password', 'first_code', 'second_code', 'token'):
+        kws = ("user", "password", "first_code", "second_code", "token")
+        for field in kws:
             value = query_dict.get(field, None)
             if value is not None:
                 if len(value) == 1:
                     data[field] = value[0]
                 else:
-                    return self.bad_request(environ, start_response, "more than one %s parameter"
-                                            % field)
+                    return self.bad_request(
+                        environ, start_response,
+                        "more than one %s parameter" % field
+                    )
             elif field != 'token':
-                return self.bad_request(environ, start_response, "no %s specified" % field)
+                return self.bad_request(
+                    environ, start_response, "no %s specified" % field
+                )
 
         # Create the request control.
         sr = self.OTPSyncRequest()
@@ -1323,8 +1370,11 @@ class sync_token(Backend, HTTP_Status):
             try:
                 token_dn = DN(data['token'])
             except ValueError:
-                token_dn = DN((self.api.Object.otptoken.primary_key.name, data['token']),
-                              self.api.env.container_otp, self.api.env.basedn)
+                token_dn = DN(
+                    (self.api.Object.otptoken.primary_key.name, data["token"]),
+                    self.api.env.container_otp,
+                    self.api.env.basedn,
+                )
 
             sr.setComponentByName('tokenDN', str(token_dn))
         rc = ldap.controls.RequestControl(sr.OID, True, encoder.encode(sr))
@@ -1366,6 +1416,7 @@ class sync_token(Backend, HTTP_Status):
         output = _success_template % dict(title=str(title),
                                           message=str(message))
         return [output.encode('utf-8')]
+
 
 class xmlserver_session(xmlserver, KerberosSession):
     """
@@ -1418,7 +1469,9 @@ class xmlserver_session(xmlserver, KerberosSession):
         setattr(context, 'ccache_name', ccache_name)
 
         try:
-            response = super(xmlserver_session, self).__call__(environ, start_response)
+            response = super(xmlserver_session, self).__call__(
+                environ, start_response
+            )
         finally:
             destroy_context()
 
@@ -1459,8 +1512,11 @@ class oauth_idp(Backend, HTTP_Status):
                 uri=environ['SCRIPT_URI'],
                 http_method=environ['REQUEST_METHOD'],
                 body=query_string)
-            logger.info("WSGI oauth_idp: scopes = %s, credentials = %s", str(scopes), str(credentials))
-
+            logger.info(
+                "WSGI oauth_idp: scopes = %s, credentials = %s",
+                str(scopes),
+                str(credentials)
+            )
 
         def token_callback():
             server.validate_token_request()
@@ -1468,14 +1524,18 @@ class oauth_idp(Backend, HTTP_Status):
         # Get the user and password parameters from the request
         content_type = environ.get('CONTENT_TYPE', '').lower()
         if not content_type.startswith('application/x-www-form-urlencoded'):
-            return self.bad_request(environ, start_response, "Content-Type must be application/x-www-form-urlencoded")
-
+            return self.bad_request(
+                environ,
+                start_response,
+                "Content-Type must be application/x-www-form-urlencoded",
+            )
         method = environ.get('REQUEST_METHOD', '').upper()
         if method == 'POST':
             query_string = read_input(environ)
         else:
-            return self.bad_request(environ, start_response, "HTTP request method must be POST")
-
+            return self.bad_request(
+                environ, start_response, "HTTP request method must be POST"
+            )
         try:
             data = parse_qs(query_string)
         except Exception:
@@ -1492,7 +1552,6 @@ class oauth_idp(Backend, HTTP_Status):
         if name == 'authorize':
             scopes, creds = authorize_callback(query_string)
             response_headers.append(('OAuth-Response', str(creds)))
-
 
         logger.info('%s: %s', status, str(response_headers))
 
