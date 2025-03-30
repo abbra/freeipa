@@ -96,7 +96,7 @@ def parse_options():
                         default=[],
                         help="File containing the Global Catalog SSL "
                              "certificate and private key")
-    gc_group.add_option("--gc-pin",  sensitive=True, dest="gc_pin",
+    gc_group.add_option("--gc-pin", sensitive=True, dest="gc_pin",
                         metavar="PIN",
                         help="The password to unlock the Global Catalog "
                              "private key")
