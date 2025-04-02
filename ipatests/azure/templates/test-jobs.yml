@@ -1,6 +1,7 @@
 steps:
 - script: |
     set -e
+    export DOCKER_HOST=unix://$(XDG_RUNTIME_DIR)/docker.sock
     env | sort
   displayName: Print Host Enviroment
 
@@ -11,6 +12,7 @@ steps:
 
 - script: |
     set -e
+    sudo apt-get purge --auto-remove docker-ce-cli
     sudo apt-get update
     sudo apt-get install -y \
         apparmor-utils \
@@ -18,13 +20,18 @@ steps:
         moreutils \
         rng-tools \
         systemd-coredump \
-        python3-docker
+        podman podman-docker podman-compose
   displayName: Install Host's tests requirements
 
 - script: |
     set -e
     sudo systemctl
   displayName: Show Host's systemd status
+
+- script: |
+    set -e
+    sudo systemctl enable --now podman.socket ||:
+  displayName: Enable podman emulation of docker
 
 - script: |
     set -e

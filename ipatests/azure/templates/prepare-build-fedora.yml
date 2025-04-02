@@ -1,5 +1,9 @@
 steps:
 - script: |
+    CONTAINERID=`echo '$(Agent.ContainerMapping)' | jq -r '.builder.id'`
+    /usr/bin/docker exec $CONTAINERID bash -c "chmod a+r /etc/shadow"
+  target: host
+- script: |
     set -e
     sudo rm -rf /var/cache/dnf/*
     sudo dnf makecache || :
