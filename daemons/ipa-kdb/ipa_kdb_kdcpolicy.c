@@ -11,7 +11,6 @@
 #include "ipa_krb5.h"
 #include "ipa_kdb.h"
 
-#define ONE_DAY_SECONDS (24 * 60 * 60)
 #define JITTER_WINDOW_SECONDS (1 * 60 * 60)
 
 krb5_error_code kdcpolicy_ipakdb_initvt(krb5_context context,
@@ -92,7 +91,8 @@ ipa_kdcpolicy_check_as(krb5_context context, krb5_kdcpolicy_moddata moddata,
     /* If no mechanisms are set, or it is anonymous PKINIT, allow every auth method */
     if ((ua == IPADB_USER_AUTH_NONE) ||
         (request->kdc_options & KDC_OPT_REQUEST_ANONYMOUS)) {
-        jitter(ONE_DAY_SECONDS, lifetime_out);
+        jitter((client->max_life > JITTER_WINDOW_SECONDS) ?
+               client->max_life : JITTER_WINDOW_SECONDS, lifetime_out);
         kerr = 0;
         goto done;
     }
