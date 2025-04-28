@@ -357,23 +357,27 @@ class HTTPInstance(service.Service):
                 # have codepaths to support the ipa-ca.$DOMAIN dnsName in HTTP
                 # cert.  Therefore if request fails, try again without the
                 # ipa-ca.$DOMAIN dnsName.
+                ipa_ca_record = f'{IPA_CA_RECORD}.{api.env.domain}'
                 args = dict(
                     certpath=(paths.HTTPD_CERT_FILE, paths.HTTPD_KEY_FILE),
                     principal=self.principal,
                     subject=str(DN(('CN', self.fqdn), self.subject_base)),
                     ca='IPA',
                     profile=dogtag.DEFAULT_PROFILE,
-                    dns=[self.fqdn, f'{IPA_CA_RECORD}.{api.env.domain}'],
+                    dns=[self.fqdn, ipa_ca_record],
                     post_command='restart_httpd',
                     storage='FILE',
                     passwd_fname=key_passwd_file,
                     resubmit_timeout=api.env.certmonger_wait_timeout,
                     stop_tracking_on_error=True,
                 )
+                if 'host_aliases' in api.env is not None:
+                    args['dns'] += ipautil.split_string(api.env['host_aliases'])
+
                 try:
                     certmonger.request_and_wait_for_cert(**args)
                 except Exception:
-                    args['dns'] = [self.fqdn]  # remove ipa-ca.$DOMAIN
+                    args['dns'].remove(ipa_ca_record)  # remove ipa-ca.$DOMAIN
                     args['stop_tracking_on_error'] = False
                     certmonger.request_and_wait_for_cert(**args)
             finally:

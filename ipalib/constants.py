@@ -208,6 +208,9 @@ DEFAULT_CONFIG = (
     # WebUI stuff:
     ('webui_prod', True),
 
+    # HTTP interface hostname aliases, comma- or space-separated
+    ('host_aliases', None),
+
     # Session stuff:
     ('kinit_lifetime', None),
 
