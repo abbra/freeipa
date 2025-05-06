@@ -1111,7 +1111,14 @@ class idoverrideuser(baseidoverride):
         'memberofindirect': ['group', 'role'],
     }
 
-    takes_params = baseidoverride.takes_params + (
+    # We will override ipaAnchorUUID to be optional
+    # in case template options are present
+    takes_params = (baseidoverride.takes_params[1],) + (
+        Str('ipaanchoruuid?',
+            cli_name='anchor',
+            primary_key=True,
+            label=_('Anchor to override'),
+        ),
         Str('uid?',
             pattern=PATTERN_GROUPUSER_NAME,
             pattern_errmsg=ERRMSG_GROUPUSER_NAME.format('user'),
