@@ -30,6 +30,8 @@
 
 #include <errno.h>
 
+#include <ini_configobj.h>
+
 #ifndef UCHAR_MAX
 #define UCHAR_MAX 255
 #endif
@@ -44,6 +46,12 @@
     otpd_log_err_(__FILE__, __LINE__, (errnum), __VA_ARGS__)
 
 struct otpd_queue_iter;
+
+enum otpd_config_type {
+    CONFIG_UNKNOWN = -1,
+    CONFIG_LOCAL_KDC,
+    CONFIG_IPA
+};
 
 enum ldap_query {
     LDAP_QUERY_EMPTY = 0,
@@ -137,6 +145,7 @@ struct otpd_context {
     krad_client *client;
     krad_attrset *attrs;
     int exitstatus;
+    enum otpd_config_type config_type;
 
     struct {
         verto_ev *reader;
@@ -160,6 +169,10 @@ struct otpd_context {
     struct {
         struct otpd_queue states;
     } oauth2_state;
+
+    struct {
+      struct ini_cfgobj *config;
+    } local_state;
 };
 
 extern struct otpd_context ctx;

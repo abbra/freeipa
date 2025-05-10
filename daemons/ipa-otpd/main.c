@@ -29,10 +29,10 @@
  */
 
 #include "internal.h"
-
 #include <signal.h>
 #include <stdbool.h>
 #include "ipa_hostname.h"
+#include "ipa_config.h"
 
 /* Our global state. */
 struct otpd_context ctx;
@@ -285,6 +285,32 @@ static krb5_error_code setup_ldap(const char *uri, krb5_boolean bind,
     return 0;
 }
 
+static void parse_configuration(int argc, char **argv) {
+    struct ini_cfgobj *otpd_cfg = NULL;
+    int ret;
+
+    ctx.config_type = CONFIG_UNKNOWN;
+    if (strncasecmp(argv[1], "ldapi://", sizeof("ldapi://")) == 0) {
+        ctx.config_type = CONFIG_IPA;
+        return;
+    }
+
+    ret = ini_config_create(&otpd_cfg);
+    if (ret) {
+        return;
+    }
+
+    ret = ipa_config_from_file(argv[1], otpd_cfg);
+    if (ret) {
+        ini_config_destroy(otpd_cfg);
+        return;
+    }
+
+    ctx.config_type = CONFIG_LOCAL_KDC;
+    ctx.local_state.config = otpd_cfg;
+    return;
+}
+
 int main(int argc, char **argv)
 {
     const char *hostname;
@@ -386,22 +412,31 @@ int main(int argc, char **argv)
         goto error;
     }
 
-    /* LDAP (Query) */
-    retval = setup_ldap(argv[1], TRUE, otpd_on_query_io,
-                        &ctx.query.io, &ctx.query.base);
-    if (retval != 0) {
-        otpd_log_err(retval, "Unable to initialize LDAP (Query)");
-        goto error;
-    }
+    parse_configuration(argc, argv);
+    switch(ctx.config_type) {
+    case CONFIG_LOCAL_KDC:
+        break;
+    case CONFIG_IPA:
+        /* LDAP (Query) */
+        retval = setup_ldap(argv[1], TRUE, otpd_on_query_io,
+                            &ctx.query.io, &ctx.query.base);
+        if (retval != 0) {
+            otpd_log_err(retval, "Unable to initialize LDAP (Query)");
+            goto error;
+        }
 
-    /* LDAP (Bind) */
-    retval = setup_ldap(argv[1], FALSE, otpd_on_bind_io,
-                        &ctx.bind.io, NULL);
-    if (retval != 0) {
-        otpd_log_err(retval, "Unable to initialize LDAP (Bind)");
+        /* LDAP (Bind) */
+        retval = setup_ldap(argv[1], FALSE, otpd_on_bind_io,
+                            &ctx.bind.io, NULL);
+        if (retval != 0) {
+            otpd_log_err(retval, "Unable to initialize LDAP (Bind)");
+            goto error;
+        }
+        break;
+    default:
+        otpd_log_err(ENOENT, "Unable to read configuration");
         goto error;
-    }
-
+}
     ctx.exitstatus = 0;
     verto_run(ctx.vctx);
 
@@ -415,5 +450,9 @@ error:
     free(ctx.query.base);
     verto_free(ctx.vctx);
     krb5_free_context(ctx.kctx);
+    if (ctx.local_state.config) {
+        ini_config_destroy(ctx.local_state.config);
+    }
+
     return ctx.exitstatus;
 }

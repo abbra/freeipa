@@ -9,6 +9,8 @@ noinst_LTLIBRARIES = libutil.la
 libutil_la_SOURCES = \
 			ipa_hostname.c \
 			ipa_hostname.h \
+			ipa_config.c \
+			ipa_config.h \
 			ipa_krb5.c \
 			ipa_krb5.h \
 			ipa_mspac.h \

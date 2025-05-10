@@ -124,53 +124,80 @@ static void on_query_writable(verto_ctx *vctx, verto_ev *ev)
         otpd_log_req(item->req, "user query start");
         item->ldap_query = LDAP_QUERY_USER;
 
-        if (asprintf(&filter, "(&(objectClass=Person)(krbPrincipalName=%*s))",
-                     princ->length, princ->data) < 0)
-            goto error;
+        switch (ctx.config_type) {
+        case CONFIG_LOCAL_KDC:
+            break;
+        case CONFIG_IPA:
+            if (asprintf(&filter, "(&(objectClass=Person)(krbPrincipalName=%*s))",
+                        princ->length, princ->data) < 0)
+                goto error;
 
-        i = ldap_search_ext(verto_get_private(ev), ctx.query.base,
-                            LDAP_SCOPE_SUBTREE, filter, user, 0, NULL,
-                            NULL, NULL, 1, &item->msgid);
-        free(filter);
+            i = ldap_search_ext(verto_get_private(ev), ctx.query.base,
+                                LDAP_SCOPE_SUBTREE, filter, user, 0, NULL,
+                                NULL, NULL, 1, &item->msgid);
+            free(filter);
+            break;
+        }
 
     } else if (item->get_passkey_config) {
         otpd_log_req(item->req, "passkey config query start:");
         item->ldap_query = LDAP_QUERY_PASSKEY;
 
-        i = ldap_search_ext(verto_get_private(ev), ctx.query.base,
-                            LDAP_SCOPE_SUBTREE, PASSKEY_CONFIG_FILTER, NULL, 0, NULL,
-                            NULL, NULL, 0, &item->msgid);
-
+        switch (ctx.config_type) {
+        case CONFIG_LOCAL_KDC:
+            break;
+        case CONFIG_IPA:
+            i = ldap_search_ext(verto_get_private(ev), ctx.query.base,
+                                LDAP_SCOPE_SUBTREE, PASSKEY_CONFIG_FILTER, NULL, 0, NULL,
+                                NULL, NULL, 0, &item->msgid);
+            break;
+        }
     } else if (auth_type_is(item->user.ipauserauthtypes, "idp")) {
         otpd_log_req(item->req, "idp query start: %s",
                 item->user.ipaidpConfigLink);
         item->ldap_query = LDAP_QUERY_IDP;
 
-        i = ldap_search_ext(verto_get_private(ev),
-                            item->user.ipaidpConfigLink,
-                            LDAP_SCOPE_BASE, NULL, idp, 0, NULL,
-                            NULL, NULL, 1, &item->msgid);
-
+        switch (ctx.config_type) {
+        case CONFIG_LOCAL_KDC:
+            break;
+        case CONFIG_IPA:
+            i = ldap_search_ext(verto_get_private(ev),
+                                item->user.ipaidpConfigLink,
+                                LDAP_SCOPE_BASE, NULL, idp, 0, NULL,
+                                NULL, NULL, 1, &item->msgid);
+            break;
+        }
     } else if (item->radius.ipatokenRadiusSecret == NULL) {
         otpd_log_req(item->req, "radius query start: %s",
                 item->user.ipatokenRadiusConfigLink);
         item->ldap_query = LDAP_QUERY_RADIUS;
 
-        i = ldap_search_ext(verto_get_private(ev),
-                            item->user.ipatokenRadiusConfigLink,
-                            LDAP_SCOPE_BASE, NULL, radius, 0, NULL,
-                            NULL, NULL, 1, &item->msgid);
-
+        switch (ctx.config_type) {
+        case CONFIG_LOCAL_KDC:
+            break;
+        case CONFIG_IPA:
+            i = ldap_search_ext(verto_get_private(ev),
+                                item->user.ipatokenRadiusConfigLink,
+                                LDAP_SCOPE_BASE, NULL, radius, 0, NULL,
+                                NULL, NULL, 1, &item->msgid);
+            break;
+        }
     } else if (item->radius.ipatokenUserMapAttribute != NULL) {
         otpd_log_req(item->req, "username query start: %s",
                 item->radius.ipatokenUserMapAttribute);
         item->ldap_query = LDAP_QUERY_RADIUS_USERMAP;
 
-        attrs[0] = item->radius.ipatokenUserMapAttribute;
-        attrs[1] = NULL;
-        i = ldap_search_ext(verto_get_private(ev), item->user.dn,
-                            LDAP_SCOPE_BASE, NULL, attrs, 0, NULL,
-                            NULL, NULL, 1, &item->msgid);
+        switch (ctx.config_type) {
+        case CONFIG_LOCAL_KDC:
+            break;
+        case CONFIG_IPA:
+            attrs[0] = item->radius.ipatokenUserMapAttribute;
+            attrs[1] = NULL;
+            i = ldap_search_ext(verto_get_private(ev), item->user.dn,
+                                LDAP_SCOPE_BASE, NULL, attrs, 0, NULL,
+                                NULL, NULL, 1, &item->msgid);
+            break;
+        }
     }
 
     if (i == LDAP_SUCCESS) {
@@ -266,62 +293,68 @@ static void on_query_readable(verto_ctx *vctx, verto_ev *ev)
     (void)vctx;
     enum oauth2_state oauth2_state;
 
-    ldp = verto_get_private(ev);
+    switch (ctx.config_type) {
+    case CONFIG_LOCAL_KDC:
+        break;
+    case CONFIG_IPA:
+        ldp = verto_get_private(ev);
 
-    i = ldap_result(ldp, LDAP_RES_ANY, 0, NULL, &results);
-    if (i != LDAP_RES_SEARCH_ENTRY && i != LDAP_RES_SEARCH_RESULT) {
-        if (i <= 0)
-            results = NULL;
-        ldap_msgfree(results);
-        otpd_log_err(EIO, "IO error received on query socket");
-        verto_break(ctx.vctx);
-        ctx.exitstatus = 1;
-        return;
-    }
-
-    item = otpd_queue_pop_msgid(&ctx.query.responses, ldap_msgid(results));
-    if (item == NULL)
-        goto egress;
-
-    if (i == LDAP_RES_SEARCH_ENTRY) {
-        entry = ldap_first_entry(ldp, results);
-        if (entry == NULL)
-            goto egress;
-
-        err = NULL;
-        switch (item->ldap_query) {
-        case LDAP_QUERY_USER:
-            err = otpd_parse_user(ldp, entry, item);
-            break;
-        case LDAP_QUERY_RADIUS:
-            err = otpd_parse_radius(ldp, entry, item);
-            break;
-        case LDAP_QUERY_RADIUS_USERMAP:
-            err = otpd_parse_radius_username(ldp, entry, item);
-            break;
-        case LDAP_QUERY_IDP:
-            err = otpd_parse_idp(ldp, entry, item);
-            break;
-        case LDAP_QUERY_PASSKEY:
-            err = otpd_parse_passkey(ldp, entry, item);
-            break;
-        default:
-            ldap_msgfree(entry);
-            goto egress;
+        i = ldap_result(ldp, LDAP_RES_ANY, 0, NULL, &results);
+        if (i != LDAP_RES_SEARCH_ENTRY && i != LDAP_RES_SEARCH_RESULT) {
+            if (i <= 0)
+                results = NULL;
+            ldap_msgfree(results);
+            otpd_log_err(EIO, "IO error received on query socket");
+            verto_break(ctx.vctx);
+            ctx.exitstatus = 1;
+            return;
         }
 
-        ldap_msgfree(entry);
+        item = otpd_queue_pop_msgid(&ctx.query.responses, ldap_msgid(results));
+        if (item == NULL)
+            goto egress;
 
-        if (err != NULL) {
-            if (item->error != NULL)
-                free(item->error);
-            item->error = strdup(err);
-            if (item->error == NULL)
+        if (i == LDAP_RES_SEARCH_ENTRY) {
+            entry = ldap_first_entry(ldp, results);
+            if (entry == NULL)
                 goto egress;
-        }
 
-        otpd_queue_push_head(&ctx.query.responses, item);
-        return;
+            err = NULL;
+            switch (item->ldap_query) {
+            case LDAP_QUERY_USER:
+                err = otpd_parse_user(ldp, entry, item);
+                break;
+            case LDAP_QUERY_RADIUS:
+                err = otpd_parse_radius(ldp, entry, item);
+                break;
+            case LDAP_QUERY_RADIUS_USERMAP:
+                err = otpd_parse_radius_username(ldp, entry, item);
+                break;
+            case LDAP_QUERY_IDP:
+                err = otpd_parse_idp(ldp, entry, item);
+                break;
+            case LDAP_QUERY_PASSKEY:
+                err = otpd_parse_passkey(ldp, entry, item);
+                break;
+            default:
+                ldap_msgfree(entry);
+                goto egress;
+            }
+
+            ldap_msgfree(entry);
+
+            if (err != NULL) {
+                if (item->error != NULL)
+                    free(item->error);
+                item->error = strdup(err);
+                if (item->error == NULL)
+                    goto egress;
+            }
+
+            otpd_queue_push_head(&ctx.query.responses, item);
+            return;
+        }
+        break;
     }
 
     item->msgid = -1;

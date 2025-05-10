@@ -89,6 +89,7 @@ ipa_join_LDADD = 		\
 	$(LIBCURL_LIBS)		\
 	$(POPT_LIBS)		\
 	$(LIBINTL_LIBS)         \
+	$(INI_LIBS)		\
 	$(NULL)
 
 SUBDIRS =			\
