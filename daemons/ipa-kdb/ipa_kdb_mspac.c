@@ -2700,6 +2700,13 @@ void ipadb_mspac_struct_free(struct ipadb_mspac **mspac)
                 free((*mspac)->trusts[i].upn_suffixes);
                 free((*mspac)->trusts[i].upn_suffixes_len);
             }
+            if ((*mspac)->trusts[i].indicator_map) {
+                for (j = 0; (*mspac)->trusts[i].indicator_map[j].sid != NULL; j++) {
+                    free((*mspac)->trusts[i].indicator_map[j].sid);
+                    free((*mspac)->trusts[i].indicator_map[j].indicator);
+                }
+                free((*mspac)->trusts[i].indicator_map);
+            }
         }
         free((*mspac)->trusts);
     }
@@ -2740,6 +2747,67 @@ ipadb_adtrusts_fill_sid_blacklist(char **source_sid_blacklist,
     *result_sids = sid_blacklist;
     *result_length = len;
     return 0;
+}
+
+static krb5_error_code
+ipadb_adtrusts_fill_sid_indicator_map(struct ipadb_sid_indicator_map **map,
+                                      char **source_sid_indicator_map)
+{
+    int len, i, ret = 0;
+    char *sid, *indicator, *flag, *saveptr;
+    struct ipadb_sid_indicator_map *sid_map = NULL;
+
+    if (source_sid_indicator_map == NULL)
+        return ENOENT;
+
+    len = 0;
+    for (i = 0; source_sid_indicator_map[i]; i++) {
+        len++;
+    }
+
+    if (len == 0) {
+        return ENOENT;
+    }
+
+    /* Allocate len entries plus a NULL-sentinel (calloc zeroes sid field). */
+    sid_map = calloc(len + 1, sizeof(struct ipadb_sid_indicator_map));
+    if (sid_map == NULL) {
+        return ENOMEM;
+    }
+
+    for (i = 0; i < len; i++) {
+        sid = strtok_r(source_sid_indicator_map[i], ":", &saveptr);
+        if (!sid) {
+            ret = ENOENT;
+            break;
+        }
+        indicator = strtok_r(NULL, ":", &saveptr);
+        if (!indicator) {
+            ret = ENOENT;
+            break;
+        }
+        flag = strtok_r(NULL, ":", &saveptr);
+
+        sid_map[i].sid = strdup(sid);
+        sid_map[i].indicator = strdup(indicator);
+        sid_map[i].req_pkca = (flag && strcasecmp(flag, "true") == 0);
+
+        if (sid_map[i].sid == NULL || sid_map[i].indicator == NULL) {
+            ret = ENOMEM;
+            break;
+        }
+    }
+
+    if (ret == 0) {
+        *map = sid_map;
+    } else {
+        for (i = 0; i < len; i++) {
+            free(sid_map[i].sid);
+            free(sid_map[i].indicator);
+        }
+        free(sid_map);
+    }
+    return ret;
 }
 
 static krb5_error_code
@@ -2817,10 +2885,11 @@ ipadb_mspac_get_trusted_domains(struct ipadb_context *ipactx)
 {
     struct ipadb_adtrusts *t;
     LDAP *lc = NULL;
-    char *attrs[] = { "cn", "ipaNTTrustPartner", "ipaNTFlatName",
-                      "ipaNTTrustedDomainSID", "ipaNTSIDBlacklistIncoming",
-                      "ipaNTSIDBlacklistOutgoing", "ipaNTAdditionalSuffixes", NULL };
-    char *filter = "(objectclass=ipaNTTrustedDomain)";
+    char *attrs[] = {"cn", "ipaNTTrustPartner", "ipaNTFlatName",
+                     "ipaNTTrustedDomainSID", "ipaNTSIDBlacklistIncoming",
+                     "ipaNTSIDBlacklistOutgoing", "ipaNTAdditionalSuffixes",
+                     "ipaSIDIndicatorMap", NULL };
+    char *filter = "(|(objectclass=ipaNTTrustedDomain)(objectclass=ipaTrustObject))";
     krb5_error_code kerr;
     LDAPMessage *res = NULL;
     LDAPMessage *le;
@@ -2831,6 +2900,7 @@ ipadb_mspac_get_trusted_domains(struct ipadb_context *ipactx)
     LDAPDN dn = NULL;
     char **sid_blocklist_incoming = NULL;
     char **sid_blocklist_outgoing = NULL;
+    char **sid_indicator_map = NULL;
     size_t i, n;
     int ret;
 
@@ -2969,6 +3039,36 @@ ipadb_mspac_get_trusted_domains(struct ipadb_context *ipactx)
         }
         ipadb_free_sid_blacklists(&sid_blocklist_incoming,
                                   &sid_blocklist_outgoing);
+
+        ret = ipadb_ldap_attr_to_strlist(lc, le, "ipaSIDIndicatorMap",
+                                         &sid_indicator_map);
+
+        if (ret) {
+            if (ret == ENOENT) {
+                /* This attribute is optional */
+                ret = 0;
+                sid_indicator_map = NULL;
+            } else {
+                ret = EINVAL;
+                goto done;
+            }
+        }
+
+        if (sid_indicator_map != NULL) {
+            ret = ipadb_adtrusts_fill_sid_indicator_map(&t[n].indicator_map,
+                                                        sid_indicator_map);
+
+            for (i = 0; sid_indicator_map && sid_indicator_map[i]; i++) {
+                free(sid_indicator_map[i]);
+            }
+            free(sid_indicator_map);
+            sid_indicator_map = NULL;
+
+            if (ret && ret != ENOENT) {
+                goto done;
+            }
+            ret = 0;
+        }
 
         /* Parse first two RDNs of the entry to find its parent */
         dnl = strcasestr(dnstr, base);
