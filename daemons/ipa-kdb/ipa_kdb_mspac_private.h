@@ -36,6 +36,12 @@ struct ipadb_mspac {
     time_t last_update;
 };
 
+struct ipadb_sid_indicator_map {
+    char *sid;
+    char *indicator;
+    bool req_pkca;
+};
+
 struct ipadb_adtrusts {
     char *domain_name;
     char *flat_name;
@@ -49,6 +55,7 @@ struct ipadb_adtrusts {
     char *parent_name;
     char **upn_suffixes;
     size_t *upn_suffixes_len;
+    struct ipadb_sid_indicator_map *indicator_map;
 };
 
 char *dom_sid_string(TALLOC_CTX *memctx, const struct dom_sid *dom_sid);
