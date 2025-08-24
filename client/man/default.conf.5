@@ -98,6 +98,9 @@ Specifies whether an IPA client should attempt to fall back and try other servic
 .B host <hostname>
 Specifies the local system hostname.
 .TP
+.B host_aliases <comma-separated list of hostnames>
+Specifies the local system hostname aliases. Can be used for multi-homed deployment. Please note that certificates issued to LDAP and HTTP services must also contain these hostname aliases in the dNS SAN records.
+.TP
 .B http_timeout <seconds>
 Timeout for HTTP blocking requests (e.g. connection). The default value is 30 seconds.
 .TP

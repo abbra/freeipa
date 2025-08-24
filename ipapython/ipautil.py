@@ -1822,3 +1822,13 @@ def get_config_debug(context):
         return False
 
     return parser.get(CONFIG_SECTION, 'debug').lower() == 'true'
+
+
+def split_string(value):
+    if value is None:
+        return list()
+    if ',' in value:
+        values = value.split(',')
+    else:
+        values = value.split(' ')
+    return list(v.strip() for v in values if v.strip())

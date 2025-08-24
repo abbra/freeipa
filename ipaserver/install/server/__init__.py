@@ -231,6 +231,13 @@ class ServerInstallInterface(ServerCertificateInstallInterface,
         description="fully qualified name of this host",
     )
 
+    host_aliases = knob(
+        list,
+        description="Additional fully qualified names of this host "
+                    "(aliases for multi-homed setup)",
+    )
+    host_aliases = enroll_only(host_aliases)
+
     ca_cert_files = extend_knob(
         client.ClientInstallInterface.ca_cert_files,
         description="File containing CA certificates for the service "
