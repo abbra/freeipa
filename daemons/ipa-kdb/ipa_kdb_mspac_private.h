@@ -80,4 +80,5 @@ krb5_error_code ipadb_common_verify_pac(krb5_context context,
                                         krb5_keyblock *krbtgt_key,
                                         krb5_timestamp authtime,
                                         krb5_pac old_pac,
-                                        krb5_pac *pac);
+                                        krb5_pac *pac,
+                                        krb5_data ***auth_indicators);

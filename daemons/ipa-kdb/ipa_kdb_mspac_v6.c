@@ -83,7 +83,7 @@ krb5_error_code ipadb_verify_pac(krb5_context context,
         kerr = ipadb_common_verify_pac(context, flags,
                                        proxy, server, krbtgt,
                                        krbtgt_key,
-                                       authtime, old_pac, pac);
+                                       authtime, old_pac, pac, NULL);
     }
 
 done:
@@ -387,4 +387,3 @@ done:
     krb5_pac_free(context, pac);
     return kerr;
 }
-

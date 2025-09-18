@@ -134,7 +134,7 @@ ipadb_v9_issue_pac(krb5_context context, unsigned int flags,
                                         signing_krbtgt,
                                         NULL,
                                         authtime,
-                                        old_pac, &new_pac);
+                                        old_pac, &new_pac, auth_indicators);
         if (kerr == ENOENT) {
             kerr = 0;
         }
