@@ -2089,13 +2089,127 @@ krb5_error_code filter_logon_info(krb5_context context,
 }
 
 
+/* MIT krb5 routines to handle lists of indicators, the code is not exported sadly */
+static inline int
+data_eq_string (krb5_data d, const char *s)
+{
+    return (d.length == strlen(s) && (d.length == 0 ||
+                                      !memcmp(d.data, s, d.length)));
+}
+
+static inline krb5_data
+make_data(void *data, unsigned int len)
+{
+    krb5_data d;
+
+    d.magic = KV5M_DATA;
+    d.data = (char *) data;
+    d.length = len;
+    return d;
+}
+
+/* Return true if ind matches an entry in indicators. */
+static krb5_boolean
+_ipadb_authind_contains(krb5_data *const *indicators, const char *ind)
+{
+    for (; indicators != NULL && *indicators != NULL; indicators++) {
+        if (data_eq_string(**indicators, ind))
+            return TRUE;
+    }
+    return FALSE;
+}
+
+/* Add ind to *indicators, reallocating as necessary. */
+static krb5_error_code
+_ipadb_authind_add(krb5_context context, krb5_data ***indicators, const char *ind)
+{
+    size_t count;
+    krb5_data **list = *indicators, *dptr, d;
+
+    /* Count the number of existing indicators and check for duplicates. */
+    for (count = 0; list != NULL && list[count] != NULL; count++) {
+        if (data_eq_string(*list[count], ind))
+            return 0;
+    }
+
+    /* Allocate space for a new entry. */
+    list = realloc(list, (count + 2) * sizeof(*list));
+    if (list == NULL)
+        return ENOMEM;
+    *indicators = list;
+
+    /* Add a copy of ind (as a krb5_data object) to the list. */
+    d = make_data((char *)ind, strlen((char*)ind));
+    if (krb5_copy_data(context, &d, &dptr) != 0)
+        return ENOMEM;
+    list[count++] = dptr;
+    list[count] = NULL;
+    return 0;
+}
+
+
+
+static krb5_error_code map_sids_to_indicators(krb5_context context,
+                                              TALLOC_CTX *memctx,
+                                              krb5_data *realm,
+                                              struct PAC_LOGON_INFO_CTR *info,
+                                              krb5_data ***indicators)
+{
+    struct ipadb_context *ipactx;
+    struct ipadb_adtrusts *domain;
+    krb5_error_code kerr = 0;
+    int i, j;
+    char **group_sids = NULL;
+
+    /* do not process the mapping if indicators aren't requested */
+    if (indicators == NULL) {
+        return 0;
+    }
+
+    ipactx = ipadb_get_context(context);
+    if (!ipactx || !ipactx->mspac) {
+        return KRB5_KDB_DBNOTINITED;
+    }
+
+    domain = get_domain_from_realm(context, realm);
+    if (!domain) {
+        return EINVAL;
+    }
+
+    if (domain->indicator_map == NULL) {
+        return 0;
+    }
+
+    kerr = get_user_and_group_sids(memctx, info, &group_sids);
+    if (kerr) {
+        return kerr;
+    }
+
+    for (i = 0; group_sids[i]; i++) {
+        for (j = 0; domain->indicator_map[j].sid; j++) {
+            if (strcasecmp(group_sids[i], domain->indicator_map[j].sid) == 0) {
+                kerr = _ipadb_authind_add(context, indicators,
+                                          domain->indicator_map[j].indicator);
+                if (kerr) {
+                    goto done;
+                }
+                break;
+            }
+        }
+    }
+
+done:
+    return kerr;
+}
+
 static krb5_error_code ipadb_check_logon_info(krb5_context context,
                                               krb5_db_entry *client,
                                               krb5_db_entry *signing_krbtgt,
                                               krb5_boolean is_cross_realm,
                                               krb5_boolean is_s4u,
                                               krb5_data *pac_blob,
-                                              struct dom_sid *requester_sid)
+                                              struct dom_sid *requester_sid,
+                                              krb5_data ***auth_indicators)
 {
     struct PAC_LOGON_INFO_CTR info;
     krb5_error_code kerr;
@@ -2178,6 +2292,11 @@ static krb5_error_code ipadb_check_logon_info(krb5_context context,
     }
 
     kerr = filter_logon_info(context, tmpctx, &origin_realm, &info);
+    if (kerr) {
+        goto done;
+    }
+
+    kerr = map_sids_to_indicators(context, tmpctx, &origin_realm, &info, auth_indicators);
     if (kerr) {
         goto done;
     }
@@ -2354,7 +2473,8 @@ krb5_error_code ipadb_common_verify_pac(krb5_context context,
                                         krb5_keyblock *krbtgt_key,
                                         krb5_timestamp authtime,
                                         krb5_pac old_pac,
-                                        krb5_pac *pac)
+                                        krb5_pac *pac,
+                                        krb5_data ***auth_indicators)
 {
     krb5_error_code kerr;
     krb5_ui_4 *types = NULL;
@@ -2398,7 +2518,8 @@ krb5_error_code ipadb_common_verify_pac(krb5_context context,
                                   is_cross_realm,
                                   (flags & KRB5_KDB_FLAGS_S4U),
                                   &pac_blob,
-                                  requester_sid);
+                                  requester_sid,
+                                  auth_indicators);
     if (kerr != 0) {
         goto done;
     }
