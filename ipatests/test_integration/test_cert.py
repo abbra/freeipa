@@ -13,7 +13,6 @@ import pytest
 import random
 import re
 import string
-import time
 import textwrap
 
 from ipaplatform.paths import paths
@@ -70,9 +69,10 @@ class TestInstallMasterClient(IntegrationTest):
     def install(cls, mh):
         super().install(mh)
 
-        # time to look into journal logs in
+        # store the start time to look into journal logs in
         # test_certmonger_ipa_responder_jsonrpc
-        cls.since = time.strftime('%Y-%m-%d %H:%M:%S')
+        result = cls.clients[0].run_command(['date', '+%Y-%m-%d %H:%M:%S'])
+        cls.since = result.stdout_text.strip()
 
     def test_cacert_file_appear_with_option_F(self):
         """Test if getcert creates cacert file with -F option
@@ -298,6 +298,33 @@ class TestInstallMasterClient(IntegrationTest):
             ["getcert", "list", "-f", paths.HTTPD_CERT_FILE]
         ).stdout_text
         assert 'issued:' in result
+
+    def test_remove_missing_lwca(self):
+        """Test removing an IPA LWCA if the PKI copy is missing."""
+        lwca_regex = r'  Authority ID: (.*)$'
+        lwca = 'lwca'
+        subject = 'CN=LWCA'
+        result = self.master.run_command([
+            'ipa', 'ca-add', lwca, '--subject', subject
+        ])
+        assert 'Created CA "{}"'.format(lwca) in result.stdout_text
+
+        result = self.master.run_command(['ipa', 'ca-show', lwca, '--all'])
+        m = None
+        for line in result.stdout_text.split('\n'):
+            m = re.match(lwca_regex, line)
+            if m:
+                break
+        assert m
+        ca_id = m.groups(0)[0]
+
+        remove_ca_ldif = textwrap.dedent("""
+             dn: cn={ca_id},ou=authorities,ou=ca,o=ipaca
+             changetype: delete
+             """.format(ca_id=ca_id))
+        tasks.ldapmodify_dm(self.master, remove_ca_ldif)
+
+        self.master.run_command(['ipa', 'ca-del', lwca])
 
 
 class TestCertmongerRekey(IntegrationTest):
@@ -548,6 +575,9 @@ class TestCAShowErrorHandling(IntegrationTest):
             'ipa', 'ca-add', lwca, '--subject', 'CN=LWCA 1'
         ])
         assert 'Created CA "{}"'.format(lwca) in result.stdout_text
+        match = re.search(r'Authority ID: (?P<id>.*)', result.stdout_text)
+        id = match.group('id')
+
         # wait for replication to propagate the change
         tasks.wait_for_replication(self.replicas[0].ldap_connect())
         result = self.master.run_command(['ipa', 'ca-find'])
@@ -558,11 +588,16 @@ class TestCAShowErrorHandling(IntegrationTest):
         )
         error_msg = 'ipa: ERROR: The certificate for ' \
                     '{} is not available on this server.'.format(lwca)
-        bad_version = (tasks.get_pki_version(self.master)
-                       >= tasks.parse_version('11.5.0'))
+        new_error_msg = 'ipa: ERROR: Certificate for CA ' \
+                        '"{}" not available'.format(id)
+        pki_version = tasks.get_pki_version(self.master)
+        # The regression was introduced in 11.5 and fixed in 11.7
+        bad_version = (tasks.parse_version('11.5.0') <= pki_version
+                       < tasks.parse_version('11.7.0'))
         with xfail_context(bad_version,
                            reason="https://pagure.io/freeipa/issue/9606"):
-            assert error_msg in result.stderr_text
+            assert (error_msg in result.stderr_text
+                    or new_error_msg in result.stderr_text)
 
     def test_certmonger_empty_cert_not_segfault(self):
         """Test empty cert request doesn't force certmonger to segfault

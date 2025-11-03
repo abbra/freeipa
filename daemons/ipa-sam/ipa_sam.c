@@ -30,6 +30,8 @@ char *smb_xstrdup(const char *s);
 #include <smbldap.h>
 
 #include <gen_ndr/samr.h>
+#include <gen_ndr/drsblobs.h>
+#include <gen_ndr/ndr_drsblobs.h>
 
 #include <passdb.h>
 
@@ -40,53 +42,6 @@ char *smb_xstrdup(const char *s);
 #include "ipa_asn1.h"
 #include "ipa_pwd.h"
 #include "ipa_mspac.h"
-
-/* from drsblobs.h */
-struct AuthInfoNone {
-	uint32_t size;/* [value(0)] */
-};
-
-struct AuthInfoNT4Owf {
-	uint32_t size;/* [value(16)] */
-	struct samr_Password password;
-};
-
-struct AuthInfoClear {
-	uint32_t size;
-	uint8_t *password;
-};
-
-struct AuthInfoVersion {
-	uint32_t size;/* [value(4)] */
-	uint32_t version;
-};
-
-union AuthInfo {
-	struct AuthInfoNone none;/* [case(TRUST_AUTH_TYPE_NONE)] */
-	struct AuthInfoNT4Owf nt4owf;/* [case(TRUST_AUTH_TYPE_NT4OWF)] */
-	struct AuthInfoClear clear;/* [case(TRUST_AUTH_TYPE_CLEAR)] */
-	struct AuthInfoVersion version;/* [case(TRUST_AUTH_TYPE_VERSION)] */
-}/* [nodiscriminant] */;
-
-struct AuthenticationInformation {
-	NTTIME LastUpdateTime;
-	enum lsa_TrustAuthType AuthType;
-	union AuthInfo AuthInfo;/* [switch_is(AuthType)] */
-	DATA_BLOB _pad;/* [flag(LIBNDR_FLAG_ALIGN4)] */
-}/* [public] */;
-
-struct AuthenticationInformationArray {
-	uint32_t count;
-	struct AuthenticationInformation *array;
-}/* [gensize,nopush,public,nopull] */;
-
-struct trustAuthInOutBlob {
-	uint32_t count;
-	uint32_t current_offset;/* [value((count>0)?12:0)] */
-	uint32_t previous_offset;/* [value((count>0)?12+ndr_size_AuthenticationInformationArray(&current,ndr->flags):0)] */
-	struct AuthenticationInformationArray current;/* [subcontext_size((previous_offset)-(current_offset)),subcontext(0)] */
-	struct AuthenticationInformationArray previous;/* [subcontext(0),flag(LIBNDR_FLAG_REMAINING)] */
-}/* [gensize,public,nopush] */;
 
 /* from generated idmap.h - hopefully OK */
 enum id_type {
@@ -101,7 +56,6 @@ struct unixid {
 	enum id_type type;
 }/* [public] */;
 
-enum ndr_err_code ndr_pull_trustAuthInOutBlob(struct ndr_pull *ndr, int ndr_flags, struct trustAuthInOutBlob *r); /*available in libndr-samba.so */
 bool sid_check_is_builtin(const struct dom_sid *sid); /* available in libpdb.so */
 /* available in libpdb.so, renamed from sid_check_is_domain() in c43505b621725c9a754f0ee98318d451b093f2ed */
 bool sid_linearize(char *outbuf, size_t len, const struct dom_sid *sid); /* available in libsmbconf.so */
@@ -235,15 +189,13 @@ static void idmap_talloc_free(void *ptr, void *pvt)
 
 static void sid_copy(struct dom_sid *dst, const struct dom_sid *src)
 {
-	size_t c;
-
 	memset(dst, 0, sizeof(*dst));
 
 	dst->sid_rev_num = src->sid_rev_num;
 	dst->num_auths = src->num_auths;
 	memcpy(&dst->id_auth[0], &src->id_auth[0], sizeof(src->id_auth));
 
-	for (c = 0; c < src->num_auths; c++) {
+	for (int8_t c = 0; c < src->num_auths; c++) {
 		dst->sub_auths[c] = src->sub_auths[c];
 	}
 }
@@ -2422,6 +2374,36 @@ static bool get_uint32_t_from_ldap_msg(struct ipasam_private *ipasam_state,
 	return true;
 }
 
+static bool repack_pdb_forest_trust_info(struct pdb_trusted_domain *td)
+{
+	struct ForestTrustInfo *fti = NULL;
+	enum ndr_err_code ndr_err = 0;
+	/*
+	 * Fix-up the version field as Samba expects it.
+	 * We need to unpack the blob, change, and pack it again
+	 */
+	fti = talloc(td, struct ForestTrustInfo);
+	if (fti == NULL) {
+	    return false;
+	}
+	ndr_err = ndr_pull_struct_blob_all(&td->trust_forest_trust_info, td, fti,
+					   (ndr_pull_flags_fn_t)ndr_pull_ForestTrustInfo);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+	    TALLOC_FREE(fti);
+	    return false;
+	}
+
+	fti->version = 1;
+
+	talloc_free(td->trust_forest_trust_info.data);
+	td->trust_forest_trust_info = data_blob_null;
+
+	ndr_err = ndr_push_struct_blob(&td->trust_forest_trust_info, td, fti,
+				       (ndr_push_flags_fn_t)ndr_push_ForestTrustInfo);
+	TALLOC_FREE(fti);
+	return NDR_ERR_CODE_IS_SUCCESS(ndr_err);
+}
+
 static bool fill_pdb_trusted_domain(TALLOC_CTX *mem_ctx,
 				    struct ipasam_private *ipasam_state,
 				    LDAPMessage *entry,
@@ -2476,7 +2458,8 @@ static bool fill_pdb_trusted_domain(TALLOC_CTX *mem_ctx,
 	rc = ldap_str2dn(strdn, &dn, LDAP_DN_FORMAT_LDAPV3);
 	if (rc) {
 		free(strdn);
-		return false;
+		res = false;
+		goto done;
 	}
 
 	for (count = 0; dn[count] != NULL; count++);
@@ -2488,8 +2471,8 @@ static bool fill_pdb_trusted_domain(TALLOC_CTX *mem_ctx,
 			  strdn, ipasam_state->trust_dn));
 		ldap_dnfree(dn);
 		free(strdn);
-		TALLOC_FREE(td);
-		return false;
+		res = false;
+		goto done;
 
 	}
 
@@ -2512,7 +2495,8 @@ static bool fill_pdb_trusted_domain(TALLOC_CTX *mem_ctx,
 					       dummy, &sid);
 		TALLOC_FREE(dummy);
 		if (err != IDMAP_SUCCESS) {
-			return false;
+			res = false;
+			goto done;
 		}
 		sid_copy(&td->security_identifier, sid);
 		talloc_free(sid);
@@ -2552,29 +2536,26 @@ static bool fill_pdb_trusted_domain(TALLOC_CTX *mem_ctx,
 					 LDAP_ATTRIBUTE_TRUST_DIRECTION,
 					 &td->trust_direction);
 	if (!res) {
-		TALLOC_FREE(td);
-		return false;
+		goto done;
 	}
 
 	res = get_uint32_t_from_ldap_msg(ipasam_state, entry,
 					 LDAP_ATTRIBUTE_TRUST_ATTRIBUTES,
 					 &td->trust_attributes);
 	if (!res) {
-		TALLOC_FREE(td);
-		return false;
+		goto done;
 	}
-	if (td->trust_attributes == 0) {
-		/* attribute wasn't present, this is a subdomain within the
-		 * parent forest */
-		td->trust_attributes = LSA_TRUST_ATTRIBUTE_WITHIN_FOREST;
+	if (td->trust_attributes == 0 && (td->domain_name != dns_domain)) {
+                /* attribute wasn't present and this is not a subdomain within
+                 * the parent forest */
+		td->trust_attributes = LSA_TRUST_ATTRIBUTE_FOREST_TRANSITIVE;
 	}
 
 	res = get_uint32_t_from_ldap_msg(ipasam_state, entry,
 					 LDAP_ATTRIBUTE_TRUST_TYPE,
 					 &td->trust_type);
 	if (!res) {
-		TALLOC_FREE(td);
-		return false;
+		goto done;
 	}
 	if (td->trust_type == 0) {
 		/* attribute wasn't present, set default value */
@@ -2583,28 +2564,24 @@ static bool fill_pdb_trusted_domain(TALLOC_CTX *mem_ctx,
 
 	td->trust_posix_offset = talloc_zero(td, uint32_t);
 	if (td->trust_posix_offset == NULL) {
-		TALLOC_FREE(td);
-		return false;
+		goto done;
 	}
 	res = get_uint32_t_from_ldap_msg(ipasam_state, entry,
 					 LDAP_ATTRIBUTE_TRUST_POSIX_OFFSET,
 					 td->trust_posix_offset);
 	if (!res) {
-		TALLOC_FREE(td);
-		return false;
+		goto done;
 	}
 
 	td->supported_enc_type = talloc_zero(td, uint32_t);
 	if (td->supported_enc_type == NULL) {
-		TALLOC_FREE(td);
-		return false;
+		goto done;
 	}
 	res = get_uint32_t_from_ldap_msg(ipasam_state, entry,
 					 LDAP_ATTRIBUTE_SUPPORTED_ENC_TYPE,
 					 td->supported_enc_type);
 	if (!res) {
-		TALLOC_FREE(td);
-		return false;
+		goto done;
 	}
 	if (*td->supported_enc_type == 0) {
 		*td->supported_enc_type = ipasam_state->supported_enctypes;
@@ -2614,11 +2591,17 @@ static bool fill_pdb_trusted_domain(TALLOC_CTX *mem_ctx,
 					LDAP_ATTRIBUTE_TRUST_FOREST_TRUST_INFO,
 					&td->trust_forest_trust_info)) {
 		DEBUG(9, ("Failed to set forest trust info.\n"));
+	} else {
+		res = repack_pdb_forest_trust_info(td);
 	}
 
-	*_td = td;
-
-	return true;
+done:
+	if (res) {
+		*_td = td;
+	} else {
+		TALLOC_FREE(td);
+	}
+	return res;
 }
 
 static NTSTATUS ipasam_get_trusted_domain(struct pdb_methods *methods,
@@ -3217,7 +3200,6 @@ static NTSTATUS ipasam_enum_trusteddoms(struct pdb_methods *methods,
 {
 	NTSTATUS status;
 	struct pdb_trusted_domain **td;
-	int i;
 
 	status = ipasam_enum_trusted_domains(methods, mem_ctx,
 					     num_domains, &td);
@@ -3235,7 +3217,7 @@ static NTSTATUS ipasam_enum_trusteddoms(struct pdb_methods *methods,
 		goto fail;
 	}
 
-	for (i = 0; i < *num_domains; i++) {
+	for (uint32_t i = 0; i < *num_domains; i++) {
 		struct trustdom_info *dom_info;
 
 		dom_info = talloc(*domains, struct trustdom_info);
@@ -5351,12 +5333,14 @@ static NTSTATUS pdb_init_ipasam(struct pdb_methods **pdb_method,
 	return NT_STATUS_OK;
 }
 
+NTSTATUS samba_module_init(void);
 NTSTATUS samba_module_init(void)
 {
 	return smb_register_passdb(PASSDB_INTERFACE_VERSION, "ipasam",
 				   pdb_init_ipasam);
 }
 
+NTSTATUS samba_init_module(void);
 NTSTATUS samba_init_module(void)
 {
 	return smb_register_passdb(PASSDB_INTERFACE_VERSION, "ipasam",
