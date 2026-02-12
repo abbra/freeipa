@@ -32,6 +32,7 @@ from ipalib.request import context
 from .baseldap import (
     pkey_to_value,
     entry_to_dict,
+    add_missing_object_class,
     LDAPCreate,
     LDAPDelete,
     LDAPUpdate,
@@ -482,6 +483,50 @@ def fetch_trusted_domains_over_dbus(myapi, *keys, **options):
     return
 
 
+def normalize_sidindicatormap(value):
+    if not _bindings_installed:
+        raise errors.ValidationError(
+            name='SIDIndicatorMap',
+            error=_('Cannot validate and normalize')
+        )
+
+    # sid:indicator[:boolean for PKCA requirement]
+    (name_or_sid, indicator, pkca, _ignore) = (value + ':::').split(':', 3)
+
+    try:
+        domain_validator = ipaserver.dcerpc.DomainValidator(api)
+        sid = domain_validator.get_trusted_domain_object_sid(name_or_sid)
+    except errors.PublicError:
+        raise errors.ValidationError(
+            name='SIDIndicatorMap',
+            error=_('Invalid trusted domain group name or SID')
+        )
+
+    if not indicator:
+        raise errors.ValidationError(
+            name='SIDIndicatorMap',
+            error=_('Authentication indicator is missing')
+        )
+
+    smartcard = False
+    if pkca:
+        try:
+            smartcard = Bool('test')(pkca)
+        except errors.ConversionError:
+            raise errors.ValidationError(
+                name='SIDIndicatorMap',
+                error=_('smartcard boolean option is not true or false')
+            )
+
+    if smartcard and indicator.lower() != 'pkinit':
+        raise errors.ValidationError(
+            name='SIDIndicatorMap',
+            error=_('Authentication indicator must be "pkinit" if smartcard '
+                    'boolean option is true')
+        )
+    return ':'.join([sid, indicator, str(smartcard).lower()])
+
+
 @register()
 class trust(LDAPObject):
     """
@@ -492,13 +537,16 @@ class trust(LDAPObject):
     object_name = _('trust')
     object_name_plural = _('trusts')
     object_class = ['ipaNTTrustedDomain', 'ipaIDObject']
+    possible_objectclasses = ['ipaTrustObject']
     default_attributes = ['cn', 'ipantflatname', 'ipanttrusteddomainsid',
                           'ipanttrusttype', 'ipanttrustattributes',
                           'ipanttrustdirection', 'ipanttrustpartner',
                           'ipanttrustforesttrustinfo',
                           'ipanttrustposixoffset',
                           'ipantsupportedencryptiontypes',
-                          'ipantadditionalsuffixes']
+                          'ipantadditionalsuffixes',
+                          'ipaPartnerTrustType',
+                          'ipaSIDIndicatorMap']
     search_display_attributes = ['cn', 'ipantflatname',
                                  'ipanttrusteddomainsid', 'ipanttrusttype',
                                  'ipanttrustattributes',
@@ -572,6 +620,13 @@ class trust(LDAPObject):
         Str('ipantadditionalsuffixes*',
             cli_name='upn_suffixes',
             label=_('UPN suffixes'),
+            flags={'no_create', 'no_search'},
+        ),
+        Str(
+            'ipasidindicatormap*',
+            cli_name='indicator_map',
+            label=_('SID to Indicator map'),
+            normalizer=normalize_sidindicatormap,
             flags={'no_create', 'no_search'},
         ),
     )
@@ -1129,10 +1184,12 @@ class trust_del(LDAPDelete):
 @register()
 class trust_mod(LDAPUpdate):
     __doc__ = _("""
-    Modify a trust (for future use).
+    Modify a trust.
 
-    Currently only the default option to modify the LDAP attributes is
-    available. More specific options will be added in coming releases.
+    Allows modification of trust attributes including SID to authentication
+    indicator mappings. Use --indicator-map to configure mappings between
+    Active Directory group SIDs (or names) and Kerberos authentication
+    indicators, enabling policy enforcement for trusted domain users.
     """)
 
     msg_summary = _('Modified trust "%(value)s" '
@@ -1142,6 +1199,26 @@ class trust_mod(LDAPUpdate):
         assert isinstance(dn, DN)
 
         self.obj.validate_sid_blocklists(e_attrs)
+
+        if 'ipasidindicatormap' in e_attrs:
+            # add_missing_object_class() requires 'objectclass' to be present
+            # in e_attrs (so it can append to it and the LDAPUpdate framework
+            # picks up the change in a single update_entry call).
+            if 'objectclass' not in e_attrs:
+                _entry = ldap.get_entry(dn, ['objectclass'])
+                e_attrs['objectclass'] = _entry['objectclass']
+
+            # ipaTrustObject is an auxiliary OC with MUST ipaPartnerTrustType;
+            # set that MUST attribute before the OC is added so the LDAP
+            # server does not reject the update.
+            if not self.obj.has_objectclass(e_attrs['objectclass'],
+                                            'ipaTrustObject'):
+                if not e_attrs.get('ipapartnertrusttype'):
+                    # Value 1 identifies an AD trust partnership.
+                    e_attrs['ipapartnertrusttype'] = [1]
+
+            add_missing_object_class(ldap, 'ipaTrustObject', dn,
+                                     e_attrs, update=False)
 
         return dn
 
