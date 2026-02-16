@@ -559,6 +559,30 @@ def install_step_0(standalone, replica_config, options, custodia):
         ca_key_type = options.ca_key_type
         if ca_key_type is None:
             ca_key_type = "rsa"
+
+        # For ML-DSA key types, derive the signing algorithm automatically
+        # when the user did not explicitly pass --ca-signing-algorithm.
+        # ML-DSA has no separate hash: the key type IS the signing algorithm.
+        if ca_signing_algorithm is None and ca_key_type is not None:
+            _kt = (
+                ca_key_type.value
+                if hasattr(ca_key_type, "value")
+                else str(ca_key_type)
+            )
+            _mldsa_map = {
+                "mldsa:44": CASigningAlgorithm.ML_DSA_44,
+                "mldsa:65": CASigningAlgorithm.ML_DSA_65,
+                "mldsa:87": CASigningAlgorithm.ML_DSA_87,
+                "mldsa": CASigningAlgorithm.ML_DSA_65,
+            }
+            if _kt in _mldsa_map:
+                ca_signing_algorithm = _mldsa_map[_kt]
+                logger.debug(
+                    "Derived ca_signing_algorithm=%s from ca_key_type=%s",
+                    ca_signing_algorithm.value,
+                    _kt,
+                )
+
         if options.external_ca:
             ca_type = options.external_ca_type
             external_ca_profile = options.external_ca_profile
