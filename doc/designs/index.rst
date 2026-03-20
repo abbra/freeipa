@@ -39,3 +39,4 @@ FreeIPA design documentation
    namespace.md
    ipacta.md
    krb-s4u-x509-assertion.md
+   adtrust/sid-indicator.md
