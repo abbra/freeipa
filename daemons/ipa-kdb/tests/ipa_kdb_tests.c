@@ -492,6 +492,321 @@ static void test_dom_sid_string(void **state)
 }
 
 
+/* ====================================================================
+ * SID-to-authentication-indicator tests
+ * ==================================================================== */
+
+#define INDICATOR_SID_A  "S-1-5-21-4-5-6-512"
+#define INDICATOR_SID_B  "S-1-5-21-4-5-6-519"
+#define INDICATOR_A      "pkinit"
+#define INDICATOR_B      "otp"
+
+static void test_fill_sid_indicator_map(void **state)
+{
+    struct ipadb_sid_indicator_map *map;
+    char *entry_a, *entry_b;
+    char *entries[3];
+    int ret;
+
+    /* NULL source → ENOENT */
+    fprintf(stderr, "fill_sid_indicator_map: NULL source\n");
+    map = NULL;
+    ret = ipadb_adtrusts_fill_sid_indicator_map(&map, NULL);
+    fprintf(stderr, "  ret=%d (expected ENOENT=%d), map=%s\n",
+            ret, ENOENT, map ? "non-NULL (unexpected)" : "NULL (ok)");
+    assert_int_equal(ret, ENOENT);
+    assert_null(map);
+
+    /* Single entry: SID:indicator:true → req_pkca=true */
+    entry_a = strdup(INDICATOR_SID_A ":" INDICATOR_A ":true");
+    assert_non_null(entry_a);
+    entries[0] = entry_a;
+    entries[1] = NULL;
+    fprintf(stderr, "fill_sid_indicator_map: [\"%s\"]\n", entries[0]);
+
+    map = NULL;
+    ret = ipadb_adtrusts_fill_sid_indicator_map(&map, entries);
+    free(entry_a);
+    assert_int_equal(ret, 0);
+    assert_non_null(map);
+    fprintf(stderr, "  [0] sid=%s indicator=%s req_pkca=%s\n",
+            map[0].sid, map[0].indicator, map[0].req_pkca ? "true" : "false");
+    fprintf(stderr, "  [1] sid=%s (sentinel)\n",
+            map[1].sid ? map[1].sid : "NULL");
+    assert_string_equal(map[0].sid, INDICATOR_SID_A);
+    assert_string_equal(map[0].indicator, INDICATOR_A);
+    assert_true(map[0].req_pkca);
+    assert_null(map[1].sid);
+    free(map[0].sid);
+    free(map[0].indicator);
+    free(map);
+
+    /* Single entry: SID:indicator (no flag) → req_pkca=false */
+    entry_a = strdup(INDICATOR_SID_A ":" INDICATOR_B);
+    assert_non_null(entry_a);
+    entries[0] = entry_a;
+    entries[1] = NULL;
+    fprintf(stderr, "fill_sid_indicator_map: [\"%s\"] (no pkca flag)\n",
+            entries[0]);
+
+    map = NULL;
+    ret = ipadb_adtrusts_fill_sid_indicator_map(&map, entries);
+    free(entry_a);
+    assert_int_equal(ret, 0);
+    assert_non_null(map);
+    fprintf(stderr, "  [0] sid=%s indicator=%s req_pkca=%s\n",
+            map[0].sid, map[0].indicator, map[0].req_pkca ? "true" : "false");
+    assert_string_equal(map[0].sid, INDICATOR_SID_A);
+    assert_string_equal(map[0].indicator, INDICATOR_B);
+    assert_false(map[0].req_pkca);
+    assert_null(map[1].sid);
+    free(map[0].sid);
+    free(map[0].indicator);
+    free(map);
+
+    /* Single entry: SID:indicator:false → req_pkca=false */
+    entry_a = strdup(INDICATOR_SID_A ":" INDICATOR_A ":false");
+    assert_non_null(entry_a);
+    entries[0] = entry_a;
+    entries[1] = NULL;
+    fprintf(stderr, "fill_sid_indicator_map: [\"%s\"]\n", entries[0]);
+
+    map = NULL;
+    ret = ipadb_adtrusts_fill_sid_indicator_map(&map, entries);
+    free(entry_a);
+    assert_int_equal(ret, 0);
+    assert_non_null(map);
+    fprintf(stderr, "  [0] sid=%s indicator=%s req_pkca=%s\n",
+            map[0].sid, map[0].indicator, map[0].req_pkca ? "true" : "false");
+    assert_false(map[0].req_pkca);
+    assert_null(map[1].sid);
+    free(map[0].sid);
+    free(map[0].indicator);
+    free(map);
+
+    /* Two entries: verify both populated and sentinel placed correctly */
+    entry_a = strdup(INDICATOR_SID_A ":" INDICATOR_A ":true");
+    entry_b = strdup(INDICATOR_SID_B ":" INDICATOR_B ":false");
+    assert_non_null(entry_a);
+    assert_non_null(entry_b);
+    entries[0] = entry_a;
+    entries[1] = entry_b;
+    entries[2] = NULL;
+    fprintf(stderr, "fill_sid_indicator_map: [\"%s\", \"%s\"]\n",
+            entries[0], entries[1]);
+
+    map = NULL;
+    ret = ipadb_adtrusts_fill_sid_indicator_map(&map, entries);
+    free(entry_a);
+    free(entry_b);
+    assert_int_equal(ret, 0);
+    assert_non_null(map);
+    fprintf(stderr, "  [0] sid=%s indicator=%s req_pkca=%s\n",
+            map[0].sid, map[0].indicator, map[0].req_pkca ? "true" : "false");
+    fprintf(stderr, "  [1] sid=%s indicator=%s req_pkca=%s\n",
+            map[1].sid, map[1].indicator, map[1].req_pkca ? "true" : "false");
+    fprintf(stderr, "  [2] sid=%s (sentinel)\n",
+            map[2].sid ? map[2].sid : "NULL");
+    assert_string_equal(map[0].sid, INDICATOR_SID_A);
+    assert_string_equal(map[0].indicator, INDICATOR_A);
+    assert_true(map[0].req_pkca);
+    assert_string_equal(map[1].sid, INDICATOR_SID_B);
+    assert_string_equal(map[1].indicator, INDICATOR_B);
+    assert_false(map[1].req_pkca);
+    assert_null(map[2].sid);
+    free(map[0].sid); free(map[0].indicator);
+    free(map[1].sid); free(map[1].indicator);
+    free(map);
+}
+
+static void authind_list_print(krb5_data **indicators)
+{
+    int count = 0;
+    if (indicators == NULL) {
+        fprintf(stderr, "  indicators: NULL\n");
+        return;
+    }
+    for (count = 0; indicators[count] != NULL; count++)
+        ;
+    fprintf(stderr, "  indicators[%d]:", count);
+    for (int i = 0; indicators[i] != NULL; i++)
+        fprintf(stderr, " \"%.*s\"",
+                (int)indicators[i]->length, indicators[i]->data);
+    fprintf(stderr, "\n");
+}
+
+static void test_authind_add_contains(void **state)
+{
+    struct test_ctx *test_ctx = (struct test_ctx *)*state;
+    krb5_data **indicators = NULL;
+    krb5_error_code kerr;
+    int i;
+
+    /* contains on NULL list → false */
+    fprintf(stderr, "authind_contains(NULL, \"%s\") = %s\n",
+            INDICATOR_A,
+            _ipadb_authind_contains(NULL, INDICATOR_A) ? "true" : "false");
+    assert_false(_ipadb_authind_contains(NULL, INDICATOR_A));
+
+    /* add to NULL list → creates list with one entry */
+    fprintf(stderr, "authind_add(\"%s\") to NULL list\n", INDICATOR_A);
+    kerr = _ipadb_authind_add(test_ctx->krb5_ctx, &indicators, INDICATOR_A);
+    assert_int_equal(kerr, 0);
+    authind_list_print(indicators);
+    assert_non_null(indicators);
+    assert_non_null(indicators[0]);
+    assert_null(indicators[1]);
+    fprintf(stderr, "  contains \"%s\": %s, contains \"%s\": %s\n",
+            INDICATOR_A,
+            _ipadb_authind_contains(indicators, INDICATOR_A) ? "true" : "false",
+            INDICATOR_B,
+            _ipadb_authind_contains(indicators, INDICATOR_B) ? "true" : "false");
+    assert_true(_ipadb_authind_contains(indicators, INDICATOR_A));
+    assert_false(_ipadb_authind_contains(indicators, INDICATOR_B));
+
+    /* add duplicate → no-op, list still has one entry */
+    fprintf(stderr, "authind_add(\"%s\") again (duplicate)\n", INDICATOR_A);
+    kerr = _ipadb_authind_add(test_ctx->krb5_ctx, &indicators, INDICATOR_A);
+    assert_int_equal(kerr, 0);
+    authind_list_print(indicators);
+    assert_non_null(indicators[0]);
+    assert_null(indicators[1]);
+
+    /* add a different indicator → list grows to two entries */
+    fprintf(stderr, "authind_add(\"%s\") (new entry)\n", INDICATOR_B);
+    kerr = _ipadb_authind_add(test_ctx->krb5_ctx, &indicators, INDICATOR_B);
+    assert_int_equal(kerr, 0);
+    authind_list_print(indicators);
+    assert_non_null(indicators[0]);
+    assert_non_null(indicators[1]);
+    assert_null(indicators[2]);
+    assert_true(_ipadb_authind_contains(indicators, INDICATOR_A));
+    assert_true(_ipadb_authind_contains(indicators, INDICATOR_B));
+
+    for (i = 0; indicators[i] != NULL; i++) {
+        krb5_free_data(test_ctx->krb5_ctx, indicators[i]);
+    }
+    free(indicators);
+}
+
+static void test_map_sids_to_indicators(void **state)
+{
+    struct test_ctx *test_ctx = (struct test_ctx *)*state;
+    struct ipadb_context *ipa_ctx;
+    krb5_error_code kerr;
+    struct PAC_LOGON_INFO_CTR *info;
+    krb5_data realm = {KV5M_DATA, sizeof(DOMAIN_NAME) - 1, DOMAIN_NAME};
+    krb5_data **indicators;
+    struct dom_sid dom_sid;
+    int ret, i;
+
+    ipa_ctx = ipadb_get_context(test_ctx->krb5_ctx);
+    assert_non_null(ipa_ctx);
+
+    /* indicators == NULL → early return without error */
+    fprintf(stderr, "map_sids_to_indicators: indicators=NULL (output ptr) "
+                    "→ expect early return 0\n");
+    kerr = map_sids_to_indicators(test_ctx->krb5_ctx, test_ctx, &realm,
+                                  NULL, NULL);
+    fprintf(stderr, "  ret=%d\n", kerr);
+    assert_int_equal(kerr, 0);
+
+    /* No indicator_map on domain → returns 0, indicators unchanged */
+    fprintf(stderr, "map_sids_to_indicators: domain \"%s\" has no "
+                    "indicator_map → expect no indicators added\n",
+            DOMAIN_NAME);
+    assert_null(ipa_ctx->mspac->trusts[0].indicator_map);
+    indicators = NULL;
+    kerr = map_sids_to_indicators(test_ctx->krb5_ctx, test_ctx, &realm,
+                                  NULL, &indicators);
+    fprintf(stderr, "  ret=%d, ", kerr);
+    authind_list_print(indicators);
+    assert_int_equal(kerr, 0);
+    assert_null(indicators);
+
+    /* Install indicator_map: INDICATOR_SID_A → INDICATOR_A (req_pkca=true)
+     * Entry [1] is zero-initialised by calloc → serves as the NULL sentinel. */
+    ipa_ctx->mspac->trusts[0].indicator_map =
+        calloc(2, sizeof(struct ipadb_sid_indicator_map));
+    assert_non_null(ipa_ctx->mspac->trusts[0].indicator_map);
+    ipa_ctx->mspac->trusts[0].indicator_map[0].sid = strdup(INDICATOR_SID_A);
+    ipa_ctx->mspac->trusts[0].indicator_map[0].indicator = strdup(INDICATOR_A);
+    ipa_ctx->mspac->trusts[0].indicator_map[0].req_pkca = true;
+    fprintf(stderr, "map: installed indicator_map[0]: sid=%s → indicator=%s "
+                    "req_pkca=%s\n",
+            INDICATOR_SID_A, INDICATOR_A, "true");
+
+    /* Build a minimal PAC LOGON_INFO */
+    info = talloc_zero(test_ctx, struct PAC_LOGON_INFO_CTR);
+    assert_non_null(info);
+    info->info = talloc_zero(info, struct PAC_LOGON_INFO);
+    assert_non_null(info->info);
+
+    ret = ipadb_string_to_sid(DOM_SID_TRUST, &dom_sid);
+    assert_int_equal(ret, 0);
+    info->info->info3.base.domain_sid =
+        talloc_zero(info->info, struct dom_sid);
+    assert_non_null(info->info->info3.base.domain_sid);
+    *info->info->info3.base.domain_sid = dom_sid;
+    info->info->info3.base.rid = 1000;
+    info->info->info3.base.primary_gid = 513;
+
+    /* No matching SID in PAC → indicators unchanged */
+    fprintf(stderr, "map_sids_to_indicators: PAC has domain=%s rid=%u "
+                    "primary_gid=%u sids=[] → no match expected\n",
+            DOM_SID_TRUST, 1000u, 513u);
+    indicators = NULL;
+    kerr = map_sids_to_indicators(test_ctx->krb5_ctx, test_ctx, &realm,
+                                  info, &indicators);
+    fprintf(stderr, "  ret=%d, ", kerr);
+    authind_list_print(indicators);
+    assert_int_equal(kerr, 0);
+    assert_null(indicators);
+
+    /* Add INDICATOR_SID_A to the extra sids[] */
+    info->info->info3.sidcount = 1;
+    info->info->info3.sids = talloc_zero_array(info->info,
+                                               struct netr_SidAttr, 1);
+    assert_non_null(info->info->info3.sids);
+    info->info->info3.sids[0].sid =
+        talloc_zero(info->info->info3.sids, struct dom_sid2);
+    assert_non_null(info->info->info3.sids[0].sid);
+    ret = ipadb_string_to_sid(INDICATOR_SID_A, info->info->info3.sids[0].sid);
+    assert_int_equal(ret, 0);
+
+    /* Matching SID → INDICATOR_A added, INDICATOR_B absent */
+    fprintf(stderr, "map_sids_to_indicators: PAC sids[]=\"%s\" "
+                    "→ expect indicator \"%s\" added\n",
+            INDICATOR_SID_A, INDICATOR_A);
+    indicators = NULL;
+    kerr = map_sids_to_indicators(test_ctx->krb5_ctx, test_ctx, &realm,
+                                  info, &indicators);
+    fprintf(stderr, "  ret=%d, ", kerr);
+    authind_list_print(indicators);
+    assert_int_equal(kerr, 0);
+    assert_non_null(indicators);
+    assert_true(_ipadb_authind_contains(indicators, INDICATOR_A));
+    assert_false(_ipadb_authind_contains(indicators, INDICATOR_B));
+
+    /* Calling again with existing list → duplicate not added */
+    fprintf(stderr, "map_sids_to_indicators: called again with same PAC "
+                    "→ duplicate \"%s\" must not be added\n", INDICATOR_A);
+    kerr = map_sids_to_indicators(test_ctx->krb5_ctx, test_ctx, &realm,
+                                  info, &indicators);
+    fprintf(stderr, "  ret=%d, ", kerr);
+    authind_list_print(indicators);
+    assert_int_equal(kerr, 0);
+    assert_non_null(indicators[0]);
+    assert_null(indicators[1]);  /* still only one entry */
+
+    for (i = 0; indicators[i] != NULL; i++) {
+        krb5_free_data(test_ctx->krb5_ctx, indicators[i]);
+    }
+    free(indicators);
+    talloc_free(info);
+    /* teardown frees indicator_map via ipadb_mspac_struct_free */
+}
+
 static void test_check_trusted_realms(void **state)
 {
     struct test_ctx *test_ctx;
@@ -535,6 +850,11 @@ int main(int argc, const char *argv[])
         cmocka_unit_test_setup_teardown(test_dom_sid_string,
                                         setup, teardown),
         cmocka_unit_test_setup_teardown(test_check_trusted_realms,
+                                        setup, teardown),
+        cmocka_unit_test(test_fill_sid_indicator_map),
+        cmocka_unit_test_setup_teardown(test_authind_add_contains,
+                                        setup, teardown),
+        cmocka_unit_test_setup_teardown(test_map_sids_to_indicators,
                                         setup, teardown),
     };
 
