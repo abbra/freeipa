@@ -1,10 +1,12 @@
 [//]: # (THE CONTENT BELOW IS GENERATED. DO NOT EDIT.)
 # trust_mod
 
-Modify a trust (for future use).
+Modify a trust.
 
-Currently only the default option to modify the LDAP attributes is
-available. More specific options will be added in coming releases.
+Allows modification of trust attributes including SID to authentication
+indicator mappings. Use --indicator-map to configure mappings between
+Active Directory group SIDs (or names) and Kerberos authentication
+indicators, enabling policy enforcement for trusted domain users.
 
 
 ### Arguments
@@ -22,6 +24,7 @@ available. More specific options will be added in coming releases.
 * ipantsidblacklistincoming : :ref:`Str<Str>`
 * ipantsidblacklistoutgoing : :ref:`Str<Str>`
 * ipantadditionalsuffixes : :ref:`Str<Str>`
+* ipasidindicatormap : :ref:`Str<Str>`
 * setattr : :ref:`Str<Str>`
 * addattr : :ref:`Str<Str>`
 * delattr : :ref:`Str<Str>`
