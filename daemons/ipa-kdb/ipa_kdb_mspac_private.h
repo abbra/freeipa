@@ -59,6 +59,20 @@ struct ipadb_adtrusts {
 };
 
 char *dom_sid_string(TALLOC_CTX *memctx, const struct dom_sid *dom_sid);
+
+/* SID-to-indicator map helpers */
+krb5_boolean _ipadb_authind_contains(krb5_data *const *indicators,
+                                     const char *ind);
+krb5_error_code _ipadb_authind_add(krb5_context context,
+                                   krb5_data ***indicators, const char *ind);
+krb5_error_code ipadb_adtrusts_fill_sid_indicator_map(
+                                   struct ipadb_sid_indicator_map **map,
+                                   char **source_sid_indicator_map);
+krb5_error_code map_sids_to_indicators(krb5_context context,
+                                       TALLOC_CTX *memctx,
+                                       krb5_data *realm,
+                                       struct PAC_LOGON_INFO_CTR *info,
+                                       krb5_data ***indicators);
 krb5_error_code filter_logon_info(krb5_context context, TALLOC_CTX *memctx,
                                   krb5_data *realm, struct PAC_LOGON_INFO_CTR *info);
 void get_authz_data_types(krb5_context context, krb5_db_entry *entry,

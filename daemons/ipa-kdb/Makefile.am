@@ -120,7 +120,7 @@ ipa_kdb_tests_SOURCES += ipa_kdb_s4u_x509.c
 endif
 
 ipa_kdb_tests_CFLAGS = $(CMOCKA_CFLAGS)
-ipa_kdb_tests_LDFLAGS = -L$(libdir)/samba -Wl,-rpath=$(libdir)/samba
+ipa_kdb_tests_LDFLAGS = $(SAMBA40EXTRA_LIBPATH)
 ipa_kdb_tests_LDADD =          \
        $(CMOCKA_LIBS)          \
        $(KRB5_LIBS)            \

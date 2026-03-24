@@ -2109,7 +2109,7 @@ make_data(void *data, unsigned int len)
 }
 
 /* Return true if ind matches an entry in indicators. */
-static krb5_boolean
+krb5_boolean
 _ipadb_authind_contains(krb5_data *const *indicators, const char *ind)
 {
     for (; indicators != NULL && *indicators != NULL; indicators++) {
@@ -2120,7 +2120,7 @@ _ipadb_authind_contains(krb5_data *const *indicators, const char *ind)
 }
 
 /* Add ind to *indicators, reallocating as necessary. */
-static krb5_error_code
+krb5_error_code
 _ipadb_authind_add(krb5_context context, krb5_data ***indicators, const char *ind)
 {
     size_t count;
@@ -2149,11 +2149,11 @@ _ipadb_authind_add(krb5_context context, krb5_data ***indicators, const char *in
 
 
 
-static krb5_error_code map_sids_to_indicators(krb5_context context,
-                                              TALLOC_CTX *memctx,
-                                              krb5_data *realm,
-                                              struct PAC_LOGON_INFO_CTR *info,
-                                              krb5_data ***indicators)
+krb5_error_code map_sids_to_indicators(krb5_context context,
+                                       TALLOC_CTX *memctx,
+                                       krb5_data *realm,
+                                       struct PAC_LOGON_INFO_CTR *info,
+                                       krb5_data ***indicators)
 {
     struct ipadb_context *ipactx;
     struct ipadb_adtrusts *domain;
@@ -2870,7 +2870,7 @@ ipadb_adtrusts_fill_sid_blacklist(char **source_sid_blacklist,
     return 0;
 }
 
-static krb5_error_code
+krb5_error_code
 ipadb_adtrusts_fill_sid_indicator_map(struct ipadb_sid_indicator_map **map,
                                       char **source_sid_indicator_map)
 {
