@@ -38,3 +38,4 @@ FreeIPA design documentation
    sysaccounts.md
    namespace.md
    ipacta.md
+   krb-s4u-x509-assertion.md
