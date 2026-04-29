@@ -21,10 +21,10 @@ import tempfile
 import uuid
 from pathlib import Path
 
-from cryptography import x509
-from cryptography.x509.oid import NameOID
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+import synta
+import synta.ext
+import synta.oids
+import synta.oids.attr
 
 from ipalib import errors
 from ipalib.constants import IPA_CA_CN, IPAAPI_GROUP
@@ -40,6 +40,7 @@ from ipathinca.x509_utils import (
     ipa_dn_to_x509_name,
     get_subject_dn_str,
     build_x509_name,
+    get_ca_key_usage_extension,
 )
 
 logger = logging.getLogger(__name__)
@@ -85,28 +86,32 @@ def get_cert_params_from_config(pki_config, cert_type):
 
 
 def convert_signing_algorithm(signing_alg):
-    """Convert PKI signing algorithm string to cryptography hash algorithm.
+    """Convert PKI signing algorithm string to a synta hash algorithm name.
 
     Args:
         signing_alg: PKI algorithm string (e.g., 'SHA256withRSA',
                      'SHA512withRSA')
 
     Returns:
-        cryptography hash algorithm instance
+        Hash algorithm name string suitable for synta (e.g. 'sha256'),
+        or None for algorithms that do not use a pre-hash (ML-DSA).
     """
-    if "SHA512" in signing_alg:
-        return hashes.SHA512()
-    elif "SHA384" in signing_alg:
-        return hashes.SHA384()
-    elif "SHA256" in signing_alg:
-        return hashes.SHA256()
-    elif "SHA1" in signing_alg:
-        return hashes.SHA1()
+    alg_upper = signing_alg.upper()
+    if "ML-DSA" in alg_upper or "MLDSA" in alg_upper:
+        return None
+    elif "SHA512" in alg_upper:
+        return "sha512"
+    elif "SHA384" in alg_upper:
+        return "sha384"
+    elif "SHA256" in alg_upper:
+        return "sha256"
+    elif "SHA1" in alg_upper:
+        return "sha1"
     else:
         logger.warning(
-            "Unknown signing algorithm '%s', defaulting to SHA256", signing_alg
+            "Unknown signing algorithm '%s', defaulting to sha256", signing_alg
         )
-        return hashes.SHA256()
+        return "sha256"
 
 
 class Certs:
@@ -238,22 +243,20 @@ class Certs:
         logger.debug("CA certificate configuration step completed")
 
     def _get_signing_hash_algorithm(self):
-        """Map CA signing algorithm to cryptography hash function.
+        """Map CA signing algorithm to a synta hash algorithm name string.
 
         Uses ipaserver.install.ca.CASigningAlgorithm enum values.
         Default from ipaca_customize.ini: SHA256withRSA
 
         Returns:
-            cryptography.hazmat.primitives.hashes hash algorithm instance
+            Hash algorithm name string suitable for synta (e.g. 'sha256'),
+            or None for ML-DSA algorithms.
 
         Raises:
             ValueError: If algorithm is unsupported
         """
-        # Map CASigningAlgorithm enum to hash function
-        # Default: SHA256withRSA (from ipaca_customize.ini)
         if self.ca_signing_algorithm is None:
-            # Default from ipaca_customize.ini
-            return hashes.SHA256()
+            return "sha256"
 
         # Get the algorithm string value from enum
         if hasattr(self.ca_signing_algorithm, "value"):
@@ -262,10 +265,10 @@ class Certs:
             alg_str = str(self.ca_signing_algorithm)
 
         algorithm_map = {
-            "SHA1withRSA": hashes.SHA1(),
-            "SHA256withRSA": hashes.SHA256(),
-            "SHA384withRSA": hashes.SHA384(),
-            "SHA512withRSA": hashes.SHA512(),
+            "SHA1withRSA": "sha1",
+            "SHA256withRSA": "sha256",
+            "SHA384withRSA": "sha384",
+            "SHA512withRSA": "sha512",
         }
 
         hash_alg = algorithm_map.get(alg_str)
@@ -312,9 +315,10 @@ class Certs:
         )
 
         # Build CSR
-        subject_dn_x509 = ipa_dn_to_x509_name(str(self.ca_subject))
-        csr_builder = x509.CertificateSigningRequestBuilder()
-        csr_builder = csr_builder.subject_name(subject_dn_x509)
+        subject_dn_der = ipa_dn_to_x509_name(str(self.ca_subject))
+        csr_builder = synta.CsrBuilder()
+        csr_builder = csr_builder.subject_name(subject_dn_der)
+        csr_builder = csr_builder.public_key(private_key.public_key)
 
         # Add MS Certificate Template extension if needed
         if self.external_ca_type == ipalib_x509.ExternalCAType.MS_CS.value:
@@ -324,10 +328,7 @@ class Certs:
             )
             ext_data = template.get_ext_data()
             csr_builder = csr_builder.add_extension(
-                x509.UnrecognizedExtension(
-                    oid=x509.ObjectIdentifier(template.ext_oid), value=ext_data
-                ),
-                critical=False,
+                template.ext_oid, False, ext_data
             )
 
         # Get signing algorithm for CSR (use CA signing algorithm)
@@ -346,7 +347,7 @@ class Certs:
             self.csr_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600
         )
         with os.fdopen(fd, "wb") as f:
-            f.write(csr.public_bytes(serialization.Encoding.PEM))
+            f.write(synta.CertificationRequest.to_pem(csr))
 
         # Save state for Step 2
         state_file = "/var/lib/ipa/ipathinca_external_ca.state"
@@ -428,13 +429,13 @@ class Certs:
         try:
             with open(external_cert_file.name, "rb") as f:
                 ca_cert_data = f.read()
-                ca_cert = x509.load_pem_x509_certificate(ca_cert_data)
+                ca_cert = synta.Certificate.from_pem(ca_cert_data)
         except FileNotFoundError:
             raise RuntimeError(
                 f"Signed certificate file not found: "
                 f"{external_cert_file.name}"
             )
-        except ValueError as e:
+        except Exception as e:
             raise RuntimeError(
                 f"Invalid certificate format in {external_cert_file.name}: {e}"
             )
@@ -470,11 +471,7 @@ class Certs:
 
         logger.info("Exporting CA private key to %s", self.ca_key_path)
         private_key = nssdb.extract_private_key(ca_nickname)
-        key_pem = private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
+        key_pem = private_key.to_pem()
         with open(self.ca_key_path, "wb") as f:
             f.write(key_pem)
         self.ca_key_path.chmod(0o600)
@@ -579,7 +576,7 @@ class Certs:
             )
 
         # Build certificate subject using shared utility
-        # Convert IPA DN to x509.Name with proper RDN wrapping and ordering
+        # Convert IPA DN to DER-encoded Name bytes
         cert_subject = ipa_dn_to_x509_name(str(subject_dn))
 
         # Set validity period (10 years, matching OpenSSL version)
@@ -613,50 +610,43 @@ class Certs:
 
         # Build certificate
         logger.debug("Building self-signed CA certificate")
-        cert_builder = x509.CertificateBuilder()
+        spki_der = private_key.public_key.to_der()
+        ku_oid, ku_der = get_ca_key_usage_extension()
+        cert_builder = synta.CertificateBuilder()
         cert_builder = cert_builder.subject_name(cert_subject)
         cert_builder = cert_builder.issuer_name(cert_subject)  # Self-signed
-        cert_builder = cert_builder.public_key(private_key.public_key())
+        cert_builder = cert_builder.public_key(private_key.public_key)
         cert_builder = cert_builder.serial_number(serial_number)
-        cert_builder = cert_builder.not_valid_before(not_valid_before)
-        cert_builder = cert_builder.not_valid_after(not_valid_after)
+        cert_builder = cert_builder.not_valid_before_utc(not_valid_before)
+        cert_builder = cert_builder.not_valid_after_utc(not_valid_after)
 
         # Add CA extensions
         cert_builder = cert_builder.add_extension(
-            x509.BasicConstraints(ca=True, path_length=None), critical=True
+            str(synta.oids.BASIC_CONSTRAINTS),
+            True,
+            synta.ext.basic_constraints(ca=True, path_length=None),
         )
 
-        cert_builder = cert_builder.add_extension(
-            x509.KeyUsage(
-                digital_signature=True,
-                key_cert_sign=True,
-                crl_sign=True,
-                key_encipherment=False,
-                data_encipherment=False,
-                key_agreement=False,
-                content_commitment=False,
-                encipher_only=False,
-                decipher_only=False,
-            ),
-            critical=True,
-        )
+        cert_builder = cert_builder.add_extension(ku_oid, True, ku_der)
 
         # Add Subject Key Identifier
-        ski = x509.SubjectKeyIdentifier.from_public_key(
-            private_key.public_key()
+        cert_builder = cert_builder.add_extension(
+            str(synta.oids.SUBJECT_KEY_IDENTIFIER),
+            False,
+            synta.ext.subject_key_identifier(spki_der),
         )
-        cert_builder = cert_builder.add_extension(ski, critical=False)
 
         # Add Authority Key Identifier (same as SKI for self-signed)
-        aki = x509.AuthorityKeyIdentifier.from_issuer_public_key(
-            private_key.public_key()
+        cert_builder = cert_builder.add_extension(
+            str(synta.oids.AUTHORITY_KEY_IDENTIFIER),
+            False,
+            synta.ext.authority_key_identifier(spki_der),
         )
-        cert_builder = cert_builder.add_extension(aki, critical=False)
 
         # Sign the certificate with configured algorithm
         # (default: SHA256withRSA from ipaca_customize.ini)
         hash_alg = self._get_signing_hash_algorithm()
-        logger.debug("Signing CA certificate with %s", hash_alg.name)
+        logger.debug("Signing CA certificate with %s", hash_alg)
         certificate = cert_builder.sign(private_key, hash_alg)
 
         if use_hsm:
@@ -700,7 +690,7 @@ class Certs:
         # Save certificate to file (for compatibility with IPA tools)
         logger.debug("Writing CA certificate to %s", self.ca_cert_working)
         with open(self.ca_cert_working, "wb") as f:
-            f.write(certificate.public_bytes(serialization.Encoding.PEM))
+            f.write(synta.Certificate.to_pem(certificate))
 
         # Set ownership and permissions on certificate
         self.ca_cert_working.chmod(0o644)
@@ -756,7 +746,7 @@ class Certs:
         # Read the CA certificate
         with open(self.ca_cert_path, "rb") as f:
             ca_cert_pem = f.read()
-            ca_cert = x509.load_pem_x509_certificate(ca_cert_pem)
+            ca_cert = synta.Certificate.from_pem(ca_cert_pem)
 
         # Get the proper nickname for the CA certificate
         ca_nickname = get_ca_nickname(self.realm)
@@ -781,7 +771,7 @@ class Certs:
             logger.debug("CA certificate entry already exists at %s", ca_dn)
 
             # Update it with our certificate (but not cn, which is the RDN)
-            cert_der = ca_cert.public_bytes(serialization.Encoding.DER)
+            cert_der = ca_cert.to_der()
 
             entry["cACertificate"] = [cert_der]
             # Don't modify cn - it's the RDN and cannot be changed
@@ -795,7 +785,7 @@ class Certs:
                 ca_nickname,
             )
 
-            cert_der = ca_cert.public_bytes(serialization.Encoding.DER)
+            cert_der = ca_cert.to_der()
 
             entry = ldap.make_entry(
                 ca_dn,
@@ -870,7 +860,7 @@ class Certs:
         # Read the CA certificate
         with open(self.ca_cert_path, "rb") as f:
             ca_cert_pem = f.read()
-            ca_cert = x509.load_pem_x509_certificate(ca_cert_pem)
+            ca_cert = synta.Certificate.from_pem(ca_cert_pem)
 
         # Convert subject to proper DN string format (like Dogtag does)
         # Extract CA subject DN using shared utility
@@ -951,7 +941,7 @@ class Certs:
         # Read the CA certificate
         with open(self.ca_cert_path, "rb") as f:
             ca_cert_pem = f.read()
-            ca_cert = x509.load_pem_x509_certificate(ca_cert_pem)
+            ca_cert = synta.Certificate.from_pem(ca_cert_pem)
 
         # Use the CA's actual serial number from the certificate
         serial_number = ca_cert.serial_number
@@ -1038,13 +1028,13 @@ class Certs:
 
         # Load CA certificate to get organization
         with open(self.ca_cert_path, "rb") as f:
-            ca_cert = x509.load_pem_x509_certificate(f.read())
+            ca_cert = synta.Certificate.from_pem(f.read())
 
         # Extract organization from CA subject for subsystem certificates
         org = None
-        for attr in ca_cert.subject:
-            if attr.oid == NameOID.ORGANIZATION_NAME:
-                org = attr.value
+        for oid_str, value in synta.parse_name_attrs(ca_cert.subject_raw_der):
+            if oid_str == str(synta.oids.attr.ORGANIZATION):
+                org = value
                 break
 
         if not org:
@@ -1128,16 +1118,15 @@ class Certs:
             subject = build_x509_name([("CN", cn), ("O", org)], reverse=True)
 
             # Create CSR
-            csr_builder = x509.CertificateSigningRequestBuilder()
+            csr_builder = synta.CsrBuilder()
             csr_builder = csr_builder.subject_name(subject)
+            csr_builder = csr_builder.public_key(private_key.public_key)
 
             # Sign CSR with private key using configured hash algorithm
             csr = csr_builder.sign(private_key, hash_alg)
 
             # Convert CSR to PEM
-            csr_pem = csr.public_bytes(serialization.Encoding.PEM).decode(
-                "utf-8"
-            )
+            csr_pem = synta.CertificationRequest.to_pem(csr).decode("utf-8")
 
             # Submit certificate request through ipathinca CA
             request_id = ca.submit_certificate_request(csr_pem, profile)
@@ -1182,11 +1171,7 @@ class Certs:
             # Save certificate to file (for compatibility/reference)
             # Note: Private key is NOT saved to disk - it stays in NSSDB only
             with open(cert_path, "wb") as f:
-                f.write(
-                    cert_record.certificate.public_bytes(
-                        serialization.Encoding.PEM
-                    )
-                )
+                f.write(synta.Certificate.to_pem(cert_record.certificate))
             cert_path.chmod(0o644)
             shutil.chown(cert_path, user="ipaca", group="ipaca")
 
@@ -1213,8 +1198,7 @@ class Certs:
         authentication.
 
         Args:
-            subsystem_cert: The CA subsystem certificate
-                            (cryptography.x509.Certificate)
+            subsystem_cert: The CA subsystem certificate (synta.Certificate)
         """
         logger.debug(
             "Creating pkidbuser LDAP entry for healthcheck compatibility"
@@ -1235,7 +1219,7 @@ class Certs:
             pass
 
         # Encode certificate to DER format for LDAP storage
-        cert_der = subsystem_cert.public_bytes(serialization.Encoding.DER)
+        cert_der = subsystem_cert.to_der()
 
         # Create pkidbuser entry
         # Following Dogtag's schema for this user
@@ -1348,20 +1332,22 @@ class Certs:
         subject = build_x509_name([("CN", self.fqdn)], reverse=True)
 
         # Create CSR with Subject Alternative Name
-        csr_builder = x509.CertificateSigningRequestBuilder()
+        csr_builder = synta.CsrBuilder()
         csr_builder = csr_builder.subject_name(subject)
+        csr_builder = csr_builder.public_key(private_key.public_key)
 
         # Add SAN extension to CSR (required for modern browsers)
         csr_builder = csr_builder.add_extension(
-            x509.SubjectAlternativeName([x509.DNSName(self.fqdn)]),
-            critical=False,
+            str(synta.oids.SUBJECT_ALT_NAME),
+            False,
+            synta.ext.SAN().dns_name(self.fqdn).build(),
         )
 
         # Sign CSR with private key using configured hash algorithm
         csr = csr_builder.sign(private_key, hash_alg)
 
         # Convert CSR to PEM
-        csr_pem = csr.public_bytes(serialization.Encoding.PEM).decode("utf-8")
+        csr_pem = synta.CertificationRequest.to_pem(csr).decode("utf-8")
 
         # Submit certificate request through ipathinca CA
         # Use caIPAserviceCert profile (supports both server and client auth)
@@ -1392,19 +1378,15 @@ class Certs:
 
         # Load CA certificate for creating chain file
         with open(self.ca_cert_path, "rb") as f:
-            ca_cert = x509.load_pem_x509_certificate(f.read())
+            ca_cert = synta.Certificate.from_pem(f.read())
 
         # Save server certificate with CA chain
         logger.debug("Writing server certificate to %s", server_cert_path)
         with open(server_cert_path, "wb") as f:
             # Write server certificate
-            f.write(
-                cert_record.certificate.public_bytes(
-                    serialization.Encoding.PEM
-                )
-            )
+            f.write(synta.Certificate.to_pem(cert_record.certificate))
             # Append CA certificate for complete chain
-            f.write(ca_cert.public_bytes(serialization.Encoding.PEM))
+            f.write(synta.Certificate.to_pem(ca_cert))
         server_cert_path.chmod(0o644)
         shutil.chown(server_cert_path, user="ipaca", group="ipaca")
 
@@ -1413,13 +1395,7 @@ class Certs:
         logger.debug("Writing server private key to %s", server_key_path)
         server_key_path.parent.mkdir(parents=True, exist_ok=True)
         with open(server_key_path, "wb") as f:
-            f.write(
-                private_key.private_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PrivateFormat.PKCS8,
-                    encryption_algorithm=serialization.NoEncryption(),
-                )
-            )
+            f.write(private_key.to_pem())
         server_key_path.chmod(0o600)
         shutil.chown(server_key_path, user="ipaca", group="ipaca")
 
@@ -1467,9 +1443,7 @@ class Certs:
         )
 
         # Generate private key
-        private_key = rsa.generate_private_key(
-            public_exponent=65537, key_size=key_size
-        )
+        private_key = synta.PrivateKey.generate_rsa(key_size)
 
         # Build subject for RA certificate
         # Simple DN: CN=IPA RA (matches what validator expects)
@@ -1478,14 +1452,15 @@ class Certs:
         subject = ipa_dn_to_x509_name(str(ra_dn))
 
         # Create CSR
-        csr_builder = x509.CertificateSigningRequestBuilder()
+        csr_builder = synta.CsrBuilder()
         csr_builder = csr_builder.subject_name(subject)
+        csr_builder = csr_builder.public_key(private_key.public_key)
 
         # Sign CSR with private key using configured hash algorithm
         csr = csr_builder.sign(private_key, hash_alg)
 
         # Convert CSR to PEM
-        csr_pem = csr.public_bytes(serialization.Encoding.PEM).decode("utf-8")
+        csr_pem = synta.CertificationRequest.to_pem(csr).decode("utf-8")
 
         # Submit certificate request through ipathinca CA
         # Use caIPAserviceCert profile (same as ipa-ca-agent subsystem cert)
@@ -1513,23 +1488,13 @@ class Certs:
         # Save certificate to file
         logger.debug("Writing RA agent certificate to %s", ra_cert_path)
         with open(ra_cert_path, "wb") as f:
-            f.write(
-                cert_record.certificate.public_bytes(
-                    serialization.Encoding.PEM
-                )
-            )
+            f.write(synta.Certificate.to_pem(cert_record.certificate))
         ra_cert_path.chmod(0o440)
 
         # Save private key to file
         logger.debug("Writing RA agent private key to %s", ra_key_path)
         with open(ra_key_path, "wb") as f:
-            f.write(
-                private_key.private_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PrivateFormat.PKCS8,
-                    encryption_algorithm=serialization.NoEncryption(),
-                )
-            )
+            f.write(private_key.to_pem())
         ra_key_path.chmod(0o440)
 
         # Set ownership to allow IPA API access
