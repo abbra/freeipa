@@ -20,9 +20,7 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from synta.crypto import aes_gcm_encrypt, aes_gcm_decrypt, pbkdf2_hmac
 
 from ipaplatform.paths import paths
 
@@ -142,14 +140,9 @@ class KeyEncryption:
         """
         master_key = self._get_master_key()
 
-        kdf = PBKDF2HMAC(
-            algorithm=hashes.SHA256(),
-            length=self.KEY_SIZE,
-            salt=salt,
-            iterations=self.PBKDF2_ITERATIONS,
+        return pbkdf2_hmac(
+            'sha256', master_key, salt, self.PBKDF2_ITERATIONS, self.KEY_SIZE
         )
-
-        return kdf.derive(master_key)
 
     def encrypt_key(self, private_key_pem: bytes) -> bytes:
         """
@@ -176,8 +169,7 @@ class KeyEncryption:
             derived_key = self._derive_key(salt)
 
             # Encrypt using AES-256-GCM
-            aesgcm = AESGCM(derived_key)
-            ciphertext = aesgcm.encrypt(iv, private_key_pem, None)
+            ciphertext = aes_gcm_encrypt(derived_key, iv, private_key_pem, None)
 
             # Format: [salt][iv][ciphertext+tag]
             encrypted_data = salt + iv + ciphertext
@@ -218,11 +210,8 @@ class KeyEncryption:
             # Derive decryption key from master key + salt
             derived_key = self._derive_key(salt)
 
-            # Decrypt using AES-256-GCM
-            # This will raise an exception if the authentication tag doesn't
-            # match
-            aesgcm = AESGCM(derived_key)
-            private_key_pem = aesgcm.decrypt(iv, ciphertext, None)
+            # Decrypt using AES-256-GCM (raises ValueError if tag mismatch)
+            private_key_pem = aes_gcm_decrypt(derived_key, iv, ciphertext, None)
 
             logger.debug(
                 "Decrypted private key: %d bytes -> %d bytes",
