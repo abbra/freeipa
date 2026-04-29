@@ -20,15 +20,14 @@ import logging
 import os
 import threading
 from collections import OrderedDict
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Dict, Tuple
 
-from cryptography import x509
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.x509 import ocsp
-from cryptography.x509.oid import ExtensionOID, ObjectIdentifier
+import synta
+import synta.ext
+import synta.oids
 
 from ipaplatform.paths import paths
 
@@ -37,9 +36,131 @@ from ipathinca import x509_utils
 
 logger = logging.getLogger(__name__)
 
-_OCSP_NONCE_OID = getattr(
-    ExtensionOID, "OCSP_NONCE", ObjectIdentifier("1.3.6.1.5.5.7.48.1.2")
-)
+# OCSP status constants (RFC 6960)
+_OCSP_STATUS_GOOD = 0
+_OCSP_STATUS_REVOKED = 1
+_OCSP_STATUS_UNKNOWN = 2
+
+# OCSP nonce extension OID (RFC 6960)
+_OCSP_NONCE_OID = "1.3.6.1.5.5.7.48.1.2"
+
+@dataclass
+class _ParsedOCSPRequest:
+    """Parsed OCSP request data."""
+    serial_number: int
+    issuer_name_hash: bytes
+    issuer_key_hash: bytes
+    hash_algorithm_der: bytes  # raw AlgorithmIdentifier TLV
+    nonce: Optional[bytes]
+
+
+def _parse_ocsp_request(der_bytes: bytes) -> _ParsedOCSPRequest:
+    """
+    Parse a DER-encoded OCSP request.
+
+    OCSPRequest ::= SEQUENCE {
+      tbsRequest TBSRequest,
+      ...
+    }
+    TBSRequest ::= SEQUENCE {
+      requestList SEQUENCE OF Request,
+      ...
+    }
+    Request ::= SEQUENCE {
+      reqCert CertID,
+      ...
+    }
+    CertID ::= SEQUENCE {
+      hashAlgorithm AlgorithmIdentifier,
+      issuerNameHash OCTET STRING,
+      issuerKeyHash  OCTET STRING,
+      serialNumber   INTEGER
+    }
+    """
+    try:
+        outer = synta.Decoder(der_bytes, synta.Encoding.DER)
+        # OCSPRequest SEQUENCE
+        ocsp_req = outer.decode_sequence()
+
+        # TBSRequest SEQUENCE
+        tbs = ocsp_req.decode_sequence()
+
+        # Skip optional [0] version and [1] requestorName by peeking
+        # requestList is the first non-tagged element
+        while not tbs.is_empty():
+            tag_num, tag_class, constructed = tbs.peek_tag()
+            if tag_class == "Context":
+                # skip optional tagged fields (version, requestorName,
+                # requestExtensions)
+                tbs.decode_raw_tlv()
+            else:
+                break
+
+        # requestList SEQUENCE OF Request
+        req_list = tbs.decode_sequence()
+
+        # First Request SEQUENCE
+        req = req_list.decode_sequence()
+
+        # reqCert CertID SEQUENCE — capture raw TLV for later, then decode
+        cert_id_raw = req.decode_raw_tlv()
+        cert_id = synta.Decoder(cert_id_raw, synta.Encoding.DER)
+        cert_id_seq = cert_id.decode_sequence()
+
+        # hashAlgorithm AlgorithmIdentifier — capture raw TLV
+        hash_alg_raw = cert_id_seq.decode_raw_tlv()
+
+        # issuerNameHash OCTET STRING
+        issuer_name_hash = cert_id_seq.decode_octet_string().to_bytes()
+
+        # issuerKeyHash OCTET STRING
+        issuer_key_hash = cert_id_seq.decode_octet_string().to_bytes()
+
+        # serialNumber INTEGER
+        serial_int = cert_id_seq.decode_integer()
+        serial_number = serial_int.to_int()
+
+        # Parse nonce from requestExtensions [2] if present
+        nonce = None
+        # requestExtensions is at [2] EXPLICIT on the TBSRequest
+        # (already consumed requestList above; look for remaining [2] tag)
+        while not tbs.is_empty():
+            tag_num, tag_class, constructed = tbs.peek_tag()
+            if tag_class == "Context" and tag_num == 2:
+                # [2] EXPLICIT Extensions
+                ext_inner = tbs.decode_explicit_tag(2)
+                # Extensions SEQUENCE OF Extension
+                exts = ext_inner.decode_sequence()
+                while not exts.is_empty():
+                    ext_seq = exts.decode_sequence()
+                    ext_oid = str(ext_seq.decode_oid())
+                    # skip critical boolean if present
+                    peek = ext_seq.peek_tag()
+                    if peek[0] == 1 and peek[1] == "Universal":
+                        ext_seq.decode_boolean()
+                    ext_value_outer = ext_seq.decode_octet_string()
+                    if ext_oid == _OCSP_NONCE_OID:
+                        # nonce is an OCTET STRING inside the extnValue
+                        nonce_bytes = ext_value_outer.to_bytes()
+                        try:
+                            nonce_dec = synta.Decoder(
+                                nonce_bytes, synta.Encoding.DER
+                            )
+                            nonce = nonce_dec.decode_octet_string().to_bytes()
+                        except Exception:
+                            nonce = nonce_bytes
+            else:
+                tbs.decode_raw_tlv()
+
+        return _ParsedOCSPRequest(
+            serial_number=serial_number,
+            issuer_name_hash=issuer_name_hash,
+            issuer_key_hash=issuer_key_hash,
+            hash_algorithm_der=hash_alg_raw,
+            nonce=nonce,
+        )
+    except Exception as e:
+        raise ValueError(f"Failed to parse OCSP request: {e}") from e
 
 
 class OCSPResponse:
@@ -111,20 +232,18 @@ class OCSPResponder:
                 "Loading OCSP signing certificate from %s", self.ocsp_cert_path
             )
             with open(self.ocsp_cert_path, "rb") as f:
-                self.ocsp_cert = x509.load_pem_x509_certificate(f.read())
+                self.ocsp_cert = synta.Certificate.from_pem(f.read())
 
             if self.ocsp_key_path and self.ocsp_key_path.exists():
                 with open(self.ocsp_key_path, "rb") as f:
-                    self.ocsp_key = serialization.load_pem_private_key(
-                        f.read(), password=None
-                    )
+                    self.ocsp_key = synta.PrivateKey.from_pem(f.read())
         else:
             # Generate OCSP signing certificate
             logger.info("Generating OCSP signing certificate")
             self._generate_ocsp_signing_cert()
 
     def _generate_ocsp_signing_cert(self):
-        """Generate OCSP signing certificate"""
+        """Generate OCSP signing certificate using synta."""
         try:
             # Ensure CA cert and key are loaded
             self.ca._ensure_ca_loaded()
@@ -135,57 +254,63 @@ class OCSPResponder:
                     "ca", "ocsp_signing_key_size", default="3072"
                 )
             )
-            self.ocsp_key = rsa.generate_private_key(
-                public_exponent=65537,
-                key_size=ocsp_key_size,
-            )
+            self.ocsp_key = synta.PrivateKey.generate_rsa(ocsp_key_size)
             logger.info("Generated OCSP signing key (%s bits)", ocsp_key_size)
 
-            # Build OCSP signing certificate
-            ca_cn = self.ca.ca_cert.subject.get_attributes_for_oid(
-                x509.oid.NameOID.COMMON_NAME
-            )[0].value
-            subject = x509_utils.build_x509_name(
+            # Derive CN from CA cert subject
+            ca_attrs = synta.parse_name_attrs(
+                self.ca.ca_cert.subject_raw_der
+            )
+            # find CN (OID 2.5.4.3)
+            ca_cn = next(
+                (v for o, v in ca_attrs if o == "2.5.4.3"),
+                "IPA CA",
+            )
+            subject_der = x509_utils.build_x509_name(
                 [("CN", f"OCSP Responder - {ca_cn}")]
             )
 
-            builder = x509.CertificateBuilder()
-            builder = builder.subject_name(subject)
-            builder = builder.issuer_name(self.ca.ca_cert.subject)
-            builder = builder.public_key(self.ocsp_key.public_key())
-            builder = builder.serial_number(self.ca._get_next_serial_number())
-
-            # Set validity (1 year)
+            # Build OCSP signing certificate
+            serial_number = self.ca._get_next_serial_number()
             now = datetime.now(timezone.utc)
-            builder = builder.not_valid_before(now)
-            builder = builder.not_valid_after(now + timedelta(days=365))
 
-            # Add OCSP signing extension (critical)
-            builder = builder.add_extension(
-                x509_utils.get_ocsp_extended_key_usage(), critical=True
+            # EKU extension: OCSP signing (critical)
+            eku_oid, eku_der = x509_utils.get_ocsp_extended_key_usage()
+
+            # SubjectKeyIdentifier extension
+            ocsp_pub_key = self.ocsp_key.public_key
+            ski_der = synta.ext.subject_key_identifier(
+                ocsp_pub_key.to_der()
             )
 
-            # Add key identifiers
-            builder = builder.add_extension(
-                x509.SubjectKeyIdentifier.from_public_key(
-                    self.ocsp_key.public_key()
-                ),
-                critical=False,
+            # AuthorityKeyIdentifier extension
+            aki_der = synta.ext.authority_key_identifier(
+                self.ca.ca_cert.subject_public_key_info_der
             )
 
-            builder = builder.add_extension(
-                x509.AuthorityKeyIdentifier.from_issuer_public_key(
-                    self.ca.ca_cert.public_key()
-                ),
-                critical=False,
-            )
-
-            # Sign the certificate with algorithm matching CA
-            # OCSP signing certs use the CA's algorithm
+            # Sign the certificate
             signing_alg = x509_utils.get_certificate_signature_algorithm(
                 self.ca.ca_cert
             )
             hash_alg = x509_utils.parse_signature_algorithm(signing_alg)
+
+            builder = synta.CertificateBuilder()
+            builder = builder.subject_name(subject_der)
+            builder = builder.issuer_name(self.ca.ca_cert.subject_raw_der)
+            builder = builder.public_key(ocsp_pub_key)
+            builder = builder.serial_number(serial_number)
+            builder = builder.not_valid_before_utc(now)
+            builder = builder.not_valid_after_utc(
+                now + timedelta(days=365)
+            )
+            builder = builder.add_extension(eku_oid, True, eku_der)
+            builder = builder.add_extension(
+                str(synta.oids.SUBJECT_KEY_IDENTIFIER), False, ski_der
+            )
+            builder = builder.add_extension(
+                str(synta.oids.AUTHORITY_KEY_IDENTIFIER), False, aki_der
+            )
+
             self.ocsp_cert = builder.sign(self.ca.ca_private_key, hash_alg)
 
             # Save to filesystem (OCSP keys are NEVER stored in LDAP)
@@ -194,21 +319,13 @@ class OCSPResponder:
             if self.ocsp_cert_path:
                 self.ocsp_cert_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(self.ocsp_cert_path, "wb") as f:
-                    f.write(
-                        self.ocsp_cert.public_bytes(serialization.Encoding.PEM)
-                    )
+                    f.write(synta.Certificate.to_pem(self.ocsp_cert))
                 os.chmod(self.ocsp_cert_path, 0o644)
 
             if self.ocsp_key_path:
                 self.ocsp_key_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(self.ocsp_key_path, "wb") as f:
-                    f.write(
-                        self.ocsp_key.private_bytes(
-                            encoding=serialization.Encoding.PEM,
-                            format=serialization.PrivateFormat.PKCS8,
-                            encryption_algorithm=serialization.NoEncryption(),
-                        )
-                    )
+                    f.write(synta.PrivateKey.to_pem(self.ocsp_key))
                 os.chmod(self.ocsp_key_path, 0o600)
 
             logger.info(
@@ -233,38 +350,27 @@ class OCSPResponder:
         return hashlib.sha256(key_data.encode()).hexdigest()
 
     def _get_cert_status(self, serial_number: int) -> Tuple[
-        ocsp.OCSPCertStatus,
+        int,
         Optional[datetime],
-        Optional[x509.ReasonFlags],
-        Optional[x509.Certificate],
+        Optional[int],
+        Optional[synta.Certificate],
     ]:
         """
-        Get certificate status from CA
+        Get certificate status from CA.
 
         Returns:
-            Tuple of (status, revocation_time, revocation_reason, certificate)
+            Tuple of (status_int, revocation_time, revocation_reason_int,
+                      certificate) where status_int is 0=good, 1=revoked,
+                      2=unknown.
         """
         try:
             cert_record = self.ca.get_certificate(serial_number)
 
             if not cert_record:
-                return ocsp.OCSPCertStatus.UNKNOWN, None, None, None
+                return _OCSP_STATUS_UNKNOWN, None, None, None
 
             # Check if revoked
             if cert_record.status.value in ("REVOKED", "ON_HOLD"):
-                # Map our RevocationReason to x509.ReasonFlags
-                reason_map = {
-                    0: x509.ReasonFlags.unspecified,
-                    1: x509.ReasonFlags.key_compromise,
-                    2: x509.ReasonFlags.ca_compromise,
-                    3: x509.ReasonFlags.affiliation_changed,
-                    4: x509.ReasonFlags.superseded,
-                    5: x509.ReasonFlags.cessation_of_operation,
-                    6: x509.ReasonFlags.certificate_hold,
-                    9: x509.ReasonFlags.privilege_withdrawn,
-                    10: x509.ReasonFlags.aa_compromise,
-                }
-
                 reason = None
                 if cert_record.revocation_reason:
                     reason_value = (
@@ -272,12 +378,10 @@ class OCSPResponder:
                         if hasattr(cert_record.revocation_reason, "value")
                         else cert_record.revocation_reason
                     )
-                    reason = reason_map.get(
-                        reason_value, x509.ReasonFlags.unspecified
-                    )
+                    reason = reason_value
 
                 return (
-                    ocsp.OCSPCertStatus.REVOKED,
+                    _OCSP_STATUS_REVOKED,
                     cert_record.revoked_at,
                     reason,
                     cert_record.certificate,
@@ -285,7 +389,7 @@ class OCSPResponder:
 
             # Certificate is valid
             return (
-                ocsp.OCSPCertStatus.GOOD,
+                _OCSP_STATUS_GOOD,
                 None,
                 None,
                 cert_record.certificate,
@@ -297,11 +401,11 @@ class OCSPResponder:
                 serial_number,
                 e,
             )
-            return ocsp.OCSPCertStatus.UNKNOWN, None, None, None
+            return _OCSP_STATUS_UNKNOWN, None, None, None
 
     def create_response(self, request_der: bytes) -> bytes:
         """
-        Create OCSP response from request
+        Create OCSP response from request.
 
         Args:
             request_der: DER-encoded OCSP request
@@ -311,20 +415,14 @@ class OCSPResponder:
         """
         try:
             # Parse OCSP request
-            ocsp_req = ocsp.load_der_ocsp_request(request_der)
-
-            # Extract nonce if present (for replay protection)
-            nonce = None
             try:
-                for ext in ocsp_req.extensions:
-                    if ext.oid == _OCSP_NONCE_OID:
-                        nonce = ext.value.nonce
-                        break
-            except x509.ExtensionNotFound:
-                pass
+                parsed_req = _parse_ocsp_request(request_der)
+            except Exception as e:
+                logger.warning("Failed to parse OCSP request: %s", e)
+                return self._create_error_response()
 
-            # Get certificate serial number from request
-            serial_number = ocsp_req.serial_number
+            serial_number = parsed_req.serial_number
+            nonce = parsed_req.nonce
 
             # Check cache (thread-safe)
             cache_key = self._get_cache_key(serial_number, nonce)
@@ -345,63 +443,98 @@ class OCSPResponder:
             # Ensure CA cert is loaded
             self.ca._ensure_ca_loaded()
 
-            # Get certificate status and certificate object
-            cert_status, revocation_time, revocation_reason, certificate = (
+            # Get certificate status
+            cert_status, revocation_time, _revocation_reason, _certificate = (
                 self._get_cert_status(serial_number)
             )
 
-            # Build response
+            # Build response timestamps
             now = datetime.now(timezone.utc)
-
-            # Create cert status based on revocation info
-            if cert_status == ocsp.OCSPCertStatus.REVOKED:
-                cert_status_obj = ocsp.OCSPCertStatus.REVOKED
+            if cert_status == _OCSP_STATUS_REVOKED:
                 this_update = revocation_time or now
-            elif cert_status == ocsp.OCSPCertStatus.GOOD:
-                cert_status_obj = ocsp.OCSPCertStatus.GOOD
-                this_update = now
             else:
-                cert_status_obj = ocsp.OCSPCertStatus.UNKNOWN
                 this_update = now
-
             next_update = now + timedelta(seconds=self.cache_timeout)
 
-            # Build OCSP response
-            builder = ocsp.OCSPResponseBuilder()
+            def _to_generalizedtime(dt: datetime) -> str:
+                return dt.strftime("%Y%m%d%H%M%SZ")
 
-            # Use the actual certificate if available, fall back to CA cert
-            # for unknown certificates
-            resp_cert = certificate if certificate else self.ca.ca_cert
+            this_update_str = _to_generalizedtime(this_update)
+            next_update_str = _to_generalizedtime(next_update)
 
-            # Add certificate status
-            builder = builder.add_response(
-                cert=resp_cert,
-                issuer=self.ca.ca_cert,
-                algorithm=ocsp_req.hash_algorithm,
-                cert_status=cert_status_obj,
-                this_update=this_update,
-                next_update=next_update,
-                revocation_time=revocation_time,
-                revocation_reason=revocation_reason,
+            # serial as big-endian bytes (strip leading zeros, keep at least 1)
+            serial_bytes = serial_number.to_bytes(
+                max(1, (serial_number.bit_length() + 7) // 8), "big"
             )
 
-            # Add nonce if present in request (echo it back)
-            if nonce:
-                builder = builder.add_extension(
-                    x509.OCSPNonce(nonce), critical=False
-                )
+            # Build SingleResponse using hash info from the request
+            single_resp = synta.OCSPSingleResponse(
+                hash_algorithm_der=parsed_req.hash_algorithm_der,
+                issuer_name_hash=parsed_req.issuer_name_hash,
+                issuer_key_hash=parsed_req.issuer_key_hash,
+                serial=serial_bytes,
+                status=cert_status,
+                this_update=this_update_str,
+                next_update=next_update_str,
+            )
 
-            # Sign the response with algorithm matching OCSP certificate
-            # OCSP responses use the OCSP cert's algorithm
-            signing_alg = x509_utils.get_certificate_signature_algorithm(
+            # Get signing algorithm for OCSP cert
+            signing_alg_str = x509_utils.get_certificate_signature_algorithm(
                 self.ocsp_cert
             )
-            hash_alg = x509_utils.parse_signature_algorithm(signing_alg)
-            ocsp_response = builder.sign(self.ocsp_key, hash_alg)
+            hash_alg = x509_utils.parse_signature_algorithm(signing_alg_str)
 
-            # Serialize response
-            response_bytes = ocsp_response.public_bytes(
-                serialization.Encoding.DER
+            # Determine the key OID from the OCSP signing key
+            ocsp_pub = (
+                self.ocsp_key.public_key
+                if isinstance(self.ocsp_key, synta.PrivateKey)
+                else None
+            )
+
+            # Build the ResponseData (TBS)
+            # Use responder byKey (SHA-1 hash of OCSP cert's public key)
+            ocsp_spki_der = self.ocsp_cert.subject_public_key_info_der
+            # SHA-1 of the subjectPublicKey BIT STRING value
+            ski_bytes = synta.ext.subject_key_identifier(
+                ocsp_spki_der, synta.ext.KEYID_RFC5280
+            )
+            # ski_bytes is an OCTET STRING DER — extract the hash value
+            ski_dec = synta.Decoder(ski_bytes, synta.Encoding.DER)
+            key_hash = ski_dec.decode_octet_string().to_bytes()
+
+            produced_at_str = _to_generalizedtime(now)
+
+            resp_builder = synta.OCSPResponseBuilder()
+            resp_builder = resp_builder.responder_key_hash(key_hash)
+            resp_builder = resp_builder.produced_at(produced_at_str)
+            resp_builder = resp_builder.add_response(single_resp)
+
+            tbs_der = resp_builder.build_tbs()
+
+            # Sign the TBS
+            sig = self.ocsp_key.sign(tbs_der, hash_alg)
+
+            # Build signature AlgorithmIdentifier
+            ocsp_pub_key = self.ocsp_cert.subject_public_key_info_der
+            # Get the public key OID via synta
+            pk_obj = synta.PublicKey.from_der(ocsp_pub_key)
+            if pk_obj.key_type == "rsa":
+                key_oid = str(synta.oids.RSA_ENCRYPTION)
+            elif pk_obj.key_type == "ec":
+                key_oid = str(synta.oids.EC_PUBLIC_KEY)
+            else:
+                # ML-DSA or other — use signing_algorithm_der with None hash
+                key_oid = str(synta.oids.RSA_ENCRYPTION)
+
+            sig_alg_der = synta.signing_algorithm_der(key_oid, hash_alg)
+            if sig_alg_der is None:
+                # Fall back to a pre-built AlgorithmIdentifier
+                sig_alg_der = synta.AlgorithmIdentifier.from_oid(
+                    synta.oids.SHA256_WITH_RSA
+                ).to_der()
+
+            response_bytes = synta.OCSPResponseBuilder.assemble(
+                tbs_der, sig_alg_der, sig
             )
 
             # Cache the response (bounded: evict expired, then oldest)
@@ -417,10 +550,15 @@ class OCSPResponder:
                     response_bytes, cache_until=next_update
                 )
 
+            status_names = {
+                _OCSP_STATUS_GOOD: "GOOD",
+                _OCSP_STATUS_REVOKED: "REVOKED",
+                _OCSP_STATUS_UNKNOWN: "UNKNOWN",
+            }
             logger.info(
                 "Created OCSP response for serial %s, status: %s",
                 serial_number,
-                cert_status.name,
+                status_names.get(cert_status, str(cert_status)),
             )
             return response_bytes
 
@@ -430,12 +568,11 @@ class OCSPResponder:
             return self._create_error_response()
 
     def _create_error_response(self) -> bytes:
-        """Create OCSP error response"""
-        builder = ocsp.OCSPResponseBuilder()
-        error_response = builder.build_unsuccessful(
-            ocsp.OCSPResponseStatus.INTERNAL_ERROR
-        )
-        return error_response.public_bytes(serialization.Encoding.DER)
+        """Create OCSP error response (internalError, RFC 6960 status 2).
+
+        DER encoding: SEQUENCE { ENUMERATED { 2 } }
+        """
+        return bytes([0x30, 0x03, 0x0a, 0x01, 0x02])
 
     def clear_cache(self):
         """Clear response cache"""
