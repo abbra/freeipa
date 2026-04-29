@@ -141,6 +141,7 @@ disable=
     possibly-used-before-assignment,
     use-yield-from,
     deprecated-class,  # argparse.FileType flagged by pylint 4.x but not 3.x
+    cyclic-import,  # ipathinca has package-internal cycles by design
 
 
 [REPORTS]
