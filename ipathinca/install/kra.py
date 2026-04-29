@@ -6,12 +6,13 @@ from __future__ import absolute_import
 
 import datetime
 import logging
+import os
 import shutil
 from pathlib import Path
 
-from cryptography import x509
-from cryptography.x509.oid import NameOID
-from cryptography.hazmat.primitives import serialization
+import synta
+import synta.ext
+import synta.oids
 
 from ipalib import errors
 from ipaplatform.paths import paths
@@ -21,9 +22,13 @@ from ipathinca.kra import KRA
 from ipathinca.nss_utils import NSSDatabase
 from ipathinca.storage_factory import get_storage_backend
 from ipathinca.storage_kra import KRAStorageBackend
-from ipathinca.x509_utils import get_audit_key_usage_extension
+from ipathinca.x509_utils import (
+    get_audit_key_usage_extension,
+    build_name_der,
+    parse_signature_algorithm,
+)
 
-from .certs import get_cert_params_from_config, convert_signing_algorithm
+from .certs import get_cert_params_from_config
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +95,7 @@ class KRAInstall:
 
         # Load CA certificate from file
         with open(self.ca_cert_path, "rb") as f:
-            ca_cert = x509.load_pem_x509_certificate(f.read())
+            ca_cert = synta.Certificate.from_pem(f.read())
 
         # Extract CA private key from NSSDB (use the initialized helper)
         ca_nickname = "caSigningCert cert-pki-ca"
@@ -161,7 +166,7 @@ class KRAInstall:
         key_size, signing_alg = get_cert_params_from_config(
             self.pki_config, "audit_signing"
         )
-        hash_alg = convert_signing_algorithm(signing_alg)
+        hash_alg = parse_signature_algorithm(signing_alg)
 
         logger.debug(
             "Generating KRA audit certificate (key_size=%s, signing_alg=%s)",
@@ -174,13 +179,11 @@ class KRAInstall:
             kra_audit_nickname, key_size=key_size
         )
 
-        # Create certificate subject
-        subject = x509.Name(
+        # Create certificate subject (O=realm, CN=KRA Audit Signing Certificate)
+        subject_der = build_name_der(
             [
-                x509.NameAttribute(NameOID.ORGANIZATION_NAME, self.realm),
-                x509.NameAttribute(
-                    NameOID.COMMON_NAME, "KRA Audit Signing Certificate"
-                ),
+                ("CN", "KRA Audit Signing Certificate"),
+                ("O", self.realm),
             ]
         )
 
@@ -188,23 +191,25 @@ class KRAInstall:
         not_before = datetime.datetime.now(datetime.timezone.utc)
         not_after = not_before + datetime.timedelta(days=3650)
 
+        serial_number = int.from_bytes(os.urandom(20), 'big') >> 1
+
+        # Unpack audit signing key usage (oid, der) tuple
+        ku_oid, ku_der = get_audit_key_usage_extension()
+
+        bc_oid = str(synta.oids.BASIC_CONSTRAINTS)
+        bc_der = synta.ext.basic_constraints(ca=False)
+
         # Use Dogtag-compatible audit signing key usage
         builder = (
-            x509.CertificateBuilder()
-            .subject_name(subject)
-            .issuer_name(ca_cert.subject)
-            .public_key(private_key.public_key())
-            .serial_number(x509.random_serial_number())
-            .not_valid_before(not_before)
-            .not_valid_after(not_after)
-            .add_extension(
-                get_audit_key_usage_extension(),
-                critical=True,
-            )
-            .add_extension(
-                x509.BasicConstraints(ca=False, path_length=None),
-                critical=True,
-            )
+            synta.CertificateBuilder()
+            .subject_name(subject_der)
+            .issuer_name(ca_cert.subject_raw_der)
+            .public_key(private_key.public_key)
+            .serial_number(serial_number)
+            .not_valid_before_utc(not_before)
+            .not_valid_after_utc(not_after)
+            .add_extension(ku_oid, True, ku_der)
+            .add_extension(bc_oid, True, bc_der)
         )
 
         # Sign with CA key using configured hash algorithm
@@ -228,9 +233,7 @@ class KRAInstall:
         kra_audit_cert_path = kra_audit_dir / "kra_audit.crt"
 
         with open(kra_audit_cert_path, "wb") as f:
-            f.write(
-                certificate.public_bytes(encoding=serialization.Encoding.PEM)
-            )
+            f.write(certificate.to_pem())
         kra_audit_cert_path.chmod(0o644)
         shutil.chown(kra_audit_cert_path, user="ipaca", group="ipaca")
 
