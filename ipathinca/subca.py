@@ -15,10 +15,9 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 import ldap as ldap_module
 
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.x509.oid import ExtensionOID
+import synta
+import synta.ext
+import synta.oids
 
 try:
     from cachetools import TTLCache
@@ -60,8 +59,8 @@ class SubCA:
         ca_id: str,
         subject_dn: str,
         parent_ca: Optional["SubCA"] = None,
-        ca_cert: Optional[x509.Certificate] = None,
-        ca_key: Optional[rsa.RSAPrivateKey] = None,
+        ca_cert: Optional[synta.Certificate] = None,
+        ca_key=None,
     ):
         """
         Initialize Sub-CA
@@ -100,7 +99,7 @@ class SubCA:
         key_size: int = 2048,
         validity_days: int = 3650,
         path_length: Optional[int] = 0,
-    ) -> x509.Certificate:
+    ) -> synta.Certificate:
         """
         Create new sub-CA certificate and key
 
@@ -115,30 +114,29 @@ class SubCA:
         logger.debug("Creating sub-CA: %s", self.ca_id)
 
         # Generate private key
-        self.ca_key = rsa.generate_private_key(
-            public_exponent=65537,
-            key_size=key_size,
-        )
+        self.ca_key = synta.PrivateKey.generate_rsa(key_size)
 
-        # Parse subject DN using shared utility
+        # Parse subject DN using shared utility (returns DER bytes)
         subject = ipa_dn_to_x509_name(self.subject_dn)
 
         # Build certificate
         now = datetime.datetime.now(datetime.timezone.utc)
         serial_number = int(uuid.uuid4().hex[:16], 16)
 
-        builder = x509.CertificateBuilder()
+        builder = synta.CertificateBuilder()
         builder = builder.subject_name(subject)
-        builder = builder.public_key(self.ca_key.public_key())
+        builder = builder.public_key(self.ca_key.public_key)
         builder = builder.serial_number(serial_number)
-        builder = builder.not_valid_before(now)
-        builder = builder.not_valid_after(
+        builder = builder.not_valid_before_utc(now)
+        builder = builder.not_valid_after_utc(
             now + datetime.timedelta(days=validity_days)
         )
 
         # Set issuer (parent CA or self for root)
         if self.parent_ca and self.parent_ca.ca_cert:
-            builder = builder.issuer_name(self.parent_ca.ca_cert.subject)
+            builder = builder.issuer_name(
+                self.parent_ca.ca_cert.subject_raw_der
+            )
             signing_key = self.parent_ca.ca_key
         else:
             # Self-signed root CA
@@ -146,35 +144,32 @@ class SubCA:
             signing_key = self.ca_key
 
         # Add CA extensions
-        builder = builder.add_extension(
-            x509.BasicConstraints(ca=True, path_length=path_length),
-            critical=True,
-        )
+        bc_oid = str(synta.oids.BASIC_CONSTRAINTS)
+        bc_der = synta.ext.basic_constraints(ca=True, path_length=path_length)
+        builder = builder.add_extension(bc_oid, True, bc_der)
 
         # Use shared CA KeyUsage extension utility
-        builder = builder.add_extension(
-            get_ca_key_usage_extension(), critical=True
-        )
+        ku_oid, ku_der = get_ca_key_usage_extension()
+        builder = builder.add_extension(ku_oid, True, ku_der)
 
         # Subject Key Identifier
-        ski = x509.SubjectKeyIdentifier.from_public_key(
-            self.ca_key.public_key()
+        ski_oid = str(synta.oids.SUBJECT_KEY_IDENTIFIER)
+        ski_der = synta.ext.subject_key_identifier(
+            self.ca_key.public_key.to_der()
         )
-        builder = builder.add_extension(ski, critical=False)
+        builder = builder.add_extension(ski_oid, False, ski_der)
 
         # Authority Key Identifier
+        aki_oid = str(synta.oids.AUTHORITY_KEY_IDENTIFIER)
         if self.parent_ca and self.parent_ca.ca_cert:
-            aki = x509.AuthorityKeyIdentifier.from_issuer_public_key(
-                self.parent_ca.ca_cert.public_key()
-            )
+            issuer_spki = self.parent_ca.ca_key.public_key.to_der()
         else:
-            aki = x509.AuthorityKeyIdentifier.from_issuer_public_key(
-                self.ca_key.public_key()
-            )
-        builder = builder.add_extension(aki, critical=False)
+            issuer_spki = self.ca_key.public_key.to_der()
+        aki_der = synta.ext.authority_key_identifier(issuer_spki)
+        builder = builder.add_extension(aki_oid, False, aki_der)
 
         # Sign the certificate
-        self.ca_cert = builder.sign(signing_key, hashes.SHA256())
+        self.ca_cert = builder.sign(signing_key, 'sha256')
 
         # Save to disk (skip if permission denied - LDAP storage is primary)
         try:
@@ -203,17 +198,11 @@ class SubCA:
 
         # Save certificate
         with open(self.cert_path, "wb") as f:
-            f.write(self.ca_cert.public_bytes(serialization.Encoding.PEM))
+            f.write(self.ca_cert.to_pem())
 
         # Save private key
         with open(self.key_path, "wb") as f:
-            f.write(
-                self.ca_key.private_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PrivateFormat.PKCS8,
-                    encryption_algorithm=serialization.NoEncryption(),
-                )
-            )
+            f.write(self.ca_key.to_pem())
 
         # Set restrictive permissions
         self.key_path.chmod(0o600)
@@ -238,7 +227,7 @@ class SubCA:
 
         # Load certificate (always from disk for ipathinca)
         with open(self.cert_path, "rb") as f:
-            self.ca_cert = x509.load_pem_x509_certificate(f.read())
+            self.ca_cert = synta.Certificate.from_pem(f.read())
 
         # Load private key - conditional based on HSM configuration
         hsm_config = None
@@ -321,9 +310,7 @@ class SubCA:
             )
 
             with open(self.key_path, "rb") as f:
-                self.ca_key = serialization.load_pem_private_key(
-                    f.read(), password=None
-                )
+                self.ca_key = synta.PrivateKey.from_pem(f.read())
 
             logger.debug(
                 "Successfully loaded sub-CA certificate and private key from "
@@ -335,7 +322,7 @@ class SubCA:
         self.ca.ca_cert = self.ca_cert
         self.ca.ca_private_key = self.ca_key
 
-    def get_certificate_chain(self) -> List[x509.Certificate]:
+    def get_certificate_chain(self) -> List[synta.Certificate]:
         """
         Get certificate chain from this CA to root
 
@@ -362,12 +349,12 @@ class SubCA:
                 str(self.ca_cert.serial_number) if self.ca_cert else None
             ),
             "not_before": (
-                self.ca_cert.not_valid_before_utc.isoformat()
+                self.ca_cert.not_before_utc.isoformat()
                 if self.ca_cert
                 else None
             ),
             "not_after": (
-                self.ca_cert.not_valid_after_utc.isoformat()
+                self.ca_cert.not_after_utc.isoformat()
                 if self.ca_cert
                 else None
             ),
@@ -657,15 +644,19 @@ class SubCAManager:
         if parent_ca and parent_ca.ca_cert:
             # Extract path length from parent
             try:
-                bc_ext = parent_ca.ca_cert.extensions.get_extension_for_oid(
-                    ExtensionOID.BASIC_CONSTRAINTS
+                bc_der = parent_ca.ca_cert.get_extension_value_der(
+                    str(synta.oids.BASIC_CONSTRAINTS)
                 )
-                parent_path_length = bc_ext.value.path_length
-                if parent_path_length is not None:
-                    path_length = max(0, parent_path_length - 1)
+                if bc_der is not None:
+                    parsed = synta.ext.parse_basic_constraints(bc_der)
+                    parent_path_length = parsed.get('path_length')
+                    if parent_path_length is not None:
+                        path_length = max(0, parent_path_length - 1)
+                    else:
+                        path_length = None  # Unlimited
                 else:
-                    path_length = None  # Unlimited
-            except x509.ExtensionNotFound:
+                    path_length = 0
+            except Exception:
                 path_length = 0
 
         # Create certificate and key
@@ -930,11 +921,7 @@ class SubCAManager:
         subca_dir.mkdir(parents=True, exist_ok=True)
 
         # Encode private key in PEM format
-        key_pem = subca.ca_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
+        key_pem = subca.ca_key.to_pem()
 
         # Encrypt private key before storing
         encrypted_key = encrypt_private_key(key_pem)
@@ -1024,7 +1011,7 @@ class SubCAManager:
 
     def _load_encrypted_subca_key_from_filesystem(
         self, ca_id: str
-    ) -> Optional[rsa.RSAPrivateKey]:
+    ) -> Optional[synta.PrivateKey]:
         """Load encrypted sub-CA private key from filesystem.
 
         Keys are encrypted with AES-256-GCM using the master encryption key.
@@ -1044,7 +1031,7 @@ class SubCAManager:
             key_pem = decrypt_private_key(encrypted_key)
 
             # Load key from PEM
-            ca_key = serialization.load_pem_private_key(key_pem, password=None)
+            ca_key = synta.PrivateKey.from_pem(key_pem)
 
             logger.debug("Loaded private key for %s from filesystem", ca_id)
             return ca_key
