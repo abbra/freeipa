@@ -12,8 +12,8 @@ import logging
 import threading
 import signal
 from typing import Optional
-from cryptography import x509
-from cryptography.hazmat.primitives import serialization
+
+import synta
 
 logger = logging.getLogger(__name__)
 
@@ -162,13 +162,11 @@ class CertificateReloadManager:
 
             # Load new certificate from disk
             with open(ca_cert_path, "rb") as f:
-                new_ca_cert = x509.load_pem_x509_certificate(f.read())
+                new_ca_cert = synta.Certificate.from_pem(f.read())
 
             # Load new key from disk
             with open(ca_key_path, "rb") as f:
-                new_ca_key = serialization.load_pem_private_key(
-                    f.read(), password=None
-                )
+                new_ca_key = synta.PrivateKey.from_pem(f.read())
 
             # Verify certificate and key match
             if not self._verify_cert_key_match(new_ca_cert, new_ca_key):
@@ -223,34 +221,23 @@ class CertificateReloadManager:
                 "error": f"Failed to reload CA certificate: {e}",
             }
 
-    def _verify_cert_key_match(self, cert: x509.Certificate, key) -> bool:
+    def _verify_cert_key_match(self, cert, key) -> bool:
         """
         Verify that a certificate and private key match
 
         Args:
-            cert: X.509 certificate
-            key: Private key
+            cert: synta.Certificate
+            key: synta.PrivateKey
 
         Returns:
             bool: True if certificate and key match
         """
         try:
-            # Compare public keys
-            cert_public_key = cert.public_key()
-            key_public_key = key.public_key()
-
-            # Serialize both public keys and compare
-            cert_pub_bytes = cert_public_key.public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo,
-            )
-
-            key_pub_bytes = key_public_key.public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo,
-            )
-
-            return cert_pub_bytes == key_pub_bytes
+            # Compare public keys by DER-encoding the SubjectPublicKeyInfo
+            # from the certificate and from the private key's public key.
+            cert_pub_der = cert.subject_public_key_info_der
+            key_pub_der = key.public_key.to_der()
+            return cert_pub_der == key_pub_der
 
         except Exception as e:
             logger.error("Error verifying certificate/key match: %s", e)
@@ -275,13 +262,11 @@ class CertificateReloadManager:
 
             # Load and validate certificate
             with open(cert_path, "rb") as f:
-                cert = x509.load_pem_x509_certificate(f.read())
+                cert = synta.Certificate.from_pem(f.read())
 
             # Load and validate key
             with open(key_path, "rb") as f:
-                key = serialization.load_pem_private_key(
-                    f.read(), password=None
-                )
+                key = synta.PrivateKey.from_pem(f.read())
 
             # Verify they match
             if not self._verify_cert_key_match(cert, key):
