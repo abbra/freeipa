@@ -651,7 +651,7 @@ class InternalCA(PythonCA):
             # synta.CertificateListBuilder has no add_extension() method so the
             # CRL Number extension cannot be embedded in this release; the
             # counter is still incremented to keep the LDAP sequence consistent.
-            self.ldap_storage.get_next_crl_number()
+            crl_number = self.ldap_storage.get_next_crl_number()
 
             # Read CRL timing from config
             next_update_minutes = self._get_crl_timing()[1]
