@@ -4,15 +4,14 @@
 Tests for X.509 utility functions
 
 Tests DN conversion, OID mappings, signature algorithm parsing,
-key usage extensions, and build_x509_name.
+key usage extensions, and build_name_der / build_x509_name.
 """
 
 import pytest
-
-from cryptography import x509
-from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import rsa, ec
+import synta
+import synta.ext
+import synta.oids
+import synta.oids.attr as _attr_oids
 
 from ipathinca.x509_utils import (
     OID_TO_SHORTNAME,
@@ -46,20 +45,20 @@ class TestOIDMappings:
 
     def test_common_oids_present(self):
         """Common OIDs are mapped."""
-        assert NameOID.COMMON_NAME in OID_TO_SHORTNAME
-        assert NameOID.ORGANIZATION_NAME in OID_TO_SHORTNAME
-        assert NameOID.COUNTRY_NAME in OID_TO_SHORTNAME
-        assert NameOID.DOMAIN_COMPONENT in OID_TO_SHORTNAME
+        assert str(_attr_oids.COMMON_NAME) in OID_TO_SHORTNAME
+        assert str(_attr_oids.ORGANIZATION) in OID_TO_SHORTNAME
+        assert str(_attr_oids.COUNTRY) in OID_TO_SHORTNAME
+        assert str(_attr_oids.DOMAIN_COMPONENT) in OID_TO_SHORTNAME
 
     def test_shortname_to_oid_cn(self):
-        """CN maps to COMMON_NAME OID."""
-        assert SHORTNAME_TO_OID["CN"] == NameOID.COMMON_NAME
+        """CN maps to COMMON_NAME OID dotted string."""
+        assert SHORTNAME_TO_OID["CN"] == str(_attr_oids.COMMON_NAME)
 
     def test_shortname_to_oid_email_variants(self):
         """emailAddress has case variants."""
-        assert SHORTNAME_TO_OID["emailAddress"] == NameOID.EMAIL_ADDRESS
-        assert SHORTNAME_TO_OID["EMAILADDRESS"] == NameOID.EMAIL_ADDRESS
-        assert SHORTNAME_TO_OID["email"] == NameOID.EMAIL_ADDRESS
+        assert SHORTNAME_TO_OID["emailAddress"] == str(_attr_oids.EMAIL_ADDRESS)
+        assert SHORTNAME_TO_OID["EMAILADDRESS"] == str(_attr_oids.EMAIL_ADDRESS)
+        assert SHORTNAME_TO_OID["email"] == str(_attr_oids.EMAIL_ADDRESS)
 
     def test_bidirectional_consistency(self):
         """Every OID_TO_SHORTNAME entry has a reverse mapping."""
@@ -78,109 +77,98 @@ class TestOIDMappings:
 class TestDNConversion:
     """Test DN conversion functions."""
 
+    def _make_name_der(self, *attrs):
+        """Build DER from (oid_const, value) pairs in the given order."""
+        nb = synta.NameBuilder()
+        for oid_const, value in attrs:
+            nb = nb.add_attr(str(oid_const), value)
+        return nb.build()
+
     def test_cert_name_to_ipa_dn_simple(self):
-        """Convert simple x509.Name to IPA DN."""
-        name = x509.Name(
-            [
-                x509.NameAttribute(NameOID.ORGANIZATION_NAME, "EXAMPLE.COM"),
-                x509.NameAttribute(NameOID.COMMON_NAME, "Test User"),
-            ]
+        """Convert DER-encoded Name to IPA DN."""
+        name_der = self._make_name_der(
+            (_attr_oids.ORGANIZATION, "EXAMPLE.COM"),
+            (_attr_oids.COMMON_NAME, "Test User"),
         )
-        dn = cert_name_to_ipa_dn(name)
+        dn = cert_name_to_ipa_dn(name_der)
         dn_str = str(dn)
         assert "CN=Test User" in dn_str
         assert "O=EXAMPLE.COM" in dn_str
 
     def test_cert_name_to_ipa_dn_reverse_default(self):
         """Default reverse=True reverses order for IPA format."""
-        name = x509.Name(
-            [
-                x509.NameAttribute(NameOID.ORGANIZATION_NAME, "EXAMPLE.COM"),
-                x509.NameAttribute(NameOID.COMMON_NAME, "Test"),
-            ]
+        name_der = self._make_name_der(
+            (_attr_oids.ORGANIZATION, "EXAMPLE.COM"),
+            (_attr_oids.COMMON_NAME, "Test"),
         )
-        dn = cert_name_to_ipa_dn(name, reverse=True)
+        dn = cert_name_to_ipa_dn(name_der, reverse=True)
         dn_str = str(dn)
         # CN should come first in IPA DN format
         assert dn_str.startswith("CN=")
 
     def test_ipa_dn_to_x509_name(self):
-        """Convert IPA DN string to x509.Name."""
-        name = ipa_dn_to_x509_name("CN=Test,O=EXAMPLE.COM")
-        components = list(name)
-        # x509.Name stores in reverse, so check by attribute
-        cn_found = any(
-            attr.oid == NameOID.COMMON_NAME and attr.value == "Test"
-            for attr in components
-        )
-        o_found = any(
-            attr.oid == NameOID.ORGANIZATION_NAME
-            and attr.value == "EXAMPLE.COM"
-            for attr in components
-        )
-        assert cn_found
-        assert o_found
+        """Convert IPA DN string to DER-encoded Name."""
+        der = ipa_dn_to_x509_name("CN=Test,O=EXAMPLE.COM")
+        attrs = dict(synta.parse_name_attrs(der))
+        assert attrs.get(str(_attr_oids.COMMON_NAME)) == "Test"
+        assert attrs.get(str(_attr_oids.ORGANIZATION)) == "EXAMPLE.COM"
 
     def test_get_dn_components(self):
-        """get_dn_components returns correct tuples."""
-        name = x509.Name(
-            [
-                x509.NameAttribute(NameOID.ORGANIZATION_NAME, "EXAMPLE.COM"),
-                x509.NameAttribute(NameOID.COMMON_NAME, "Test"),
-            ]
+        """get_dn_components returns correct tuples, most-specific-first."""
+        # Encode with O first (least-specific) then CN (most-specific)
+        name_der = self._make_name_der(
+            (_attr_oids.ORGANIZATION, "EXAMPLE.COM"),
+            (_attr_oids.COMMON_NAME, "Test"),
         )
-        components = get_dn_components(name)
-        # Most-specific-first
+        components = get_dn_components(name_der)
+        # Most-specific-first after reversal
         assert components[0] == ("CN", "Test")
         assert components[1] == ("O", "EXAMPLE.COM")
 
 
 # ======================================================================
-# build_x509_name
+# build_x509_name / build_name_der
 # ======================================================================
 
 
 class TestBuildX509Name:
-    """Test build_x509_name utility."""
+    """Test build_x509_name utility (returns DER bytes)."""
 
     def test_from_list_of_tuples(self):
         """Build from list of tuples."""
-        name = build_x509_name([("CN", "Test"), ("O", "Example")])
-        components = get_dn_components(name)
-        assert ("CN", "Test") in components
-        assert ("O", "Example") in components
+        der = build_x509_name([("CN", "Test"), ("O", "Example")])
+        attrs = dict(synta.parse_name_attrs(der))
+        assert attrs.get(str(_attr_oids.COMMON_NAME)) == "Test"
+        assert attrs.get(str(_attr_oids.ORGANIZATION)) == "Example"
 
     def test_from_dict(self):
         """Build from dict."""
-        name = build_x509_name({"CN": "Test", "O": "Example"})
-        components = get_dn_components(name)
-        assert ("CN", "Test") in components
-        assert ("O", "Example") in components
+        der = build_x509_name({"CN": "Test", "O": "Example"})
+        attrs = dict(synta.parse_name_attrs(der))
+        assert attrs.get(str(_attr_oids.COMMON_NAME)) == "Test"
+        assert attrs.get(str(_attr_oids.ORGANIZATION)) == "Example"
 
     def test_standard_dn_ordering_applied(self):
-        """Attributes are reordered by STANDARD_DN_ORDER internally."""
-        # Input in non-standard order
-        name = build_x509_name(
+        """All attributes survive reordering by STANDARD_DN_ORDER."""
+        der = build_x509_name(
             [
                 ("O", "Org"),
                 ("C", "US"),
                 ("CN", "Test"),
             ]
         )
-        # x509.Name stores in STANDARD_DN_ORDER: [CN, O, C]
-        # rfc4514_string reverses: "C=US,O=Org,CN=Test"
-        rfc4514 = name.rfc4514_string()
-        assert "CN=Test" in rfc4514
-        assert "O=Org" in rfc4514
-        assert "C=US" in rfc4514
+        attrs = dict(synta.parse_name_attrs(der))
+        assert attrs.get(str(_attr_oids.COMMON_NAME)) == "Test"
+        assert attrs.get(str(_attr_oids.ORGANIZATION)) == "Org"
+        assert attrs.get(str(_attr_oids.COUNTRY)) == "US"
 
     def test_reverse_gives_display_order(self):
-        """reverse=True produces CN-first RFC 4514 display."""
-        name = build_x509_name(
+        """reverse=True produces CN-first display order."""
+        der = build_x509_name(
             [("O", "Example"), ("CN", "Test")], reverse=True
         )
-        rfc4514 = name.rfc4514_string()
-        assert rfc4514.startswith("CN=")
+        components = get_dn_components(der)
+        assert components[0][0] == "CN"
 
 
 # ======================================================================
@@ -232,34 +220,32 @@ class TestParseSignatureAlgorithm:
     """Test parse_signature_algorithm."""
 
     def test_sha256_with_rsa(self):
-        """SHA256withRSA returns SHA256."""
-        alg = parse_signature_algorithm("SHA256withRSA")
-        assert isinstance(alg, hashes.SHA256)
+        """SHA256withRSA returns 'sha256'."""
+        assert parse_signature_algorithm("SHA256withRSA") == 'sha256'
 
     def test_sha384_with_rsa(self):
-        """SHA384withRSA returns SHA384."""
-        alg = parse_signature_algorithm("SHA384withRSA")
-        assert isinstance(alg, hashes.SHA384)
+        """SHA384withRSA returns 'sha384'."""
+        assert parse_signature_algorithm("SHA384withRSA") == 'sha384'
 
     def test_sha512_with_rsa(self):
-        """SHA512withRSA returns SHA512."""
-        alg = parse_signature_algorithm("SHA512withRSA")
-        assert isinstance(alg, hashes.SHA512)
+        """SHA512withRSA returns 'sha512'."""
+        assert parse_signature_algorithm("SHA512withRSA") == 'sha512'
 
     def test_sha1_with_rsa(self):
-        """SHA1withRSA returns SHA1."""
-        alg = parse_signature_algorithm("SHA1withRSA")
-        assert isinstance(alg, hashes.SHA1)
+        """SHA1withRSA returns 'sha1'."""
+        assert parse_signature_algorithm("SHA1withRSA") == 'sha1'
 
     def test_sha256_with_ec(self):
-        """SHA256withEC returns SHA256."""
-        alg = parse_signature_algorithm("SHA256withEC")
-        assert isinstance(alg, hashes.SHA256)
+        """SHA256withEC returns 'sha256'."""
+        assert parse_signature_algorithm("SHA256withEC") == 'sha256'
 
     def test_case_insensitive(self):
         """Algorithm parsing is case-insensitive."""
-        alg = parse_signature_algorithm("sha256withRSA")
-        assert isinstance(alg, hashes.SHA256)
+        assert parse_signature_algorithm("sha256withRSA") == 'sha256'
+
+    def test_mldsa_returns_none(self):
+        """ML-DSA returns None (no pre-hash)."""
+        assert parse_signature_algorithm("ML-DSA-65") is None
 
     def test_unknown_raises(self):
         """Unknown algorithm raises ValueError."""
@@ -277,17 +263,13 @@ class TestDefaultAlgorithmForKey:
 
     def test_rsa_key(self):
         """RSA key returns SHA256withRSA."""
-        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        assert (
-            get_default_algorithm_for_key(key.public_key()) == "SHA256withRSA"
-        )
+        key = synta.PrivateKey.generate_rsa(2048)
+        assert get_default_algorithm_for_key(key.public_key) == "SHA256withRSA"
 
     def test_ec_key(self):
         """EC key returns SHA256withEC."""
-        key = ec.generate_private_key(ec.SECP256R1())
-        assert (
-            get_default_algorithm_for_key(key.public_key()) == "SHA256withEC"
-        )
+        key = synta.PrivateKey.generate_ec('P-256')
+        assert get_default_algorithm_for_key(key.public_key) == "SHA256withEC"
 
 
 # ======================================================================
@@ -296,43 +278,56 @@ class TestDefaultAlgorithmForKey:
 
 
 class TestKeyUsageExtensions:
-    """Test KeyUsage extension builders."""
+    """Test KeyUsage extension builders return (oid_str, der) tuples."""
 
     def test_ca_key_usage(self):
         """CA KeyUsage allows cert signing, CRL signing, digital sig."""
-        ku = get_ca_key_usage_extension()
-        assert ku.digital_signature
-        assert ku.key_cert_sign
-        assert ku.crl_sign
-        assert not ku.key_encipherment
+        oid_str, der = get_ca_key_usage_extension()
+        assert oid_str == str(synta.oids.KEY_USAGE)
+        expected = synta.ext.key_usage(
+            synta.ext.KU_DIGITAL_SIGNATURE
+            | synta.ext.KU_KEY_CERT_SIGN
+            | synta.ext.KU_CRL_SIGN
+        )
+        assert der == expected
 
     def test_service_key_usage(self):
         """Service KeyUsage allows digital sig and key encipherment."""
-        ku = get_service_key_usage_extension()
-        assert ku.digital_signature
-        assert ku.key_encipherment
-        assert not ku.key_cert_sign
-        assert not ku.crl_sign
+        oid_str, der = get_service_key_usage_extension()
+        assert oid_str == str(synta.oids.KEY_USAGE)
+        expected = synta.ext.key_usage(
+            synta.ext.KU_DIGITAL_SIGNATURE | synta.ext.KU_KEY_ENCIPHERMENT
+        )
+        assert der == expected
 
     def test_ocsp_key_usage(self):
         """OCSP KeyUsage allows digital sig, key and data encipherment."""
-        ku = get_ocsp_key_usage_extension()
-        assert ku.digital_signature
-        assert ku.key_encipherment
-        assert ku.data_encipherment
+        oid_str, der = get_ocsp_key_usage_extension()
+        assert oid_str == str(synta.oids.KEY_USAGE)
+        expected = synta.ext.key_usage(
+            synta.ext.KU_DIGITAL_SIGNATURE
+            | synta.ext.KU_KEY_ENCIPHERMENT
+            | synta.ext.KU_DATA_ENCIPHERMENT
+        )
+        assert der == expected
 
     def test_audit_key_usage(self):
-        """Audit KeyUsage includes content_commitment (non-repudiation)."""
-        ku = get_audit_key_usage_extension()
-        assert ku.digital_signature
-        assert ku.content_commitment
-        assert not ku.key_encipherment
+        """Audit KeyUsage includes non-repudiation (content_commitment)."""
+        oid_str, der = get_audit_key_usage_extension()
+        assert oid_str == str(synta.oids.KEY_USAGE)
+        expected = synta.ext.key_usage(
+            synta.ext.KU_DIGITAL_SIGNATURE | synta.ext.KU_NON_REPUDIATION
+        )
+        assert der == expected
 
     def test_subsystem_key_usage(self):
         """Subsystem KeyUsage allows digital sig and key encipherment."""
-        ku = get_subsystem_key_usage_extension()
-        assert ku.digital_signature
-        assert ku.key_encipherment
+        oid_str, der = get_subsystem_key_usage_extension()
+        assert oid_str == str(synta.oids.KEY_USAGE)
+        expected = synta.ext.key_usage(
+            synta.ext.KU_DIGITAL_SIGNATURE | synta.ext.KU_KEY_ENCIPHERMENT
+        )
+        assert der == expected
 
 
 # ======================================================================
@@ -341,30 +336,46 @@ class TestKeyUsageExtensions:
 
 
 class TestExtendedKeyUsageExtensions:
-    """Test ExtendedKeyUsage extension builders."""
+    """Test ExtendedKeyUsage extension builders return (oid_str, der) tuples."""
 
     def test_server_eku(self):
         """Server EKU includes server and client auth."""
-        eku = get_server_extended_key_usage()
-        oids = list(eku)
-        assert ExtendedKeyUsageOID.SERVER_AUTH in oids
-        assert ExtendedKeyUsageOID.CLIENT_AUTH in oids
+        oid_str, der = get_server_extended_key_usage()
+        assert oid_str == str(synta.oids.EXTENDED_KEY_USAGE)
+        expected = (
+            synta.ext.ExtendedKeyUsageBuilder()
+            .server_auth()
+            .client_auth()
+            .build()
+        )
+        assert der == expected
 
     def test_ocsp_eku(self):
         """OCSP EKU includes OCSP signing."""
-        eku = get_ocsp_extended_key_usage()
-        oids = list(eku)
-        assert ExtendedKeyUsageOID.OCSP_SIGNING in oids
+        oid_str, der = get_ocsp_extended_key_usage()
+        assert oid_str == str(synta.oids.EXTENDED_KEY_USAGE)
+        expected = synta.ext.ExtendedKeyUsageBuilder().ocsp_signing().build()
+        assert der == expected
 
     def test_subsystem_eku(self):
         """Subsystem EKU includes client and server auth."""
-        eku = get_subsystem_extended_key_usage()
-        oids = list(eku)
-        assert ExtendedKeyUsageOID.CLIENT_AUTH in oids
-        assert ExtendedKeyUsageOID.SERVER_AUTH in oids
+        oid_str, der = get_subsystem_extended_key_usage()
+        assert oid_str == str(synta.oids.EXTENDED_KEY_USAGE)
+        expected = (
+            synta.ext.ExtendedKeyUsageBuilder()
+            .client_auth()
+            .server_auth()
+            .build()
+        )
+        assert der == expected
 
     def test_pkinit_eku(self):
-        """PKINIT EKU includes KDC OID."""
-        eku = get_pkinit_extended_key_usage()
-        oids = [str(oid.dotted_string) for oid in eku]
-        assert "1.3.6.1.5.2.3.5" in oids
+        """PKINIT EKU includes KDC OID (1.3.6.1.5.2.3.5)."""
+        oid_str, der = get_pkinit_extended_key_usage()
+        assert oid_str == str(synta.oids.EXTENDED_KEY_USAGE)
+        expected = (
+            synta.ext.ExtendedKeyUsageBuilder()
+            .add_oid([1, 3, 6, 1, 5, 2, 3, 5])
+            .build()
+        )
+        assert der == expected
