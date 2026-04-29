@@ -47,7 +47,8 @@ def install_check(api, replica_config, options):
             ca_service = get_ca_service()
             if ca_service != "ipathinca":
                 raise RuntimeError(
-                    "ipathinca CA is not installed. Please install the CA first")
+                    "ipathinca CA is not installed. Please install the CA"
+                    " first")
         elif cainstance.is_ca_installed_locally():
             if api.env.dogtag_version >= 10:
                 # correct dogtag version of CA installed

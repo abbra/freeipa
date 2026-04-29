@@ -44,6 +44,7 @@ _OCSP_STATUS_UNKNOWN = 2
 # OCSP nonce extension OID (RFC 6960)
 _OCSP_NONCE_OID = "1.3.6.1.5.5.7.48.1.2"
 
+
 @dataclass
 class _ParsedOCSPRequest:
     """Parsed OCSP request data."""
@@ -88,7 +89,7 @@ def _parse_ocsp_request(der_bytes: bytes) -> _ParsedOCSPRequest:
         # Skip optional [0] version and [1] requestorName by peeking
         # requestList is the first non-tagged element
         while not tbs.is_empty():
-            tag_num, tag_class, constructed = tbs.peek_tag()
+            tag_num, tag_class, _constructed = tbs.peek_tag()
             if tag_class == "Context":
                 # skip optional tagged fields (version, requestorName,
                 # requestExtensions)
@@ -125,7 +126,7 @@ def _parse_ocsp_request(der_bytes: bytes) -> _ParsedOCSPRequest:
         # requestExtensions is at [2] EXPLICIT on the TBSRequest
         # (already consumed requestList above; look for remaining [2] tag)
         while not tbs.is_empty():
-            tag_num, tag_class, constructed = tbs.peek_tag()
+            tag_num, tag_class, _constructed = tbs.peek_tag()
             if tag_class == "Context" and tag_num == 2:
                 # [2] EXPLICIT Extensions
                 ext_inner = tbs.decode_explicit_tag(2)
@@ -483,13 +484,6 @@ class OCSPResponder:
                 self.ocsp_cert
             )
             hash_alg = x509_utils.parse_signature_algorithm(signing_alg_str)
-
-            # Determine the key OID from the OCSP signing key
-            ocsp_pub = (
-                self.ocsp_key.public_key
-                if isinstance(self.ocsp_key, synta.PrivateKey)
-                else None
-            )
 
             # Build the ResponseData (TBS)
             # Use responder byKey (SHA-1 hash of OCSP cert's public key)

@@ -19,7 +19,9 @@ import json
 import secrets
 from xml.sax.saxutils import escape as xml_escape
 
-from flask import Flask, request, Response, make_response, jsonify
+from flask import (  # pylint: disable=import-error
+    Flask, request, Response, make_response, jsonify
+)
 
 import synta
 import synta.crypto as _scrypto

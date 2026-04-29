@@ -83,7 +83,6 @@ REVOCATION_STRING_TO_REASON = {
 }
 
 
-
 class CertificateRequest:
     """Container for certificate request data"""
 

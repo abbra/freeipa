@@ -671,7 +671,7 @@ def install_step_0(standalone, replica_config, options, custodia):
             token_password=(
                 options.token_password
                 if hasattr(options, 'token_password') else None
-                ),
+            ),
             pkcs12_info=pkcs12_info,
             master_host=master_host,
             promote=promote,
@@ -833,7 +833,6 @@ def enable_ca_service(options):
 
     if use_ipathinca:
         logger.info("Registering ipathinca CA service in LDAP")
-        from ipaserver.install.ipathincainstance import IPAThinCAInstance  # pylint: disable=reimported
         ca_instance = IPAThinCAInstance(
             realm=options.realm_name,
             host_name=options.host_name,

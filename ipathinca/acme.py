@@ -407,7 +407,8 @@ class ACMEServer:
         except Exception as e:
             raise ACMEError("malformed", f"JWS processing failed: {e}")
 
-    def _jwk_to_cryptography_key(self, jwk_dict: Dict[str, Any]) -> synta.PublicKey:
+    def _jwk_to_cryptography_key(
+            self, jwk_dict: Dict[str, Any]) -> synta.PublicKey:
         """Convert JWK dictionary to a synta PublicKey"""
         if "kty" not in jwk_dict:
             raise ValueError("Missing required JWK field: kty")
