@@ -11,8 +11,7 @@ from typing import Dict, Any, List
 import secrets
 from datetime import datetime, timezone
 
-from cryptography import x509
-from cryptography.hazmat.primitives import serialization
+import synta
 
 from ipathinca.storage_base import BaseStorageBackend
 from ipalib import errors
@@ -50,17 +49,15 @@ class CertificateStorage(BaseStorageBackend):
             cert_dn = DN(("cn", serial), self.certs_base_dn)
 
             # Encode certificate as DER
-            cert_der = cert_record.certificate.public_bytes(
-                serialization.Encoding.DER
-            )
+            cert_der = cert_record.certificate.to_der()
 
             # Extract certificate details
             subject = x509_utils.get_subject_dn_str(cert_record.certificate)
             issuer = x509_utils.get_issuer_dn_str(cert_record.certificate)
             not_before = (
-                cert_record.certificate.not_valid_before_utc.isoformat()
+                cert_record.certificate.not_before_utc.isoformat()
             )
-            not_after = cert_record.certificate.not_valid_after_utc.isoformat()
+            not_after = cert_record.certificate.not_after_utc.isoformat()
 
             try:
                 # Check if certificate already exists
@@ -699,8 +696,8 @@ class CertificateStorage(BaseStorageBackend):
             request_dn = DN(("cn", request_id), self.requests_base_dn)
 
             # Encode CSR as PEM
-            csr_pem = cert_request.csr.public_bytes(
-                serialization.Encoding.PEM
+            csr_pem = synta.CertificationRequest.to_pem(
+                cert_request.csr
             ).decode("ascii")
 
             try:
@@ -808,7 +805,9 @@ class CertificateStorage(BaseStorageBackend):
                 else:
                     csr_pem = csr_pem_attr
 
-                csr = x509.load_pem_x509_csr(csr_pem.encode("ascii"))
+                csr = synta.CertificationRequest.from_pem(
+                    csr_pem.encode("ascii")
+                )
 
                 # Extract profile from LDAP (use default if not present)
                 profile = "unknown"  # Default if profile not stored
