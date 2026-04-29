@@ -3,811 +3,480 @@
 """
 X.509 Certificate Utilities for DN Conversion
 
-This module provides helper functions to convert between python-cryptography's
-x509.Name objects and IPA's DN representation, eliminating code duplication
-across ipathinca modules.
+This module provides helper functions to convert between synta certificate
+objects and IPA's DN representation, eliminating code duplication across
+ipathinca modules.
 """
 
 import logging
 from typing import List, Tuple
 
-from cryptography import x509
-from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID
+import synta
+import synta.ext
+import synta.oids
+import synta.oids.attr as _name_oids
 
 from ipapython.dn import DN
 
 logger = logging.getLogger(__name__)
 
-# Standard OID to short name mapping for X.509 DNs
-# This matches the format used in LDAP and IPA
+# Map synta OID strings → short DN attribute names
 OID_TO_SHORTNAME = {
-    NameOID.COMMON_NAME: "CN",
-    NameOID.ORGANIZATION_NAME: "O",
-    NameOID.ORGANIZATIONAL_UNIT_NAME: "OU",
-    NameOID.COUNTRY_NAME: "C",
-    NameOID.LOCALITY_NAME: "L",
-    NameOID.STATE_OR_PROVINCE_NAME: "ST",
-    NameOID.EMAIL_ADDRESS: "emailAddress",
-    NameOID.STREET_ADDRESS: "street",
-    NameOID.DOMAIN_COMPONENT: "DC",
-    NameOID.USER_ID: "UID",
-    NameOID.SERIAL_NUMBER: "serialNumber",
-    NameOID.SURNAME: "SN",
-    NameOID.GIVEN_NAME: "givenName",
-    NameOID.TITLE: "title",
-    NameOID.GENERATION_QUALIFIER: "generationQualifier",
-    NameOID.DN_QUALIFIER: "dnQualifier",
-    NameOID.PSEUDONYM: "pseudonym",
+    str(_name_oids.COMMON_NAME): "CN",
+    str(_name_oids.ORGANIZATION): "O",
+    str(_name_oids.ORG_UNIT): "OU",
+    str(_name_oids.COUNTRY): "C",
+    str(_name_oids.LOCALITY): "L",
+    str(_name_oids.STATE): "ST",
+    str(_name_oids.EMAIL_ADDRESS): "emailAddress",
+    str(_name_oids.STREET): "street",
+    str(_name_oids.DOMAIN_COMPONENT): "DC",
+    str(_name_oids.USER_ID): "UID",
+    str(_name_oids.SERIAL_NUMBER): "serialNumber",
+    str(_name_oids.SURNAME): "SN",
+    str(_name_oids.GIVEN_NAME): "givenName",
+    str(_name_oids.TITLE): "title",
+    str(_name_oids.GENERATION_QUALIFIER): "generationQualifier",
+    str(_name_oids.DN_QUALIFIER): "dnQualifier",
+    str(_name_oids.PSEUDONYM): "pseudonym",
 }
 
-# Reverse mapping: short name to NameOID
+# Reverse mapping: short name → OID dotted string
 SHORTNAME_TO_OID = {
-    "CN": NameOID.COMMON_NAME,
-    "O": NameOID.ORGANIZATION_NAME,
-    "OU": NameOID.ORGANIZATIONAL_UNIT_NAME,
-    "C": NameOID.COUNTRY_NAME,
-    "L": NameOID.LOCALITY_NAME,
-    "ST": NameOID.STATE_OR_PROVINCE_NAME,
-    "emailAddress": NameOID.EMAIL_ADDRESS,
-    "EMAILADDRESS": NameOID.EMAIL_ADDRESS,  # Case variant
-    "email": NameOID.EMAIL_ADDRESS,  # Alternate form
-    "street": NameOID.STREET_ADDRESS,
-    "DC": NameOID.DOMAIN_COMPONENT,
-    "UID": NameOID.USER_ID,
-    "serialNumber": NameOID.SERIAL_NUMBER,
-    "SN": NameOID.SURNAME,
-    "givenName": NameOID.GIVEN_NAME,
-    "title": NameOID.TITLE,
-    "generationQualifier": NameOID.GENERATION_QUALIFIER,
-    "dnQualifier": NameOID.DN_QUALIFIER,
-    "pseudonym": NameOID.PSEUDONYM,
+    "CN": str(_name_oids.COMMON_NAME),
+    "O": str(_name_oids.ORGANIZATION),
+    "OU": str(_name_oids.ORG_UNIT),
+    "C": str(_name_oids.COUNTRY),
+    "L": str(_name_oids.LOCALITY),
+    "ST": str(_name_oids.STATE),
+    "emailAddress": str(_name_oids.EMAIL_ADDRESS),
+    "EMAILADDRESS": str(_name_oids.EMAIL_ADDRESS),
+    "email": str(_name_oids.EMAIL_ADDRESS),
+    "street": str(_name_oids.STREET),
+    "DC": str(_name_oids.DOMAIN_COMPONENT),
+    "UID": str(_name_oids.USER_ID),
+    "serialNumber": str(_name_oids.SERIAL_NUMBER),
+    "SN": str(_name_oids.SURNAME),
+    "givenName": str(_name_oids.GIVEN_NAME),
+    "title": str(_name_oids.TITLE),
+    "generationQualifier": str(_name_oids.GENERATION_QUALIFIER),
+    "dnQualifier": str(_name_oids.DN_QUALIFIER),
+    "pseudonym": str(_name_oids.PSEUDONYM),
 }
 
+# Standard DN component ordering (most-specific to least-specific)
+_STANDARD_DN_ORDER = ["CN", "OU", "O", "L", "ST", "C", "DC", "UID"]
 
-def cert_name_to_ipa_dn(x509_name: x509.Name, reverse: bool = True) -> DN:
+
+def cert_name_to_ipa_dn(name_der: bytes, reverse: bool = True) -> DN:
     """
-    Convert cryptography x509.Name to IPA DN
+    Convert a DER-encoded X.509 Name to an IPA DN.
 
     Args:
-        x509_name: x509.Name object from a certificate
-        reverse: If True (default), reverse the RDN order.
-                 python-cryptography stores RDNs in least-specific-first order,
-                 but IPA DN expects most-specific-first (standard RFC4514
-                 display order).
+        name_der: DER-encoded subject/issuer name bytes
+                  (e.g. cert.subject_raw_der)
+        reverse: If True (default), reverse the RDN order so the result
+                 is in most-specific-first (RFC 4514 display) order.
 
     Returns:
         IPA DN object
-
-    Example:
-        >>> from cryptography import x509
-        >>> cert = x509.load_pem_x509_certificate(cert_pem)
-        >>> dn = cert_name_to_ipa_dn(cert.subject)
-        >>> str(dn)
-        'CN=Test User,O=EXAMPLE.COM'
     """
+    attrs = synta.parse_name_attrs(name_der)
     components = []
-
-    # python-cryptography's rdns are ordered least-specific to most-specific
-    # (e.g., [O=EXAMPLE.COM, CN=Test User])
-    # IPA DN expects most-specific-first, so we need to reverse
-    rdns = reversed(x509_name.rdns) if reverse else x509_name.rdns
-
-    for rdn in rdns:
-        for attr in rdn:
-            # Map OID to short attribute name
-            attr_name = OID_TO_SHORTNAME.get(attr.oid, attr.oid._name)
-            components.append((attr_name, attr.value))
-
+    for oid_str, value in attrs:
+        attr_name = OID_TO_SHORTNAME.get(oid_str, oid_str)
+        components.append((attr_name, value))
+    if reverse:
+        components = list(reversed(components))
     return DN(*components)
 
 
-def ipa_dn_to_x509_name(dn_string: str) -> x509.Name:
+def ipa_dn_to_name_der(dn_string: str) -> bytes:
     """
-    Convert IPA DN string to cryptography x509.Name
-
-    IMPORTANT: Each NameAttribute must be wrapped in its own RDN
-    (RelativeDistinguishedName).
-    Otherwise python-cryptography will group them all into a single
-    multi-valued RDN.
+    Convert an IPA DN string to a DER-encoded X.509 Name.
 
     Args:
-        dn_string: DN string in IPA/RFC4514 format (e.g.,
-                   "CN=Test,O=EXAMPLE.COM")
+        dn_string: DN string in IPA/RFC 4514 format (e.g. "CN=Test,O=EXAMPLE")
 
     Returns:
-        x509.Name object suitable for certificate creation
-
-    Example:
-        >>> name = ipa_dn_to_x509_name("CN=Test User,O=EXAMPLE.COM")
-        >>> # Can be used in CertificateBuilder:
-        >>> builder = builder.subject_name(name)
+        DER-encoded name bytes suitable for synta CertificateBuilder/CsrBuilder
     """
-    # Parse DN string to IPA DN object
     ipa_dn = DN(dn_string)
-
-    # Build list of RDNs for x509.Name
-    # CRITICAL: Each NameAttribute gets its own RDN wrapper
-    subject_rdns = []
-
-    # IPA DN iterates most-specific-first (e.g., CN, then O)
-    # But x509.Name stores RDNs in reverse order (least-specific-first)
-    # So we need to reverse the IPA DN order when building x509.Name
+    nb = synta.NameBuilder()
+    # IPA DN iterates most-specific-first (CN, then O).
+    # synta.NameBuilder appends in call order and encodes in that order,
+    # so reverse the IPA DN to get least-specific-first (O, then CN) which
+    # produces the correct RFC 5280 encoding.
     for rdn in reversed(list(ipa_dn)):
-        # Map short attribute name to NameOID
-        # Try uppercase version if lowercase not found
-        name_oid = SHORTNAME_TO_OID.get(rdn.attr) or SHORTNAME_TO_OID.get(
-            rdn.attr.upper()
+        attr_upper = rdn.attr.upper()
+        oid_str = SHORTNAME_TO_OID.get(rdn.attr) or SHORTNAME_TO_OID.get(
+            attr_upper
         )
-
-        if name_oid:
-            # Wrap each NameAttribute in its own RDN
-            subject_rdns.append(
-                x509.RelativeDistinguishedName(
-                    [x509.NameAttribute(name_oid, rdn.value)]
-                )
-            )
+        if oid_str:
+            nb = nb.add_attr(oid_str, rdn.value)
         else:
             logger.warning("Unknown DN attribute type: %s, skipping", rdn.attr)
-
-    # x509.Name will store these RDNs in the order we provide them
-    return x509.Name(subject_rdns)
+    return nb.build()
 
 
-def get_subject_dn_str(cert: x509.Certificate) -> str:
+# Keep the old name as an alias so callers can be updated incrementally.
+ipa_dn_to_x509_name = ipa_dn_to_name_der
+
+
+def get_subject_dn_str(cert) -> str:
     """
-    Get certificate subject DN as IPA DN string
+    Return the certificate's subject DN as an IPA DN string.
 
     Args:
-        cert: x509.Certificate object
-
-    Returns:
-        Subject DN string in IPA format (e.g., "CN=Test,O=EXAMPLE.COM")
-
-    Example:
-        >>> from cryptography import x509
-        >>> cert = x509.load_pem_x509_certificate(cert_pem)
-        >>> subject = get_subject_dn_str(cert)
-        'CN=Test User,O=EXAMPLE.COM'
+        cert: synta.Certificate or ipalib.x509.IPACertificate object
     """
-    return str(cert_name_to_ipa_dn(cert.subject))
+    name_der = (
+        cert.subject_raw_der
+        if hasattr(cert, 'subject_raw_der')
+        else cert._synta_cert.subject_raw_der
+    )
+    return str(cert_name_to_ipa_dn(name_der))
 
 
-def get_issuer_dn_str(cert: x509.Certificate) -> str:
+def get_issuer_dn_str(cert) -> str:
+    """Return the certificate's issuer DN as an IPA DN string."""
+    name_der = (
+        cert.issuer_raw_der
+        if hasattr(cert, 'issuer_raw_der')
+        else cert._synta_cert.issuer_raw_der
+    )
+    return str(cert_name_to_ipa_dn(name_der))
+
+
+def get_subject_dn(cert) -> DN:
+    """Return the certificate's subject as an IPA DN object."""
+    name_der = (
+        cert.subject_raw_der
+        if hasattr(cert, 'subject_raw_der')
+        else cert._synta_cert.subject_raw_der
+    )
+    return cert_name_to_ipa_dn(name_der)
+
+
+def get_issuer_dn(cert) -> DN:
+    """Return the certificate's issuer as an IPA DN object."""
+    name_der = (
+        cert.issuer_raw_der
+        if hasattr(cert, 'issuer_raw_der')
+        else cert._synta_cert.issuer_raw_der
+    )
+    return cert_name_to_ipa_dn(name_der)
+
+
+def get_dn_components(name_der: bytes) -> List[Tuple[str, str]]:
     """
-    Get certificate issuer DN as IPA DN string
+    Extract DN components as (attribute_name, value) tuples,
+    most-specific-first.
 
     Args:
-        cert: x509.Certificate object
+        name_der: DER-encoded name bytes
 
     Returns:
-        Issuer DN string in IPA format
-
-    Example:
-        >>> from cryptography import x509
-        >>> cert = x509.load_pem_x509_certificate(cert_pem)
-        >>> issuer = get_issuer_dn_str(cert)
-        'CN=Certificate Authority,O=EXAMPLE.COM'
+        List of (attr_name, value) tuples
     """
-    return str(cert_name_to_ipa_dn(cert.issuer))
-
-
-def get_subject_dn(cert: x509.Certificate) -> DN:
-    """
-    Get certificate subject DN as IPA DN object
-
-    Args:
-        cert: x509.Certificate object
-
-    Returns:
-        IPA DN object
-    """
-    return cert_name_to_ipa_dn(cert.subject)
-
-
-def get_issuer_dn(cert: x509.Certificate) -> DN:
-    """
-    Get certificate issuer DN as IPA DN object
-
-    Args:
-        cert: x509.Certificate object
-
-    Returns:
-        IPA DN object
-    """
-    return cert_name_to_ipa_dn(cert.issuer)
-
-
-def get_dn_components(x509_name: x509.Name) -> List[Tuple[str, str]]:
-    """
-    Extract DN components as list of (attribute, value) tuples
-
-    Args:
-        x509_name: x509.Name object
-
-    Returns:
-        List of (attribute_name, value) tuples in most-specific-first order
-
-    Example:
-        >>> components = get_dn_components(cert.subject)
-        [('CN', 'Test User'), ('O', 'EXAMPLE.COM')]
-    """
+    attrs = synta.parse_name_attrs(name_der)
     components = []
-
-    # Reverse order to get most-specific-first
-    for rdn in reversed(x509_name.rdns):
-        for attr in rdn:
-            attr_name = OID_TO_SHORTNAME.get(attr.oid, attr.oid._name)
-            components.append((attr_name, attr.value))
-
+    for oid_str, value in reversed(attrs):
+        attr_name = OID_TO_SHORTNAME.get(oid_str, oid_str)
+        components.append((attr_name, value))
     return components
 
 
-def get_ca_key_usage_extension() -> x509.KeyUsage:
+def build_name_der(attributes, reverse: bool = False) -> bytes:
     """
-    Get standard CA KeyUsage extension
-
-    This is the standard KeyUsage extension for Certificate Authority
-    certificates, allowing certificate signing, CRL signing, and digital
-    signatures.
-
-    Returns:
-        x509.KeyUsage extension configured for CA certificates
-
-    Example:
-        >>> builder = x509.CertificateBuilder()
-        >>> builder = builder.add_extension(
-        ...     get_ca_key_usage_extension(),
-        ...     critical=True
-        ... )
-    """
-    return x509.KeyUsage(
-        digital_signature=True,
-        key_cert_sign=True,
-        crl_sign=True,
-        key_encipherment=False,
-        data_encipherment=False,
-        key_agreement=False,
-        content_commitment=False,
-        encipher_only=False,
-        decipher_only=False,
-    )
-
-
-def get_service_key_usage_extension() -> x509.KeyUsage:
-    """
-    Get standard service certificate KeyUsage extension
-
-    For service and server certificates (caIPAserviceCert, caServerCert
-    profiles).
-
-    Allows digital signatures and key encipherment.
-
-    Returns:
-        x509.KeyUsage extension configured for service certificates
-
-    Example:
-        >>> builder = builder.add_extension(
-        ...     get_service_key_usage_extension(),
-        ...     critical=True
-        ... )
-    """
-    return x509.KeyUsage(
-        digital_signature=True,
-        key_encipherment=True,
-        key_agreement=False,
-        key_cert_sign=False,
-        crl_sign=False,
-        content_commitment=False,
-        data_encipherment=False,
-        encipher_only=False,
-        decipher_only=False,
-    )
-
-
-def get_ocsp_key_usage_extension() -> x509.KeyUsage:
-    """
-    Get OCSP signing certificate KeyUsage extension
-
-    For OCSP responder certificates (caOCSPCert profile).
-
-    Returns:
-        x509.KeyUsage extension configured for OCSP signing
-
-    Example:
-        >>> builder = builder.add_extension(
-        ...     get_ocsp_key_usage_extension(),
-        ...     critical=True
-        ... )
-    """
-    return x509.KeyUsage(
-        digital_signature=True,
-        key_encipherment=True,
-        data_encipherment=True,
-        key_agreement=False,
-        key_cert_sign=False,
-        crl_sign=False,
-        content_commitment=False,
-        encipher_only=False,
-        decipher_only=False,
-    )
-
-
-def get_subsystem_key_usage_extension() -> x509.KeyUsage:
-    """
-    Get CA subsystem certificate KeyUsage extension
-
-    For CA subsystem certificates (caSubsystemCert profile).
-
-    Returns:
-        x509.KeyUsage extension configured for subsystem certificates
-
-    Example:
-        >>> builder = builder.add_extension(
-        ...     get_subsystem_key_usage_extension(),
-        ...     critical=True
-        ... )
-    """
-    return x509.KeyUsage(
-        digital_signature=True,
-        key_encipherment=True,
-        key_agreement=False,
-        key_cert_sign=False,
-        crl_sign=False,
-        content_commitment=False,
-        data_encipherment=False,
-        encipher_only=False,
-        decipher_only=False,
-    )
-
-
-def get_audit_key_usage_extension() -> x509.KeyUsage:
-    """
-    Get audit signing certificate KeyUsage extension
-
-    For audit log signing certificates (caSignedLogCert profile).
-    Includes content_commitment (non-repudiation) for audit integrity.
-
-    Returns:
-        x509.KeyUsage extension configured for audit signing
-
-    Example:
-        >>> builder = builder.add_extension(
-        ...     get_audit_key_usage_extension(),
-        ...     critical=True
-        ... )
-    """
-    return x509.KeyUsage(
-        digital_signature=True,
-        content_commitment=True,  # Non-repudiation for audit logs
-        key_encipherment=False,
-        data_encipherment=False,
-        key_agreement=False,
-        key_cert_sign=False,
-        crl_sign=False,
-        encipher_only=False,
-        decipher_only=False,
-    )
-
-
-def get_server_extended_key_usage() -> x509.ExtendedKeyUsage:
-    """
-    Get standard server certificate ExtendedKeyUsage extension
-
-    For server and service certificates that need both server and client
-    authentication.
-
-    Returns:
-        x509.ExtendedKeyUsage extension for server certificates
-
-    Example:
-        >>> builder = builder.add_extension(
-        ...     get_server_extended_key_usage(),
-        ...     critical=False
-        ... )
-    """
-    return x509.ExtendedKeyUsage(
-        [ExtendedKeyUsageOID.SERVER_AUTH, ExtendedKeyUsageOID.CLIENT_AUTH]
-    )
-
-
-def get_ocsp_extended_key_usage() -> x509.ExtendedKeyUsage:
-    """
-    Get OCSP signing ExtendedKeyUsage extension
-
-    For OCSP responder certificates.
-
-    Returns:
-        x509.ExtendedKeyUsage extension for OCSP signing
-
-    Example:
-        >>> builder = builder.add_extension(
-        ...     get_ocsp_extended_key_usage(),
-        ...     critical=True
-        ... )
-    """
-    return x509.ExtendedKeyUsage([ExtendedKeyUsageOID.OCSP_SIGNING])
-
-
-def get_subsystem_extended_key_usage() -> x509.ExtendedKeyUsage:
-    """
-    Get CA subsystem ExtendedKeyUsage extension
-
-    For CA subsystem certificates that need client and server authentication.
-
-    Returns:
-        x509.ExtendedKeyUsage extension for subsystem certificates
-
-    Example:
-        >>> builder = builder.add_extension(
-        ...     get_subsystem_extended_key_usage(),
-        ...     critical=True
-        ... )
-    """
-    return x509.ExtendedKeyUsage(
-        [ExtendedKeyUsageOID.CLIENT_AUTH, ExtendedKeyUsageOID.SERVER_AUTH]
-    )
-
-
-def get_pkinit_extended_key_usage() -> x509.ExtendedKeyUsage:
-    """
-    Get PKINIT KDC ExtendedKeyUsage extension
-
-    For Kerberos KDC PKINIT certificates (KDCs_PKINIT_Certs profile).
-
-    Returns:
-        x509.ExtendedKeyUsage extension for PKINIT
-
-    Example:
-        >>> builder = builder.add_extension(
-        ...     get_pkinit_extended_key_usage(),
-        ...     critical=False
-        ... )
-    """
-    return x509.ExtendedKeyUsage(
-        [x509.ObjectIdentifier("1.3.6.1.5.2.3.5")]  # PKINIT KDC
-    )
-
-
-def build_x509_name(attributes, reverse: bool = False) -> x509.Name:
-    """
-    Build x509.Name from attributes with automatic RDN wrapping
-
-    This utility simplifies creating x509.Name objects by handling the proper
-    wrapping of each attribute in its own RDN and managing the ordering
-    complexity.
-
-    IMPORTANT: x509.Name stores RDNs in the order provided, but displays them
-    in reverse order following RFC4514. To get "CN=Test,O=Example" display,
-    you must provide attributes as [('O', 'Example'), ('CN', 'Test')].
+    Build a DER-encoded X.509 Name from a dict or list of (attr, value) tuples.
 
     Args:
-        attributes: Either:
-                   - Dict: {'CN': 'Test', 'O': 'Example'}
-                   - List of tuples: [('CN', 'Test'), ('O', 'Example')]
+        attributes: dict {'CN': 'Test', 'O': 'Example'} or
+                    list of tuples [('CN', 'Test'), ('O', 'Example')]
         reverse: If False (default), attributes are in natural/display order
-                 (most-specific-first: CN, O, C) and will be reversed for x509
-                 internal format.
-                 If True, attributes are already in reverse order
-                 (least-specific-first: C, O, CN) and will be used as-is.
+                 (most-specific-first: CN, O, C) and will be reversed for X.509
+                 internal encoding. If True, already in reverse order.
 
     Returns:
-        x509.Name object suitable for certificate building
-
-    Examples:
-        >>> # Method 1: Provide in natural order (most-specific-first)
-        >>> # - DEFAULT
-        >>> name = build_x509_name([('CN', 'Test'), ('O', 'Example')])
-        >>> # Displays as: "CN=Test,O=Example"
-
-        >>> # Method 2: Provide in reverse order (least-specific-first)
-        >>> name = build_x509_name([('O', 'Example'), ('CN', 'Test')],
-        >>>                        reverse=True)
-        >>> # Displays as: "CN=Test,O=Example"
-
-        >>> # Method 3: Using dict (automatically uses natural order)
-        >>> name = build_x509_name({'CN': 'Test', 'O': 'Example', 'C': 'US'})
-        >>> # Displays as: "CN=Test,O=Example,C=US"
-
-        >>> # Use in certificate builder
-        >>> builder = x509.CertificateBuilder()
-        >>> builder = builder.subject_name(
-        ...     build_x509_name([('CN', 'CA Subsystem'), ('O', 'IPA')])
-        ... )
+        DER-encoded name bytes
     """
-
-    # Standard DN component ordering (most-specific to least-specific)
-    # Always order DN components consistently, regardless of input order
-    STANDARD_DN_ORDER = ["CN", "OU", "O", "L", "ST", "C", "DC", "UID"]
-
-    # Convert to list of tuples if dict
     if isinstance(attributes, dict):
         attr_list = list(attributes.items())
     else:
         attr_list = list(attributes)
 
-    # ALWAYS order components by standard DN order (most-specific-first: CN,
-    # OU, O, L, ST, C)
-    # This ensures consistent DN ordering regardless of input order
+    # Order components consistently: most-specific-first
     ordered_attrs = []
-
-    # First, add attributes in standard order
-    for standard_name in STANDARD_DN_ORDER:
+    for standard_name in _STANDARD_DN_ORDER:
         for attr_name, attr_value in attr_list:
-            # Case-insensitive comparison
             if attr_name.upper() == standard_name.upper():
                 ordered_attrs.append((attr_name, attr_value))
                 break
-
-    # Then add any remaining attributes not in standard order
     for attr_name, attr_value in attr_list:
-        if attr_name.upper() not in STANDARD_DN_ORDER:
+        if attr_name.upper() not in _STANDARD_DN_ORDER:
             ordered_attrs.append((attr_name, attr_value))
 
-    # Now reverse to get x509 internal format (least-specific-first)
-    # because x509.Name displays in reverse order from how RDNs are provided
-    # To get "CN=Test,O=Example" display, we provide [O, CN] to x509.Name
-    # The reverse parameter allows overriding this behavior if needed
+    # synta.NameBuilder encodes in call order; to produce the correct
+    # least-specific-first DER encoding, pass attrs in reverse display order
     if reverse:
-        attributes = list(reversed(ordered_attrs))
+        to_encode = list(reversed(ordered_attrs))
     else:
-        attributes = ordered_attrs
+        to_encode = ordered_attrs
 
-    # Build RDNs with proper wrapping
-    # Each NameAttribute must be wrapped in its own RDN to avoid
-    # creating a single multi-valued RDN
-    rdns = []
-    for attr_name, attr_value in attributes:
-        # Map attribute name to NameOID
-        name_oid = SHORTNAME_TO_OID.get(attr_name)
-
-        if not name_oid:
-            # Try uppercase version
-            name_oid = SHORTNAME_TO_OID.get(attr_name.upper())
-
-        if name_oid:
-            # Wrap each NameAttribute in its own RDN
-            rdns.append(
-                x509.RelativeDistinguishedName(
-                    [x509.NameAttribute(name_oid, attr_value)]
-                )
-            )
+    nb = synta.NameBuilder()
+    for attr_name, attr_value in to_encode:
+        oid_str = SHORTNAME_TO_OID.get(attr_name) or SHORTNAME_TO_OID.get(
+            attr_name.upper()
+        )
+        if oid_str:
+            nb = nb.add_attr(oid_str, attr_value)
         else:
-            logger.warning(
-                "Unknown DN attribute type: %s, skipping", attr_name
-            )
-
-    return x509.Name(rdns)
+            logger.warning("Unknown DN attribute: %s, skipping", attr_name)
+    return nb.build()
 
 
-def load_certificate_from_ldap_data(cert_data) -> x509.Certificate:
+# Keep old name as alias.
+build_x509_name = build_name_der
+
+
+def load_certificate_from_ldap_data(cert_data) -> synta.Certificate:
     """
-    Load certificate from LDAP entry data (handles multiple formats)
-
-    This utility eliminates code duplication in LDAP storage backends
-    by handling all common certificate data formats from LDAP:
-    - Raw bytes (DER or PEM encoded)
-    - String (needs encoding)
-    - IPACertificate objects (already parsed)
+    Load a certificate from LDAP entry data (handles multiple formats).
 
     Args:
-        cert_data: Certificate data from LDAP entry
-                  (bytes, str, or IPACertificate object)
+        cert_data: Certificate data from LDAP (bytes, str, or synta.Certificate)
 
     Returns:
-        x509.Certificate object
+        synta.Certificate object
 
     Raises:
-        ValueError: If certificate data format is unsupported
-
-    Example:
-        >>> entry = ldap.get_entry(cert_dn)
-        >>> cert_data = entry['userCertificate'][0]
-        >>> certificate = load_certificate_from_ldap_data(cert_data)
+        ValueError: If the certificate data cannot be decoded
     """
-
-    # Handle different certificate formats
-    # IPA LDAP may return IPACertificate objects, strings, or bytes
-    if hasattr(cert_data, "public_bytes"):
-        # It's already an IPACertificate/X509Certificate object
+    if isinstance(cert_data, synta.Certificate):
         return cert_data
-    elif isinstance(cert_data, str):
-        # It's a string, encode to bytes and try both formats
-        cert_bytes = cert_data.encode("latin-1")
+    # Accept IPACertificate (has _synta_cert attribute)
+    if hasattr(cert_data, '_synta_cert'):
+        return cert_data._synta_cert
+    # Accept objects that expose public_bytes (legacy IPACertificate)
+    if hasattr(cert_data, 'public_bytes'):
+        from ipalib.x509 import IPACertificate
+        if isinstance(cert_data, IPACertificate):
+            return cert_data._synta_cert
+        cert_bytes = cert_data.public_bytes('DER')
+        return synta.Certificate.from_der(cert_bytes)
+
+    if isinstance(cert_data, str):
+        cert_bytes = cert_data.encode('latin-1')
     else:
-        # It's raw bytes
         cert_bytes = cert_data
 
-    # Try DER format first (most common in LDAP)
     try:
-        return x509.load_der_x509_certificate(cert_bytes)
+        return synta.Certificate.from_der(cert_bytes)
     except Exception as der_error:
         logger.debug(
             "DER certificate loading failed, trying PEM: %s", der_error
         )
-        # Fall back to PEM format
         try:
-            return x509.load_pem_x509_certificate(cert_bytes)
+            return synta.Certificate.from_pem(cert_bytes)
         except Exception as e:
             raise ValueError(f"Could not load certificate from LDAP data: {e}")
 
 
 def decode_ldap_attribute(value, expected_type: type = str):
-    """
-    Decode LDAP attribute value to expected Python type
-
-    LDAP attributes may be returned as bytes or strings depending on the
-    LDAP library version and configuration. This utility handles both cases.
-
-    Args:
-        value: LDAP attribute value (bytes, str, or other)
-        expected_type: Expected Python type (default: str)
-
-    Returns:
-        Decoded value in expected type
-
-    Example:
-        >>> profile = decode_ldap_attribute(entry['certProfile'][0])
-        'caIPAserviceCert'
-        >>> serial = decode_ldap_attribute(entry['serialNumber'][0], int)
-        12345
-    """
+    """Decode LDAP attribute value to the expected Python type."""
     if value is None:
         return None
-
-    # Handle bytes -> str conversion
     if isinstance(value, bytes) and expected_type == str:
-        return value.decode("utf-8")
-
-    # Handle str -> int conversion
+        return value.decode('utf-8')
     if isinstance(value, (str, bytes)) and expected_type == int:
         if isinstance(value, bytes):
-            value = value.decode("utf-8")
+            value = value.decode('utf-8')
         return int(value)
-
-    # Handle str -> bool conversion
     if isinstance(value, (str, bytes)) and expected_type == bool:
         if isinstance(value, bytes):
-            value = value.decode("utf-8")
-        return value.upper() in ("TRUE", "1", "YES")
-
-    # Already correct type or pass through
+            value = value.decode('utf-8')
+        return value.upper() in ('TRUE', '1', 'YES')
     return value
 
 
-def parse_signature_algorithm(algorithm_string: str):
+def parse_signature_algorithm(algorithm_string: str) -> str:
     """
-    Parse Dogtag algorithm string to hash algorithm
-
-    Converts Dogtag-style signature algorithm strings (e.g., "SHA256withRSA")
-    to cryptography hash algorithm objects.
+    Parse a Dogtag-style algorithm string to a synta hash algorithm name.
 
     Args:
-        algorithm_string: Dogtag algorithm string like "SHA256withRSA",
-                         "SHA384withEC", etc.
+        algorithm_string: e.g. "SHA256withRSA", "SHA384withEC", "ML-DSA-65"
 
     Returns:
-        Hash algorithm object from cryptography.hazmat.primitives.hashes
-
-    Raises:
-        ValueError: If algorithm string is not recognized
-
-    Example:
-        >>> hash_alg = parse_signature_algorithm("SHA256withRSA")
-        >>> # Use for signing:
-        >>> cert = builder.sign(private_key, hash_alg)
+        Hash algorithm name string suitable for synta (e.g. "sha256"),
+        or None for algorithms that do not use a pre-hash (ML-DSA).
     """
-    from cryptography.hazmat.primitives import hashes
-
-    # Map algorithm strings to hash objects
     alg_upper = algorithm_string.upper()
-
-    if "SHA1" in alg_upper:
-        return hashes.SHA1()
-    elif "SHA256" in alg_upper:
-        return hashes.SHA256()
-    elif "SHA384" in alg_upper:
-        return hashes.SHA384()
-    elif "SHA512" in alg_upper:
-        return hashes.SHA512()
-    elif "MD5" in alg_upper:
-        return hashes.MD5()
-    elif "MD2" in alg_upper:
-        # MD2 is not supported by cryptography, use MD5 as fallback
-        logger.warning("MD2 not supported, using MD5")
-        return hashes.MD5()
-    else:
-        raise ValueError(f"Unknown signature algorithm: {algorithm_string}")
+    if 'ML-DSA' in alg_upper or 'MLDSA' in alg_upper:
+        return None  # ML-DSA uses no pre-hash
+    if 'SHA512' in alg_upper:
+        return 'sha512'
+    if 'SHA384' in alg_upper:
+        return 'sha384'
+    if 'SHA256' in alg_upper:
+        return 'sha256'
+    if 'SHA1' in alg_upper:
+        return 'sha1'
+    if 'MD5' in alg_upper or 'MD2' in alg_upper:
+        return 'md5'
+    raise ValueError(f"Unknown signature algorithm: {algorithm_string}")
 
 
 def get_default_algorithm_for_key(public_key) -> str:
     """
-    Infer appropriate signature algorithm from public key type
+    Infer the appropriate Dogtag-style algorithm string for a synta PublicKey.
 
     Args:
-        public_key: Public key object from CSR or certificate
+        public_key: synta.PublicKey object
 
     Returns:
-        Dogtag-style algorithm string (e.g., "SHA256withRSA")
-
-    Example:
-        >>> from cryptography.hazmat.primitives.asymmetric import rsa
-        >>> public_key = csr.public_key()
-        >>> algorithm = get_default_algorithm_for_key(public_key)
-        'SHA256withRSA'
+        Dogtag-style algorithm string (e.g. "SHA256withRSA")
     """
-    from cryptography.hazmat.primitives.asymmetric import rsa, ec, dsa
+    key_type = getattr(public_key, 'key_type', 'rsa')
+    if key_type == 'rsa':
+        return 'SHA256withRSA'
+    if key_type == 'ec':
+        return 'SHA256withEC'
+    if key_type in ('mldsa', 'ml-dsa'):
+        # ML-DSA level depends on key_size / parameter set
+        size = getattr(public_key, 'key_size', 65)
+        return f'ML-DSA-{size}'
+    logger.warning(
+        "Unknown key type %s, defaulting to SHA256withRSA", key_type
+    )
+    return 'SHA256withRSA'
 
-    if isinstance(public_key, rsa.RSAPublicKey):
-        return "SHA256withRSA"
-    elif isinstance(public_key, ec.EllipticCurvePublicKey):
-        return "SHA256withEC"
-    elif isinstance(public_key, dsa.DSAPublicKey):
-        return "SHA256withDSA"
-    else:
-        logger.warning(
-            "Unknown key type %s, using SHA256withRSA",
-            type(public_key).__name__,
-        )
-        return "SHA256withRSA"
 
-
-def get_certificate_signature_algorithm(certificate: x509.Certificate) -> str:
+def get_certificate_signature_algorithm(certificate) -> str:
     """
-    Extract the signature algorithm from an existing certificate
-
-    Determines the Dogtag-style algorithm string that was used to sign
-    a certificate, which should be used for signing related objects like
-    CRLs and OCSP responses.
+    Return the Dogtag-style algorithm string that was used to sign a cert.
 
     Args:
-        certificate: X.509 certificate object
+        certificate: synta.Certificate or ipalib.x509.IPACertificate
 
     Returns:
-        Dogtag-style algorithm string (e.g., "SHA256withRSA")
-
-    Example:
-        >>> algorithm = get_certificate_signature_algorithm(ca_cert)
-        'SHA256withRSA'
-        >>> # Use same algorithm for CRL signing
-        >>> hash_alg = parse_signature_algorithm(algorithm)
+        Dogtag-style algorithm string (e.g. "SHA256withRSA")
     """
-    from cryptography.hazmat.primitives import hashes
-    from cryptography.hazmat.primitives.asymmetric import rsa, ec, dsa
+    synta_cert = (
+        certificate._synta_cert
+        if hasattr(certificate, '_synta_cert')
+        else certificate
+    )
+    alg_name = synta_cert.signature_hash_algorithm_name
+    sig_oid = str(synta_cert.signature_algorithm_oid)
 
-    # Get hash algorithm from certificate
-    hash_alg = certificate.signature_hash_algorithm
+    # ML-DSA OIDs: 2.16.840.1.101.3.4.3.17/18/19 → ML-DSA-44/65/87
+    _MLDSA_OIDS = {
+        '2.16.840.1.101.3.4.3.17': 'ML-DSA-44',
+        '2.16.840.1.101.3.4.3.18': 'ML-DSA-65',
+        '2.16.840.1.101.3.4.3.19': 'ML-DSA-87',
+    }
+    if sig_oid in _MLDSA_OIDS:
+        return _MLDSA_OIDS[sig_oid]
 
-    # Get public key to determine key type
-    public_key = certificate.public_key()
+    if alg_name is None:
+        alg_name = 'sha256'
 
-    # Map hash algorithm to string
-    if isinstance(hash_alg, hashes.SHA1):
-        hash_str = "SHA1"
-    elif isinstance(hash_alg, hashes.SHA256):
-        hash_str = "SHA256"
-    elif isinstance(hash_alg, hashes.SHA384):
-        hash_str = "SHA384"
-    elif isinstance(hash_alg, hashes.SHA512):
-        hash_str = "SHA512"
-    elif isinstance(hash_alg, hashes.MD5):
-        hash_str = "MD5"
-    else:
-        logger.warning(
-            "Unknown hash algorithm %s, using SHA256", type(hash_alg).__name__
-        )
-        hash_str = "SHA256"
+    # Determine key type from the public key
+    try:
+        spki_der = synta_cert.subject_public_key_info_der
+        pk = synta.PublicKey.from_der(spki_der)
+        key_type = pk.key_type
+    except Exception:
+        key_type = 'rsa'
 
-    # Determine key type
-    if isinstance(public_key, rsa.RSAPublicKey):
-        key_str = "RSA"
-    elif isinstance(public_key, ec.EllipticCurvePublicKey):
-        key_str = "EC"
-    elif isinstance(public_key, dsa.DSAPublicKey):
-        key_str = "DSA"
-    else:
-        logger.warning(
-            "Unknown key type %s, using RSA", type(public_key).__name__
-        )
-        key_str = "RSA"
+    hash_str = alg_name.upper().replace('-', '')
+    if key_type == 'rsa':
+        return f'{hash_str}withRSA'
+    if key_type == 'ec':
+        return f'{hash_str}withEC'
+    logger.warning("Unknown key type %s, using RSA", key_type)
+    return f'{hash_str}withRSA'
 
-    return f"{hash_str}with{key_str}"
+
+# ---------------------------------------------------------------------------
+# Extension builder helpers
+# Each returns (oid_str, der_bytes) so callers can do:
+#   oid, ext_der = get_ca_key_usage_extension()
+#   builder = builder.add_extension(oid, True, ext_der)
+# ---------------------------------------------------------------------------
+
+def get_ca_key_usage_extension() -> Tuple[str, bytes]:
+    """Return (oid, DER) for CA certificate KeyUsage."""
+    bits = (
+        synta.ext.KU_DIGITAL_SIGNATURE
+        | synta.ext.KU_KEY_CERT_SIGN
+        | synta.ext.KU_CRL_SIGN
+    )
+    return str(synta.oids.KEY_USAGE), synta.ext.key_usage(bits)
+
+
+def get_service_key_usage_extension() -> Tuple[str, bytes]:
+    """Return (oid, DER) for service/server certificate KeyUsage."""
+    bits = synta.ext.KU_DIGITAL_SIGNATURE | synta.ext.KU_KEY_ENCIPHERMENT
+    return str(synta.oids.KEY_USAGE), synta.ext.key_usage(bits)
+
+
+def get_ocsp_key_usage_extension() -> Tuple[str, bytes]:
+    """Return (oid, DER) for OCSP signing certificate KeyUsage."""
+    bits = (
+        synta.ext.KU_DIGITAL_SIGNATURE
+        | synta.ext.KU_KEY_ENCIPHERMENT
+        | synta.ext.KU_DATA_ENCIPHERMENT
+    )
+    return str(synta.oids.KEY_USAGE), synta.ext.key_usage(bits)
+
+
+def get_subsystem_key_usage_extension() -> Tuple[str, bytes]:
+    """Return (oid, DER) for CA subsystem certificate KeyUsage."""
+    bits = synta.ext.KU_DIGITAL_SIGNATURE | synta.ext.KU_KEY_ENCIPHERMENT
+    return str(synta.oids.KEY_USAGE), synta.ext.key_usage(bits)
+
+
+def get_audit_key_usage_extension() -> Tuple[str, bytes]:
+    """Return (oid, DER) for audit signing certificate KeyUsage."""
+    bits = synta.ext.KU_DIGITAL_SIGNATURE | synta.ext.KU_NON_REPUDIATION
+    return str(synta.oids.KEY_USAGE), synta.ext.key_usage(bits)
+
+
+def get_server_extended_key_usage() -> Tuple[str, bytes]:
+    """Return (oid, DER) for server/service certificate ExtendedKeyUsage."""
+    der = (
+        synta.ext.ExtendedKeyUsageBuilder()
+        .server_auth()
+        .client_auth()
+        .build()
+    )
+    return str(synta.oids.EXTENDED_KEY_USAGE), der
+
+
+def get_ocsp_extended_key_usage() -> Tuple[str, bytes]:
+    """Return (oid, DER) for OCSP signing ExtendedKeyUsage."""
+    der = synta.ext.ExtendedKeyUsageBuilder().ocsp_signing().build()
+    return str(synta.oids.EXTENDED_KEY_USAGE), der
+
+
+def get_subsystem_extended_key_usage() -> Tuple[str, bytes]:
+    """Return (oid, DER) for CA subsystem ExtendedKeyUsage."""
+    der = (
+        synta.ext.ExtendedKeyUsageBuilder()
+        .client_auth()
+        .server_auth()
+        .build()
+    )
+    return str(synta.oids.EXTENDED_KEY_USAGE), der
+
+
+def get_pkinit_extended_key_usage() -> Tuple[str, bytes]:
+    """Return (oid, DER) for PKINIT KDC ExtendedKeyUsage."""
+    der = (
+        synta.ext.ExtendedKeyUsageBuilder()
+        .add_oid([1, 3, 6, 1, 5, 2, 3, 5])  # id-pkinit-KPKdc
+        .build()
+    )
+    return str(synta.oids.EXTENDED_KEY_USAGE), der
