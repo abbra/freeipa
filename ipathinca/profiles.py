@@ -641,7 +641,10 @@ class ProfileManager:
         return self.get_profile(actual_profile_id)
 
     def get_extensions_for_profile(self, profile_id: str):
-        """Get certificate extensions from profile as (oid_str, critical, der) tuples.
+        """Get certificate extensions from profile.
+
+        Returns (oid_str, critical, der_bytes) tuples for each extension
+        defined in the named profile's policy chain.
 
         Args:
             profile_id: Profile identifier
@@ -685,7 +688,8 @@ class ProfileManager:
                 )
 
             # ExtendedKeyUsage — from ExtendedKeyUsageExtDefault
-            elif isinstance(default, ExtendedKeyUsageExtDefault) and default.oids:
+            elif isinstance(default, ExtendedKeyUsageExtDefault) \
+                    and default.oids:
                 eku_builder = synta.ext.ExtendedKeyUsageBuilder()
                 for oid_str in default.oids:
                     eku_builder = eku_builder.add_oid(
