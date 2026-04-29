@@ -11,7 +11,8 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Dict
 from abc import ABC, abstractmethod
 
-from cryptography.x509.oid import NameOID
+import synta
+import synta.oids.attr as _name_oids
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ class Constraint(ABC):
         """Validate CSR against constraint
 
         Args:
-            csr: cryptography CSR object
+            csr: CSR object
             context: Request context dictionary
 
         Returns:
@@ -65,8 +66,8 @@ class Default(ABC):
         """Apply default to certificate builder
 
         Args:
-            builder: x509.CertificateBuilder
-            csr: cryptography CSR object
+            builder: Certificate builder
+            csr: CSR object
             context: Request context dictionary
 
         Returns:
@@ -171,14 +172,12 @@ class Profile:
         and then validates constraints against the constructed values.
 
         Args:
-            csr: cryptography CSR object
+            csr: CSR object
             context: Request context dictionary
 
         Returns:
             List of validation error messages (empty if valid)
         """
-        from cryptography import x509
-
         errors = []
 
         # Create a dummy certificate builder to simulate policy chain
@@ -186,7 +185,7 @@ class Profile:
         # (like final_subject_dn) that constraints can validate
         # NOTE: Don't pre-populate fields that defaults will set,
         # as builders only allow each field to be set once
-        builder = x509.CertificateBuilder()
+        builder = synta.CertificateBuilder()
         builder = builder.serial_number(1)  # Dummy serial (required)
         # Issuer will be set by defaults if needed
         # Subject, validity, public key will be set by defaults
@@ -231,23 +230,26 @@ def extract_request_variable(text: str, csr, context: dict) -> str:
         attr = match.group(1).upper()
 
         oid_map = {
-            "CN": NameOID.COMMON_NAME,
-            "O": NameOID.ORGANIZATION_NAME,
-            "OU": NameOID.ORGANIZATIONAL_UNIT_NAME,
-            "C": NameOID.COUNTRY_NAME,
-            "ST": NameOID.STATE_OR_PROVINCE_NAME,
-            "L": NameOID.LOCALITY_NAME,
+            "CN": str(_name_oids.COMMON_NAME),
+            "O": str(_name_oids.ORGANIZATION),
+            "OU": str(_name_oids.ORG_UNIT),
+            "C": str(_name_oids.COUNTRY),
+            "ST": str(_name_oids.STATE),
+            "L": str(_name_oids.LOCALITY),
         }
 
-        oid = oid_map.get(attr)
-        if not oid:
+        oid_str = oid_map.get(attr)
+        if not oid_str:
             logger.warning("Unknown subject attribute: %s", attr)
             return match.group(0)
 
         try:
-            attrs = csr.subject.get_attributes_for_oid(oid)
-            if attrs:
-                return attrs[0].value
+            # Parse CSR subject using synta
+            name_der = csr.subject_raw_der
+            attrs_map = dict(synta.parse_name_attrs(name_der))
+            value = attrs_map.get(oid_str)
+            if value:
+                return value
         except Exception as e:
             logger.warning("Failed to extract %s: %s", attr, e)
 
