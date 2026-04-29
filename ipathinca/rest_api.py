@@ -21,15 +21,8 @@ from xml.sax.saxutils import escape as xml_escape
 
 from flask import Flask, request, Response, make_response, jsonify
 
-from cryptography import x509
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives import padding as sym_padding
-from cryptography.hazmat.primitives.serialization import pkcs7
-from cryptography.hazmat.primitives.ciphers import (
-    Cipher,
-    algorithms,
-    modes,
-)
+import synta
+import synta.crypto as _scrypto
 
 import ipathinca
 from ipathinca.backend import get_python_ca_backend
@@ -79,6 +72,65 @@ logger = logging.getLogger(__name__)
 # Create Flask application
 app = Flask(__name__)
 app.config["JSON_SORT_KEYS"] = False
+
+
+# ---------------------------------------------------------------------------
+# PKCS#7 degenerate SignedData (certificate-chain-only) helper
+# ---------------------------------------------------------------------------
+
+def _encode_length(n: int) -> bytes:
+    """Encode a DER length field."""
+    if n < 0x80:
+        return bytes([n])
+    elif n < 0x100:
+        return bytes([0x81, n])
+    elif n < 0x10000:
+        return bytes([0x82, n >> 8, n & 0xFF])
+    else:
+        raise ValueError(f"Length too large for DER encoding: {n}")
+
+
+def _build_pkcs7_chain_pem(certs) -> bytes:
+    """
+    Serialize a list of synta.Certificate objects as a PKCS#7 degenerate
+    SignedData PEM block (-----BEGIN PKCS7-----).
+
+    This matches the output of pkcs7.serialize_certificates(..., PEM).
+    """
+    # Concatenate DER encodings of all certs
+    certs_der = b"".join(c.to_der() for c in certs)
+    # [0] IMPLICIT certificates
+    certs_tagged = b"\xa0" + _encode_length(len(certs_der)) + certs_der
+    # Empty SET for digestAlgorithms
+    empty_set = b"\x31\x00"
+    # EncapContentInfo: SEQUENCE { OID id-data }
+    oid_data = b"\x06\x09\x2a\x86\x48\x86\xf7\x0d\x01\x07\x01"
+    encap = b"\x30" + _encode_length(len(oid_data)) + oid_data
+    # Version INTEGER 1
+    version = b"\x02\x01\x01"
+    # Empty SET for signerInfos
+    empty_signers = b"\x31\x00"
+    # SignedData SEQUENCE
+    sd_content = version + empty_set + encap + certs_tagged + empty_signers
+    signed_data = b"\x30" + _encode_length(len(sd_content)) + sd_content
+    # [0] EXPLICIT wrapper
+    explicit_0 = b"\xa0" + _encode_length(len(signed_data)) + signed_data
+    # id-signedData OID
+    oid_sd = b"\x06\x09\x2a\x86\x48\x86\xf7\x0d\x01\x07\x02"
+    # ContentInfo SEQUENCE
+    ci_body = oid_sd + explicit_0
+    pkcs7_der = b"\x30" + _encode_length(len(ci_body)) + ci_body
+    # PEM-encode
+    b64 = base64.b64encode(pkcs7_der).decode("ascii")
+    lines = [b64[i: i + 64] for i in range(0, len(b64), 64)]
+    return (
+        "-----BEGIN PKCS7-----\n"
+        + "\n".join(lines)
+        + "\n-----END PKCS7-----\n"
+    ).encode("ascii")
+
+
+# ---------------------------------------------------------------------------
 
 # Global CA backend instance
 ca_backend = None
@@ -154,7 +206,7 @@ def init_kra():
             try:
                 logger.debug("Loading CA cert from %s", paths.IPA_CA_CRT)
                 with open(paths.IPA_CA_CRT, "rb") as f:
-                    ca_cert = x509.load_pem_x509_certificate(f.read())
+                    ca_cert = synta.Certificate.from_pem(f.read())
 
                 # Extract CA key from NSSDB (consistent with ca.py)
                 logger.debug(
@@ -2270,16 +2322,14 @@ def get_ocsp_cert():
             )
 
         cert = responder.ocsp_cert
-        cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode(
-            "ascii"
-        )
+        cert_pem = synta.Certificate.to_pem(cert).decode("ascii")
 
         return success_response(
             {
                 "ca_id": ca_id,
                 "serial_number": cert.serial_number,
-                "not_before": cert.not_valid_before_utc.isoformat(),
-                "not_after": cert.not_valid_after_utc.isoformat(),
+                "not_before": cert.not_before_utc.isoformat(),
+                "not_after": cert.not_after_utc.isoformat(),
                 "enabled": True,
                 "certificate": cert_pem,
                 "cache_timeout": responder.cache_timeout,
@@ -2318,8 +2368,8 @@ def renew_ocsp_cert():
         }
         if cert is not None:
             result["serial_number"] = cert.serial_number
-            result["not_before"] = cert.not_valid_before_utc.isoformat()
-            result["not_after"] = cert.not_valid_after_utc.isoformat()
+            result["not_before"] = cert.not_before_utc.isoformat()
+            result["not_after"] = cert.not_after_utc.isoformat()
 
         return success_response(result)
 
@@ -2342,7 +2392,7 @@ def list_ocsp_responders():
             if responder.ocsp_cert is not None:
                 cert = responder.ocsp_cert
                 entry["serial_number"] = cert.serial_number
-                entry["not_after"] = cert.not_valid_after_utc.isoformat()
+                entry["not_after"] = cert.not_after_utc.isoformat()
             responders.append(entry)
 
         return success_response(
@@ -2499,8 +2549,8 @@ def get_authority(authority_id):
                 "description": "IPA CA",
                 "enabled": True,
                 "serial": str(ca_cert.serial_number),
-                "notBefore": ca_cert.not_valid_before_utc.isoformat(),
-                "notAfter": ca_cert.not_valid_after_utc.isoformat(),
+                "notBefore": ca_cert.not_before_utc.isoformat(),
+                "notAfter": ca_cert.not_after_utc.isoformat(),
             }
             return success_response(authority_info)
 
@@ -2513,9 +2563,11 @@ def get_authority(authority_id):
                 "CANotFound", f"Authority {authority_id} not found", 404
             )
 
-        # Convert issuer DN to string (if parent exists, use RFC4514 format)
+        # Convert issuer DN to string (if parent exists, use DN string)
         if subca.parent_ca and subca.parent_ca.ca_cert:
-            issuer_dn = subca.parent_ca.ca_cert.subject.rfc4514_string()
+            issuer_dn = x509_utils.get_subject_dn_str(
+                subca.parent_ca.ca_cert
+            )
         else:
             issuer_dn = str(subca.subject_dn)
 
@@ -2528,12 +2580,12 @@ def get_authority(authority_id):
         }
 
         if subca.ca_cert:
-            not_before = subca.ca_cert.not_valid_before_utc.isoformat()
+            not_before = subca.ca_cert.not_before_utc.isoformat()
             authority_info.update(
                 {
                     "serial": str(subca.ca_cert.serial_number),
                     "notBefore": not_before,
-                    "notAfter": subca.ca_cert.not_valid_after_utc.isoformat(),
+                    "notAfter": subca.ca_cert.not_after_utc.isoformat(),
                 }
             )
 
@@ -2614,14 +2666,13 @@ def create_authority():
             validity_days=3650,
         )
 
-        # Convert issuer DN from cryptography Name to string
+        # Convert issuer DN to string using synta utilities
         if subca.parent_ca and subca.parent_ca.ca_cert:
             issuer_cert = subca.parent_ca.ca_cert
         else:
             issuer_cert = ca_backend.ca.ca_cert
 
-        # Convert cryptography Name to RFC4514 DN string
-        issuer_dn = issuer_cert.subject.rfc4514_string()
+        issuer_dn = x509_utils.get_subject_dn_str(issuer_cert)
 
         # Return created authority info
         authority_info = {
@@ -2677,9 +2728,7 @@ def get_authority_cert(authority_id):
                 ca_backend.ca._ensure_ca_loaded()
 
                 ca_cert = ca_backend.ca.ca_cert
-                cert_pem = ca_cert.public_bytes(
-                    serialization.Encoding.PEM
-                ).decode("utf-8")
+                cert_pem = synta.Certificate.to_pem(ca_cert).decode("utf-8")
                 return Response(cert_pem, mimetype="application/pkix-cert")
             except Exception as e:
                 logger.error(
@@ -2732,8 +2781,8 @@ def get_authority_cert(authority_id):
                 logger.debug(
                     "Returning sub-CA certificate for %s", authority_id
                 )
-                cert_pem = subca.ca_cert.public_bytes(
-                    serialization.Encoding.PEM
+                cert_pem = synta.Certificate.to_pem(
+                    subca.ca_cert
                 ).decode("utf-8")
                 return Response(cert_pem, mimetype="application/pkix-cert")
             except Exception as e:
@@ -2758,9 +2807,7 @@ def get_authority_cert(authority_id):
             ca_backend.ca._ensure_ca_loaded()
 
             ca_cert = ca_backend.ca.ca_cert
-            cert_pem = ca_cert.public_bytes(serialization.Encoding.PEM).decode(
-                "utf-8"
-            )
+            cert_pem = synta.Certificate.to_pem(ca_cert).decode("utf-8")
             return Response(cert_pem, mimetype="application/pkix-cert")
         except Exception as e:
             logger.error("Failed to get main CA cert: %s", e, exc_info=True)
@@ -2830,10 +2877,8 @@ def get_authority_chain(authority_id):
                 chain_certs = [ca_backend.ca.ca_cert]
 
         # Serialize as PKCS#7 in PEM format (Dogtag compatibility)
-        # The IPA plugin expects PEM format with ----BEGIN PKCS7---- headers
-        pkcs7_pem = pkcs7.serialize_certificates(
-            chain_certs, encoding=serialization.Encoding.PEM
-        )
+        # The IPA plugin expects PEM format with -----BEGIN PKCS7----- headers
+        pkcs7_pem = _build_pkcs7_chain_pem(chain_certs)
 
         # Return as text/plain (PEM format)
         return Response(pkcs7_pem, mimetype="text/plain")
@@ -3482,14 +3527,9 @@ def submit_key_request():
                             400,
                         )
 
-                    # Decrypt using AES-CBC
-                    cipher = Cipher(
-                        algorithms.AES(session_key),
-                        modes.CBC(iv),
-                    )
-                    decryptor = cipher.decryptor()
-                    plaintext_padded = (
-                        decryptor.update(wrapped_data) + decryptor.finalize()
+                    # Decrypt using AES-CBC (unpad=False → manual validation)
+                    plaintext_padded = _scrypto.aes_cbc_decrypt(
+                        session_key, iv, wrapped_data, unpad=False
                     )
 
                     # Remove and validate PKCS7 padding
@@ -4058,18 +4098,9 @@ def retrieve_key():
             # Generate random IV
             iv = secrets.token_bytes(16)
 
-            # Add PKCS7 padding to the secret
-            padder = sym_padding.PKCS7(128).padder()
-            padded_secret = padder.update(secret) + padder.finalize()
-
-            # Encrypt with AES-CBC
-            cipher = Cipher(
-                algorithms.AES(session_key),
-                modes.CBC(iv),
-            )
-            encryptor = cipher.encryptor()
-            wrapped_secret = (
-                encryptor.update(padded_secret) + encryptor.finalize()
+            # Encrypt with AES-CBC (pad=True applies PKCS7 padding)
+            wrapped_secret = _scrypto.aes_cbc_encrypt(
+                session_key, iv, secret, pad=True
             )
 
             # Encode both IV and wrapped secret
