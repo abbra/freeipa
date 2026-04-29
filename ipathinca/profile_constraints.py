@@ -9,7 +9,6 @@ import re
 import logging
 from typing import List, Dict, Any
 
-from cryptography.hazmat.primitives.asymmetric import rsa, ec, dsa
 import ipathinca
 
 from ipathinca.profile import Constraint
@@ -149,14 +148,15 @@ class KeyConstraint(Constraint):
 
     def validate(self, csr, context: dict) -> List[str]:
         """Validate key type and size"""
+        import synta
         errors = []
-        public_key = csr.public_key()
+        public_key = synta.PublicKey.from_der(csr.subject_public_key_info_der)
 
         # Check key type
         if self.key_type == "RSA":
-            if not isinstance(public_key, rsa.RSAPublicKey):
+            if public_key.key_type != 'rsa':
                 errors.append(
-                    f"Key type must be RSA, not {type(public_key).__name__}"
+                    f"Key type must be RSA, not {public_key.key_type}"
                 )
             else:
                 key_size = public_key.key_size
@@ -193,21 +193,23 @@ class KeyConstraint(Constraint):
                 allowed_exponents = [
                     int(e.strip()) for e in allowed_exponents_str.split(",")
                 ]
-                public_numbers = public_key.public_numbers()
-                if public_numbers.e not in allowed_exponents:
+                exponent = int.from_bytes(
+                    public_key.public_exponent, 'big'
+                )
+                if exponent not in allowed_exponents:
                     errors.append(
-                        f"RSA exponent {public_numbers.e} not allowed. "
+                        f"RSA exponent {exponent} not allowed. "
                         f"Allowed exponents: {allowed_exponents}"
                     )
 
         elif self.key_type == "EC":
-            if not isinstance(public_key, ec.EllipticCurvePublicKey):
+            if public_key.key_type != 'ec':
                 errors.append(
-                    f"Key type must be EC, not {type(public_key).__name__}"
+                    f"Key type must be EC, not {public_key.key_type}"
                 )
             elif self.key_parameters:
-                # Check curve (more complex, simplified here)
-                curve_name = public_key.curve.name
+                # Check curve name (synta returns "P-256", "P-384", "P-521")
+                curve_name = public_key.curve_name
                 if curve_name not in self.key_parameters:
                     errors.append(
                         f"EC curve {curve_name} not allowed. "
@@ -215,9 +217,9 @@ class KeyConstraint(Constraint):
                     )
 
         elif self.key_type == "DSA":
-            if not isinstance(public_key, dsa.DSAPublicKey):
+            if public_key.key_type != 'dsa':
                 errors.append(
-                    f"Key type must be DSA, not {type(public_key).__name__}"
+                    f"Key type must be DSA, not {public_key.key_type}"
                 )
 
         return errors
@@ -371,8 +373,8 @@ class ExtendedKeyUsageExtConstraint(Constraint):
         """Validate extended key usage contains required OIDs"""
         errors = []
 
-        # Get EKU from context (set by default plugin)
-        eku = context.get("extended_key_usage")
+        # Get EKU from context (set by ExtendedKeyUsageExtDefault)
+        eku = context.get("extended_key_usage_oids")
         if not eku and self.required_oids:
             errors.append(
                 "Extended key usage extension required but not present"

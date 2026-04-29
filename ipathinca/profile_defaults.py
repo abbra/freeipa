@@ -9,9 +9,9 @@ import logging
 from typing import Dict, Any
 from datetime import datetime, timedelta, timezone
 
-from cryptography import x509
-from cryptography.x509.oid import ExtensionOID, ExtendedKeyUsageOID
-from cryptography.hazmat.primitives.asymmetric import rsa, ec
+import synta
+import synta.ext
+import synta.oids
 
 import ipathinca
 from ipathinca import x509_utils
@@ -25,7 +25,7 @@ class UserKeyDefault(Default):
 
     def apply(self, builder, csr, context: dict):
         """Apply public key from CSR"""
-        return builder.public_key(csr.public_key())
+        return builder.public_key_der(csr.subject_public_key_info_der)
 
 
 class SubjectNameDefault(Default):
@@ -45,16 +45,16 @@ class SubjectNameDefault(Default):
 
         dn_str = extract_request_variable(self.name_template, csr, context)
 
-        # Convert to x509.Name
-        subject = x509_utils.ipa_dn_to_x509_name(dn_str)
+        # Convert to DER-encoded Name bytes
+        subject_der = x509_utils.ipa_dn_to_x509_name(dn_str)
 
         # Store final subject DN in context for constraint validation
         # This allows SubjectNameConstraint to validate the FINAL subject
         # that will go into the certificate, not just the CSR subject
         context["final_subject_dn"] = dn_str
-        context["final_subject_name"] = subject
+        context["final_subject_name"] = subject_der
 
-        return builder.subject_name(subject)
+        return builder.subject_name(subject_der)
 
 
 class ValidityDefault(Default):
@@ -85,7 +85,10 @@ class ValidityDefault(Default):
         # Store in context for constraint validation
         context["validity_days"] = self.range_days
 
-        return builder.not_valid_before(not_before).not_valid_after(not_after)
+        return (
+            builder.not_valid_before_utc(not_before)
+            .not_valid_after_utc(not_after)
+        )
 
 
 class SigningAlgDefault(Default):
@@ -103,7 +106,13 @@ class SigningAlgDefault(Default):
         """Select signing algorithm"""
         if self.signing_alg == "-":
             # Server decides based on key type
-            algorithm = self._infer_from_key(csr.public_key())
+            try:
+                pub_key = synta.PublicKey.from_der(
+                    csr.subject_public_key_info_der
+                )
+            except Exception:
+                pub_key = None
+            algorithm = self._infer_from_key(pub_key)
         else:
             algorithm = self.signing_alg
 
@@ -133,9 +142,8 @@ class SigningAlgDefault(Default):
                 "Could not read default_signing_algorithm from config: %s", e
             )
             # Fallback: infer from key type
-            if isinstance(public_key, rsa.RSAPublicKey):
-                return "SHA256withRSA"
-            elif isinstance(public_key, ec.EllipticCurvePublicKey):
+            key_type = getattr(public_key, 'key_type', 'rsa')
+            if key_type == 'ec':
                 return "SHA256withEC"
             else:
                 return "SHA256withRSA"  # Safe default
@@ -155,16 +163,12 @@ class AuthorityKeyIdentifierExtDefault(Default):
             return builder
 
         try:
-            # Use CA's Subject Key Identifier
-            ski = ca_cert.extensions.get_extension_for_oid(
-                ExtensionOID.SUBJECT_KEY_IDENTIFIER
+            # Build AKI from CA's SPKI
+            spki_der = ca_cert.subject_public_key_info_der
+            aki_der = synta.ext.authority_key_identifier(spki_der)
+            builder = builder.add_extension(
+                str(synta.oids.AUTHORITY_KEY_IDENTIFIER), False, aki_der
             )
-            aki = (
-                x509.AuthorityKeyIdentifier.from_issuer_subject_key_identifier(
-                    ski.value
-                )
-            )
-            builder = builder.add_extension(aki, critical=False)
         except Exception as e:
             logger.warning("Failed to add AKI: %s", e)
 
@@ -180,8 +184,10 @@ class SubjectKeyIdentifierExtDefault(Default):
 
     def apply(self, builder, csr, context: dict):
         """Add Subject Key Identifier extension"""
-        ski = x509.SubjectKeyIdentifier.from_public_key(csr.public_key())
-        return builder.add_extension(ski, critical=self.critical)
+        ski_der = synta.ext.subject_key_identifier(csr.subject_public_key_info_der)
+        return builder.add_extension(
+            str(synta.oids.SUBJECT_KEY_IDENTIFIER), self.critical, ski_der
+        )
 
 
 class KeyUsageExtDefault(Default):
@@ -229,22 +235,34 @@ class KeyUsageExtDefault(Default):
 
     def apply(self, builder, csr, context: dict):
         """Add key usage extension"""
-        key_usage = x509.KeyUsage(
-            digital_signature=self.digital_signature,
-            content_commitment=self.content_commitment,
-            key_encipherment=self.key_encipherment,
-            data_encipherment=self.data_encipherment,
-            key_agreement=self.key_agreement,
-            key_cert_sign=self.key_cert_sign,
-            crl_sign=self.crl_sign,
-            encipher_only=self.encipher_only,
-            decipher_only=self.decipher_only,
-        )
+        bits = 0
+        if self.digital_signature:
+            bits |= synta.ext.KU_DIGITAL_SIGNATURE
+        if self.content_commitment:
+            bits |= synta.ext.KU_NON_REPUDIATION
+        if self.key_encipherment:
+            bits |= synta.ext.KU_KEY_ENCIPHERMENT
+        if self.data_encipherment:
+            bits |= synta.ext.KU_DATA_ENCIPHERMENT
+        if self.key_agreement:
+            bits |= synta.ext.KU_KEY_AGREEMENT
+        if self.key_cert_sign:
+            bits |= synta.ext.KU_KEY_CERT_SIGN
+        if self.crl_sign:
+            bits |= synta.ext.KU_CRL_SIGN
+        if self.encipher_only:
+            bits |= synta.ext.KU_ENCIPHER_ONLY
+        if self.decipher_only:
+            bits |= synta.ext.KU_DECIPHER_ONLY
+
+        key_usage_der = synta.ext.key_usage(bits)
 
         # Store in context for constraint validation
-        context["key_usage"] = key_usage
+        context["key_usage_bits"] = bits
 
-        return builder.add_extension(key_usage, critical=self.critical)
+        return builder.add_extension(
+            str(synta.oids.KEY_USAGE), self.critical, key_usage_der
+        )
 
 
 class ExtendedKeyUsageExtDefault(Default):
@@ -274,25 +292,16 @@ class ExtendedKeyUsageExtDefault(Default):
                     self.oids.append(oid)
 
     def _parse_oid(self, oid_str: str):
-        """Parse OID string to ObjectIdentifier"""
-        # Common EKU OIDs
-        eku_map = {
-            "1.3.6.1.5.5.7.3.1": ExtendedKeyUsageOID.SERVER_AUTH,
-            "1.3.6.1.5.5.7.3.2": ExtendedKeyUsageOID.CLIENT_AUTH,
-            "1.3.6.1.5.5.7.3.3": ExtendedKeyUsageOID.CODE_SIGNING,
-            "1.3.6.1.5.5.7.3.4": ExtendedKeyUsageOID.EMAIL_PROTECTION,
-            "1.3.6.1.5.5.7.3.8": ExtendedKeyUsageOID.TIME_STAMPING,
-            "1.3.6.1.5.5.7.3.9": ExtendedKeyUsageOID.OCSP_SIGNING,
-        }
-
-        oid = eku_map.get(oid_str)
-        if oid:
-            return oid
-
-        # Try as raw OID
+        """Validate and return OID string, or None if invalid"""
+        # Validate it looks like a dotted OID
+        parts = oid_str.split(".")
+        if len(parts) < 2:
+            logger.warning("Invalid OID: %s", oid_str)
+            return None
         try:
-            return x509.ObjectIdentifier(oid_str)
-        except Exception:
+            list(int(p) for p in parts)
+            return oid_str
+        except ValueError:
             logger.warning("Invalid OID: %s", oid_str)
             return None
 
@@ -301,12 +310,19 @@ class ExtendedKeyUsageExtDefault(Default):
         if not self.oids:
             return builder
 
-        eku = x509.ExtendedKeyUsage(self.oids)
+        eku_builder = synta.ext.ExtendedKeyUsageBuilder()
+        for oid_str in self.oids:
+            eku_builder = eku_builder.add_oid(
+                [int(p) for p in oid_str.split(".")]
+            )
+        eku_der = eku_builder.build()
 
         # Store in context for constraint validation
-        context["extended_key_usage"] = eku
+        context["extended_key_usage_oids"] = self.oids
 
-        return builder.add_extension(eku, critical=self.critical)
+        return builder.add_extension(
+            str(synta.oids.EXTENDED_KEY_USAGE), self.critical, eku_der
+        )
 
 
 class CRLDistributionPointsExtDefault(Default):
@@ -352,24 +368,20 @@ class CRLDistributionPointsExtDefault(Default):
         if not self.points:
             return builder
 
-        distribution_points = []
+        cdp_builder = synta.ext.CDP()
+        added = False
         for point_data in self.points:
-            # Create distribution point
             if point_data["point_type"] == "URIName":
-                full_name = [
-                    x509.UniformResourceIdentifier(point_data["point_name"])
-                ]
-                dp = x509.DistributionPoint(
-                    full_name=full_name,
-                    relative_name=None,
-                    crl_issuer=None,
-                    reasons=None,
+                cdp_builder = cdp_builder.full_name_uri(
+                    point_data["point_name"]
                 )
-                distribution_points.append(dp)
+                added = True
 
-        if distribution_points:
-            cdp = x509.CRLDistributionPoints(distribution_points)
-            builder = builder.add_extension(cdp, critical=self.critical)
+        if added:
+            cdp_der = cdp_builder.build()
+            builder = builder.add_extension(
+                str(synta.oids.CRL_DISTRIBUTION_POINTS), self.critical, cdp_der
+            )
 
         return builder
 
@@ -415,29 +427,36 @@ class AuthInfoAccessExtDefault(Default):
         if not self.access_descriptions:
             return builder
 
-        descriptions = []
-        for ad in self.access_descriptions:
-            # Parse access method OID
-            try:
-                method_oid = x509.ObjectIdentifier(ad["method"])
-            except Exception:
-                logger.warning("Invalid AIA method OID: %s", ad["method"])
-                continue
+        # OCSP: 1.3.6.1.5.5.7.48.1  CA Issuers: 1.3.6.1.5.5.7.48.2
+        _OCSP_OID = "1.3.6.1.5.5.7.48.1"
+        _CA_ISSUERS_OID = "1.3.6.1.5.5.7.48.2"
 
-            # Parse access location
-            if ad["location_type"] == "URIName":
-                location = x509.UniformResourceIdentifier(ad["location"])
-            else:
+        aia_builder = synta.ext.AIA()
+        added = False
+        for ad in self.access_descriptions:
+            if ad["location_type"] != "URIName":
                 logger.warning(
-                    "Unsupported location type: %s", ad["location_type"]
+                    "Unsupported AIA location type: %s", ad["location_type"]
                 )
                 continue
+            method = ad["method"]
+            location = ad["location"]
+            if method == _OCSP_OID:
+                aia_builder = aia_builder.ocsp(location)
+                added = True
+            elif method == _CA_ISSUERS_OID:
+                aia_builder = aia_builder.ca_issuers(location)
+                added = True
+            else:
+                logger.warning(
+                    "Unsupported AIA method OID: %s", method
+                )
 
-            descriptions.append(x509.AccessDescription(method_oid, location))
-
-        if descriptions:
-            aia = x509.AuthorityInformationAccess(descriptions)
-            builder = builder.add_extension(aia, critical=self.critical)
+        if added:
+            aia_der = aia_builder.build()
+            builder = builder.add_extension(
+                str(synta.oids.AUTHORITY_INFO_ACCESS), self.critical, aia_der
+            )
 
         return builder
 
@@ -459,8 +478,6 @@ class UserExtensionDefault(Default):
             return builder
 
         try:
-            oid = x509.ObjectIdentifier(self.oid_str)
-
             # Track which extensions have been added in context
             if "extensions_added" not in context:
                 context["extensions_added"] = set()
@@ -472,18 +489,14 @@ class UserExtensionDefault(Default):
                 )
                 return builder
 
-            # Try to get extension from CSR
-            try:
-                ext = csr.extensions.get_extension_for_oid(oid)
-                builder = builder.add_extension(
-                    ext.value, critical=ext.critical
-                )
+            # Try to get extension value DER from CSR
+            ext_der = csr.get_extension_value_der(self.oid_str)
+            if ext_der is not None:
+                # Copy as non-critical; CSR does not carry criticality flags
+                builder = builder.add_extension(self.oid_str, False, ext_der)
                 # Mark this extension as added
                 context["extensions_added"].add(self.oid_str)
                 logger.debug("Added extension %s from CSR", self.oid_str)
-            except x509.ExtensionNotFound:
-                # Extension not in CSR, skip
-                pass
 
         except Exception as e:
             logger.warning(
@@ -501,15 +514,13 @@ class CommonNameToSANDefault(Default):
 
     def apply(self, builder, csr, context: dict):
         """Copy CN from subject to SAN as DNSName"""
-        from cryptography.x509.oid import NameOID
-
         try:
             # Track which extensions have been added in context
             if "extensions_added" not in context:
                 context["extensions_added"] = set()
 
             # SAN extension OID is 2.5.29.17
-            san_oid = "2.5.29.17"
+            san_oid = str(synta.oids.SUBJECT_ALT_NAME)
 
             # Skip if SAN extension was already added by another policy
             if san_oid in context["extensions_added"]:
@@ -519,16 +530,19 @@ class CommonNameToSANDefault(Default):
                 )
                 return builder
 
-            # Get CN from subject
-            cn_attrs = csr.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
-            if not cn_attrs:
+            # Get CN from subject DER
+            cn = None
+            for oid_str, value in synta.parse_name_attrs(csr.subject_raw_der):
+                if oid_str == str(synta.oids.attr.COMMON_NAME):
+                    cn = value
+                    break
+
+            if not cn:
                 return builder
 
-            cn = cn_attrs[0].value
-
             # Add as DNSName in SAN
-            san = x509.SubjectAlternativeName([x509.DNSName(cn)])
-            builder = builder.add_extension(san, critical=False)
+            san_der = synta.ext.SAN().dns_name(cn).build()
+            builder = builder.add_extension(san_oid, False, san_der)
 
             # Mark SAN extension as added
             context["extensions_added"].add(san_oid)
@@ -549,25 +563,18 @@ class SANToCNDefault(Default):
 
     def apply(self, builder, csr, context: dict):
         """Copy first DNS name from SAN to CN in subject"""
+        import synta.general_name as gn
 
         try:
             # Get SAN extension from CSR
-            san_ext = csr.extensions.get_extension_for_oid(
-                ExtensionOID.SUBJECT_ALTERNATIVE_NAME
-            )
-
-            # Find first DNS name
-            for name in san_ext.value:
-                if isinstance(name, x509.DNSName):
+            for tag_num, content in csr.subject_alt_names():
+                if tag_num == gn.DNS_NAME:
                     # Use SAN DNS name as CN
                     # This will be used if the profile sets subject from SAN
                     # For now, we just pass through - the subject will be set
                     # by another default plugin
                     break
 
-        except x509.ExtensionNotFound:
-            # No SAN in CSR
-            pass
         except Exception as e:
             logger.warning("Failed to copy SAN to CN: %s", e)
 
@@ -586,14 +593,13 @@ class UserSubjectNameDefault(Default):
         This default simply uses the subject DN from the CSR as-is,
         without modification or variable substitution.
         """
-        # Use subject from CSR directly
-        subject = csr.subject
+        # Use subject DER from CSR directly
+        subject_der = csr.subject_raw_der
 
         # Store in context for constraint validation
-        # Use rfc4514_string() to get standard DN format (CN first)
-        context["final_subject_dn"] = subject.rfc4514_string()
+        context["final_subject_dn"] = csr.subject
 
-        return builder.subject_name(subject)
+        return builder.subject_name(subject_der)
 
 
 class OCSPNoCheckExtDefault(Default):
@@ -613,15 +619,13 @@ class OCSPNoCheckExtDefault(Default):
         This extension indicates that the certificate is an OCSP responder
         certificate and should not be checked for revocation.
         """
-        # OCSP No Check is a null extension (no value, just presence)
-        # In cryptography library, this is OCSPNoCheck()
+        # OCSP No Check OID: 1.3.6.1.5.5.7.48.1.5
+        # Value is a DER NULL (0x05 0x00)
+        _OCSP_NO_CHECK_OID = "1.3.6.1.5.5.7.48.1.5"
         try:
-            ext = x509.Extension(
-                oid=ExtensionOID.OCSP_NO_CHECK,
-                critical=self.critical,
-                value=x509.OCSPNoCheck(),
+            builder = builder.add_extension(
+                _OCSP_NO_CHECK_OID, self.critical, b"\x05\x00"
             )
-            builder = builder.add_extension(ext.value, critical=ext.critical)
         except Exception as e:
             logger.warning("Failed to add OCSP No Check extension: %s", e)
 

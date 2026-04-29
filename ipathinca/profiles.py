@@ -641,87 +641,60 @@ class ProfileManager:
         return self.get_profile(actual_profile_id)
 
     def get_extensions_for_profile(self, profile_id: str):
-        """Get certificate extensions from profile (for legacy PythonCA)
-
-        This method exists for backwards compatibility with PythonCA class.
-        For new code using CAInternal, the policy chain is executed instead.
+        """Get certificate extensions from profile as (oid_str, critical, der) tuples.
 
         Args:
             profile_id: Profile identifier
 
         Returns:
-            List of x509.Extension objects
-
-        Note:
-            This is a simplified implementation that extracts basic extensions.
-            For full policy chain execution, use CAInternal instead of
-            PythonCA.
+            List of (oid_str, critical, der_bytes) tuples
         """
-        from cryptography import x509
-        from cryptography.x509.oid import ExtensionOID
+        import synta.ext
+        import synta.oids
+        from ipathinca.profile_defaults import (
+            ExtendedKeyUsageExtDefault,
+            KeyUsageExtDefault,
+        )
 
         profile = self.get_profile(profile_id)
         extensions = []
 
-        # Extract extensions from profile policies
         for policy in profile.policies:
             default = policy.default
 
-            # BasicConstraints
-            if hasattr(default, "is_ca"):
-                path_len = getattr(default, "path_length", None)
-                ext = x509.Extension(
-                    oid=ExtensionOID.BASIC_CONSTRAINTS,
-                    critical=True,
-                    value=x509.BasicConstraints(
-                        ca=default.is_ca, path_length=path_len
-                    ),
+            # KeyUsage — from KeyUsageExtDefault
+            if isinstance(default, KeyUsageExtDefault):
+                bits = 0
+                if default.digital_signature:
+                    bits |= synta.ext.KU_DIGITAL_SIGNATURE
+                if default.content_commitment:
+                    bits |= synta.ext.KU_NON_REPUDIATION
+                if default.key_encipherment:
+                    bits |= synta.ext.KU_KEY_ENCIPHERMENT
+                if default.data_encipherment:
+                    bits |= synta.ext.KU_DATA_ENCIPHERMENT
+                if default.key_agreement:
+                    bits |= synta.ext.KU_KEY_AGREEMENT
+                if default.key_cert_sign:
+                    bits |= synta.ext.KU_KEY_CERT_SIGN
+                if default.crl_sign:
+                    bits |= synta.ext.KU_CRL_SIGN
+                der = synta.ext.key_usage(bits)
+                extensions.append(
+                    (str(synta.oids.KEY_USAGE), default.critical, der)
                 )
-                extensions.append(ext)
 
-            # KeyUsage
-            if hasattr(default, "digital_signature"):
-                # This is KeyUsageExtDefault
-                key_usage = x509.KeyUsage(
-                    digital_signature=getattr(
-                        default, "digital_signature", False
-                    ),
-                    content_commitment=getattr(
-                        default, "non_repudiation", False
-                    ),
-                    key_encipherment=getattr(
-                        default, "key_encipherment", False
-                    ),
-                    data_encipherment=getattr(
-                        default, "data_encipherment", False
-                    ),
-                    key_agreement=getattr(default, "key_agreement", False),
-                    key_cert_sign=getattr(default, "key_cert_sign", False),
-                    crl_sign=getattr(default, "crl_sign", False),
-                    encipher_only=getattr(default, "encipher_only", False),
-                    decipher_only=getattr(default, "decipher_only", False),
+            # ExtendedKeyUsage — from ExtendedKeyUsageExtDefault
+            elif isinstance(default, ExtendedKeyUsageExtDefault) and default.oids:
+                eku_builder = synta.ext.ExtendedKeyUsageBuilder()
+                for oid_str in default.oids:
+                    eku_builder = eku_builder.add_oid(
+                        [int(p) for p in oid_str.split(".")]
+                    )
+                der = eku_builder.build()
+                extensions.append(
+                    (str(synta.oids.EXTENDED_KEY_USAGE), default.critical, der)
                 )
-                critical = getattr(default, "critical", True)
-                ext = x509.Extension(
-                    oid=ExtensionOID.KEY_USAGE,
-                    critical=critical,
-                    value=key_usage,
-                )
-                extensions.append(ext)
-
-            # ExtendedKeyUsage
-            if hasattr(default, "eku_oids"):
-                # This is ExtendedKeyUsageExtDefault
-                from cryptography.x509.oid import ObjectIdentifier
-
-                oids = [ObjectIdentifier(oid) for oid in default.eku_oids]
-                critical = getattr(default, "critical", False)
-                ext = x509.Extension(
-                    oid=ExtensionOID.EXTENDED_KEY_USAGE,
-                    critical=critical,
-                    value=x509.ExtendedKeyUsage(oids),
-                )
-                extensions.append(ext)
 
         return extensions
 
