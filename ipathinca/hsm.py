@@ -15,8 +15,7 @@ import os
 import threading
 from typing import Optional, Dict, Any, List, Tuple
 
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import ec, rsa
+import synta
 
 from ipalib import errors
 from ipathinca.exceptions import CAConfigurationError
@@ -393,7 +392,7 @@ class HSMKeyBackend:
             key_label: Key label
 
         Returns:
-            Public key object (cryptography library format)
+            synta.PublicKey object, or None if not found / unsupported
         """
         with self.session_manager as session:
             try:
@@ -429,12 +428,10 @@ class HSMKeyBackend:
                     modulus_bytes = bytes(attrs[0])
                     exponent_bytes = bytes(attrs[1])
 
-                    # Convert to integers
-                    n = int.from_bytes(modulus_bytes, byteorder="big")
-                    e = int.from_bytes(exponent_bytes, byteorder="big")
-
-                    # Create RSA public key
-                    public_key = rsa.RSAPublicNumbers(e, n).public_key()
+                    # Create RSA public key from raw big-endian components
+                    public_key = synta.PublicKey.from_rsa_components(
+                        modulus_bytes, exponent_bytes
+                    )
                     return public_key
 
                 if key_type == PyKCS11.CKK_EC:
@@ -446,19 +443,19 @@ class HSMKeyBackend:
                     ec_params_der = bytes(ec_attrs[0])
                     ec_point_der = bytes(ec_attrs[1])
 
-                    # Map common curve OIDs to cryptography curves
+                    # Map common curve OIDs to synta curve name strings
                     # EC params is DER-encoded OID
                     p256 = b"\x06\x08\x2a\x86\x48\xce\x3d\x03\x01\x07"
                     p384 = b"\x06\x05\x2b\x81\x04\x00\x22"
                     p521 = b"\x06\x05\x2b\x81\x04\x00\x23"
                     ec_curve_oids = {
-                        p256: ec.SECP256R1(),
-                        p384: ec.SECP384R1(),
-                        p521: ec.SECP521R1(),
+                        p256: "P-256",
+                        p384: "P-384",
+                        p521: "P-521",
                     }
 
-                    curve = ec_curve_oids.get(ec_params_der)
-                    if curve is None:
+                    curve_name = ec_curve_oids.get(ec_params_der)
+                    if curve_name is None:
                         logger.warning(
                             "Unsupported EC curve OID from HSM: %s",
                             ec_params_der.hex(),
@@ -486,8 +483,18 @@ class HSMKeyBackend:
                     else:
                         point_bytes = ec_point_der
 
-                    public_key = ec.EllipticCurvePublicKey.from_encoded_point(
-                        curve, point_bytes
+                    # Uncompressed point: 0x04 || x || y
+                    # Extract x and y coordinate bytes
+                    if point_bytes[0] != 0x04 or len(point_bytes) < 3:
+                        logger.warning(
+                            "EC point is not in uncompressed form"
+                        )
+                        return None
+                    coord_len = (len(point_bytes) - 1) // 2
+                    x_bytes = point_bytes[1:1 + coord_len]
+                    y_bytes = point_bytes[1 + coord_len:]
+                    public_key = synta.PublicKey.from_ec_components(
+                        x_bytes, y_bytes, curve_name
                     )
                     return public_key
 
@@ -499,7 +506,7 @@ class HSMKeyBackend:
                 return None
 
     def sign(
-        self, key_label: str, data: bytes, hash_algorithm=hashes.SHA256()
+        self, key_label: str, data: bytes, hash_algorithm: str = 'sha256'
     ) -> bytes:
         """
         Sign data using HSM private key
@@ -507,7 +514,7 @@ class HSMKeyBackend:
         Args:
             key_label: Key label in HSM
             data: Data to sign
-            hash_algorithm: Hash algorithm to use
+            hash_algorithm: Hash algorithm name string (e.g. 'sha256')
 
         Returns:
             Signature bytes
@@ -530,22 +537,19 @@ class HSMKeyBackend:
 
                 priv_key = objects[0]
 
-                # Determine mechanism based on hash algorithm
+                # Determine mechanism based on hash algorithm string
                 # Note: CKM_SHA*_RSA_PKCS mechanisms perform hashing internally
-                if isinstance(hash_algorithm, hashes.SHA256):
-                    mechanism = PyKCS11.Mechanism(
-                        PyKCS11.CKM_SHA256_RSA_PKCS, None
-                    )
-                elif isinstance(hash_algorithm, hashes.SHA384):
+                alg_lower = (hash_algorithm or 'sha256').lower()
+                if alg_lower == 'sha384':
                     mechanism = PyKCS11.Mechanism(
                         PyKCS11.CKM_SHA384_RSA_PKCS, None
                     )
-                elif isinstance(hash_algorithm, hashes.SHA512):
+                elif alg_lower == 'sha512':
                     mechanism = PyKCS11.Mechanism(
                         PyKCS11.CKM_SHA512_RSA_PKCS, None
                     )
                 else:
-                    # Fallback to SHA256
+                    # Default to SHA256
                     mechanism = PyKCS11.Mechanism(
                         PyKCS11.CKM_SHA256_RSA_PKCS, None
                     )
@@ -651,7 +655,7 @@ class HSMPrivateKeyProxy:
     Private Key Proxy for HSM-backed keys
 
     This class acts as a proxy for private keys stored in an HSM, making them
-    compatible with the cryptography library's signing interface.
+    compatible with synta's signing interface.
     """
 
     def __init__(self, hsm_backend: HSMKeyBackend, key_label: str):
@@ -666,30 +670,29 @@ class HSMPrivateKeyProxy:
         self.key_label = key_label
         self._public_key = None
 
-    def sign(self, data: bytes, _padding, algorithm) -> bytes:
+    def sign(self, data: bytes, hash_algorithm: str = 'sha256') -> bytes:
         """
         Sign data using HSM private key
 
-        This method is compatible with the cryptography library's
-        PrivateKey.sign() interface.
+        This method is compatible with synta's PrivateKey.sign() interface.
 
         Args:
             data: Data to sign
-            padding: Padding to use (ignored for HSM, uses PKCS#1 v1.5)
-            algorithm: Hash algorithm to use
+            hash_algorithm: Hash algorithm name string (e.g. 'sha256')
 
         Returns:
             Signature bytes
         """
         # The HSM backend's sign method handles the signing
-        return self.hsm_backend.sign(self.key_label, data, algorithm)
+        return self.hsm_backend.sign(self.key_label, data, hash_algorithm)
 
+    @property
     def public_key(self):
         """
         Get the public key corresponding to this private key
 
         Returns:
-            Public key object (cryptography library format)
+            synta.PublicKey object, or None if not available
         """
         if self._public_key is None:
             self._public_key = self.hsm_backend.get_public_key(self.key_label)
@@ -704,7 +707,7 @@ class HSMPrivateKeyProxy:
             Key size in bits
         """
         # Get the public key and extract key size from it
-        pub_key = self.public_key()
+        pub_key = self.public_key
         if pub_key:
             if hasattr(pub_key, "key_size"):
                 return pub_key.key_size
