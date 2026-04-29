@@ -50,9 +50,9 @@ from ipathinca.x509_utils import (
     get_subject_dn_str,
     get_issuer_dn_str,
 )
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+import synta
+import synta.ext
+import synta.oids
 
 logger = logging.getLogger(__name__)
 
@@ -231,7 +231,9 @@ class PythonCABackend:
         try:
             # Parse CSR from PEM format
             if isinstance(csr, str):
-                csr_obj = x509.load_pem_x509_csr(csr.encode("utf-8"))
+                csr_obj = synta.CertificationRequest.from_pem(
+                    csr.encode("utf-8")
+                )
             else:
                 csr_obj = csr
 
@@ -242,8 +244,8 @@ class PythonCABackend:
             # (IPA framework passes parsed CSR objects, but CA expects PEM
             # string)
             if not isinstance(csr, str):
-                csr_pem = csr_obj.public_bytes(
-                    serialization.Encoding.PEM
+                csr_pem = synta.CertificationRequest.to_pem(
+                    csr_obj
                 ).decode("utf-8")
             else:
                 csr_pem = csr
@@ -266,9 +268,7 @@ class PythonCABackend:
                 "serial_number": f"0x{serial_number:x}",
                 "status": "complete",
                 "certificate": base64.b64encode(
-                    cert_record.certificate.public_bytes(
-                        encoding=serialization.Encoding.DER
-                    )
+                    cert_record.certificate.to_der()
                 ).decode("ascii"),
                 "subject": x509_utils.get_subject_dn_str(
                     cert_record.certificate
@@ -370,9 +370,7 @@ class PythonCABackend:
         # LF (\n)
         # Python cryptography library uses LF, so we need to convert to CRLF
         cert_pem = (
-            cert_record.certificate.public_bytes(
-                encoding=serialization.Encoding.PEM
-            )
+            synta.Certificate.to_pem(cert_record.certificate)
             .decode("ascii")
             .replace("\n", "\r\n")
         )
@@ -486,17 +484,17 @@ class PythonCABackend:
                 # Convert datetime to Unix timestamp in milliseconds (as
                 # expected by IPA)
                 not_before_ts = int(
-                    cert_record.certificate.not_valid_before_utc.timestamp()
+                    cert_record.certificate.not_before_utc.timestamp()
                     * 1000
                 )
                 not_after_ts = int(
-                    cert_record.certificate.not_valid_after_utc.timestamp()
+                    cert_record.certificate.not_after_utc.timestamp()
                     * 1000
                 )
                 not_before = (
-                    cert_record.certificate.not_valid_before.isoformat()
+                    cert_record.certificate.not_before_utc.isoformat()
                 )
-                not_after = cert_record.certificate.not_valid_after.isoformat()
+                not_after = cert_record.certificate.not_after_utc.isoformat()
 
                 results.append(
                     {
@@ -623,7 +621,7 @@ class PythonCABackend:
             crl = self.ca.generate_crl()
 
             # Serialize CRL to DER format
-            crl_der = crl.public_bytes(serialization.Encoding.DER)
+            crl_der = crl.to_der()
 
             # Store CRL in ipathinca directory (for REST API)
             crl_path = os.path.join(paths.IPATHINCA_CERTS_DIR, "ca_crl.der")
@@ -802,17 +800,14 @@ class PythonCABackend:
                     "ca", "ca_signing_key_size", default="3072"
                 )
             )
-            private_key = rsa.generate_private_key(
-                public_exponent=65537, key_size=ca_key_size
-            )
+            private_key = synta.PrivateKey.generate_rsa(ca_key_size)
 
             # Parse subject DN
             subject_dn = DN(subject)
 
-            # Build certificate subject
-            # Convert IPA DN to x509.Name using utility function
-            # This handles proper RDN wrapping and ordering automatically
-            cert_subject = x509_utils.ipa_dn_to_x509_name(str(subject_dn))
+            # Build certificate subject DER
+            # Convert IPA DN to DER-encoded Name using utility function
+            cert_subject_der = x509_utils.ipa_dn_to_name_der(str(subject_dn))
 
             # Set validity period (10 years)
             now = datetime.now(timezone.utc)
@@ -822,62 +817,53 @@ class PythonCABackend:
             # Generate serial number
             serial_number = int(uuid.uuid4().hex[:16], 16)
 
+            # Choose hash algorithm based on the algorithm parameter
+            if algorithm and "SHA1" in algorithm.upper():
+                hash_alg = 'sha1'
+            elif algorithm and "SHA384" in algorithm.upper():
+                hash_alg = 'sha384'
+            elif algorithm and "SHA512" in algorithm.upper():
+                hash_alg = 'sha512'
+            else:
+                hash_alg = 'sha256'  # Default
+
+            # Build extensions
+            # BasicConstraints: CA=TRUE
+            bc_der = synta.ext.basic_constraints(ca=True, path_length=None)
+            # CA KeyUsage
+            ku_oid, ku_der = get_ca_key_usage_extension()
+            # Subject Public Key Info DER for SKI / AKI
+            spki_der = private_key.public_key.to_der()
+            ski_der = synta.ext.subject_key_identifier(spki_der)
+            aki_der = synta.ext.authority_key_identifier(spki_der)
+
             # Create certificate
-            cert_builder = x509.CertificateBuilder()
-            cert_builder = cert_builder.subject_name(cert_subject)
-            cert_builder = cert_builder.issuer_name(
-                cert_subject
-            )  # Self-signed
-            cert_builder = cert_builder.public_key(private_key.public_key())
+            cert_builder = synta.CertificateBuilder()
+            cert_builder = cert_builder.subject_name(cert_subject_der)
+            cert_builder = cert_builder.issuer_name(cert_subject_der)
+            cert_builder = cert_builder.public_key(private_key.public_key)
             cert_builder = cert_builder.serial_number(serial_number)
-            cert_builder = cert_builder.not_valid_before(not_valid_before)
-            cert_builder = cert_builder.not_valid_after(not_valid_after)
+            cert_builder = cert_builder.not_valid_before_utc(not_valid_before)
+            cert_builder = cert_builder.not_valid_after_utc(not_valid_after)
 
             # Add CA extensions
             cert_builder = cert_builder.add_extension(
-                x509.BasicConstraints(ca=True, path_length=None),
-                critical=True,
+                str(synta.oids.BASIC_CONSTRAINTS), True, bc_der
             )
-
-            # Use shared CA KeyUsage extension utility
+            cert_builder = cert_builder.add_extension(ku_oid, True, ku_der)
             cert_builder = cert_builder.add_extension(
-                get_ca_key_usage_extension(), critical=True
+                str(synta.oids.SUBJECT_KEY_IDENTIFIER), False, ski_der
             )
-
-            # Add Subject Key Identifier
-            ski = x509.SubjectKeyIdentifier.from_public_key(
-                private_key.public_key()
+            cert_builder = cert_builder.add_extension(
+                str(synta.oids.AUTHORITY_KEY_IDENTIFIER), False, aki_der
             )
-            cert_builder = cert_builder.add_extension(ski, critical=False)
-
-            # Add Authority Key Identifier (same as SKI for self-signed)
-            aki = x509.AuthorityKeyIdentifier.from_issuer_public_key(
-                private_key.public_key()
-            )
-            cert_builder = cert_builder.add_extension(aki, critical=False)
-
-            # Choose hash algorithm based on the algorithm parameter
-            if algorithm and "SHA1" in algorithm.upper():
-                hash_alg = hashes.SHA1()
-            elif algorithm and "SHA384" in algorithm.upper():
-                hash_alg = hashes.SHA384()
-            elif algorithm and "SHA512" in algorithm.upper():
-                hash_alg = hashes.SHA512()
-            else:
-                hash_alg = hashes.SHA256()  # Default
 
             # Sign the certificate
             certificate = cert_builder.sign(private_key, hash_alg)
 
             # Convert to PEM format
-            cert_pem = certificate.public_bytes(
-                serialization.Encoding.PEM
-            ).decode("utf-8")
-            key_pem = private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption(),
-            ).decode("utf-8")
+            cert_pem = synta.Certificate.to_pem(certificate).decode("utf-8")
+            key_pem = private_key.to_pem().decode("utf-8")
 
             logger.debug(
                 "CA certificate created successfully with serial number: %s",
@@ -924,8 +910,8 @@ class PythonCABackend:
             # string
 
             ca_subject_str = get_subject_dn_str(self.ca.ca_cert)
-            ca_not_before = self.ca.ca_cert.not_valid_before_utc.isoformat()
-            ca_not_after = self.ca.ca_cert.not_valid_after_utc.isoformat()
+            ca_not_before = self.ca.ca_cert.not_before_utc.isoformat()
+            ca_not_after = self.ca.ca_cert.not_after_utc.isoformat()
 
             return {
                 "ca_id": self.ca.ca_id,
@@ -956,9 +942,7 @@ class PythonCABackend:
 
             # Convert to PEM with CRLF line endings to match Dogtag
             ca_cert_pem = (
-                self.ca.ca_cert.public_bytes(
-                    encoding=serialization.Encoding.PEM
-                )
+                synta.Certificate.to_pem(self.ca.ca_cert)
                 .decode()
                 .replace("\n", "\r\n")
             )
