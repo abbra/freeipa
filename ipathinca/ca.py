@@ -47,8 +47,11 @@ import logging
 import threading
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-from cryptography import x509
-from cryptography.x509.oid import ExtensionOID
+
+import synta
+import synta.ext
+import synta.oids
+
 from ipalib import errors
 from ipathinca.profiles import ProfileManager
 from ipathinca.certificate_types import (  # noqa: F401 — re-exported
@@ -56,7 +59,6 @@ from ipathinca.certificate_types import (  # noqa: F401 — re-exported
     RevocationReason,
     CertificateRequest,
     CertificateRecord,
-    REVOCATION_REASON_TO_FLAG,
 )
 from ipathinca.storage_factory import get_storage_backend
 from ipathinca.hsm import HSMConfig, HSMKeyBackend, HSMPrivateKeyProxy
@@ -175,7 +177,7 @@ class PythonCA:
             # Load CA certificate (always from file for ipathinca)
             with open(self.ca_cert_path, "rb") as f:
                 ca_cert_data = f.read()
-                self.ca_cert = x509.load_pem_x509_certificate(ca_cert_data)
+                self.ca_cert = synta.Certificate.from_pem(ca_cert_data)
 
             # Load CA private key - conditional based on HSM configuration
             hsm_config = None
@@ -339,8 +341,10 @@ class PythonCA:
         """
         try:
             # Parse and validate CSR
-            csr = x509.load_pem_x509_csr(csr_pem.encode())
-            if not csr.is_signature_valid:
+            csr = synta.CertificationRequest.from_pem(csr_pem.encode())
+            try:
+                csr.verify_self_signature()
+            except Exception:
                 raise errors.CertificateOperationError(
                     error="CSR signature verification failed"
                 )
@@ -425,10 +429,10 @@ class PythonCA:
                     raise
 
                 # Build certificate
-                builder = x509.CertificateBuilder()
-                builder = builder.subject_name(csr.subject)
-                builder = builder.issuer_name(self.ca_cert.subject)
-                builder = builder.public_key(csr.public_key())
+                builder = synta.CertificateBuilder()
+                builder = builder.subject_name(csr.subject_raw_der)
+                builder = builder.issuer_name(self.ca_cert.subject_raw_der)
+                builder = builder.public_key_der(csr.subject_public_key_info_der)
                 builder = builder.serial_number(serial_number)
 
                 now = datetime.datetime.now(datetime.timezone.utc)
@@ -436,7 +440,7 @@ class PythonCA:
 
                 # Enforce parent CA validity constraint (RFC 5280):
                 # issued certificate must not extend beyond CA's notAfter
-                ca_not_after = self.ca_cert.not_valid_after_utc
+                ca_not_after = self.ca_cert.not_after_utc
                 if not_after > ca_not_after:
                     logger.warning(
                         "Certificate validity (%s) would exceed CA validity "
@@ -446,8 +450,8 @@ class PythonCA:
                     )
                     not_after = ca_not_after
 
-                builder = builder.not_valid_before(now)
-                builder = builder.not_valid_after(not_after)
+                builder = builder.not_valid_before_utc(now)
+                builder = builder.not_valid_after_utc(not_after)
 
                 # Add extensions based on profile
                 builder = self._add_extensions_for_profile(
@@ -519,11 +523,11 @@ class PythonCA:
 
     def _add_extensions_for_profile(
         self,
-        builder: x509.CertificateBuilder,
+        builder,
         profile: str,
-        csr: x509.CertificateSigningRequest,
-        issuer_cert: Optional[x509.Certificate] = None,
-    ) -> x509.CertificateBuilder:
+        csr,
+        issuer_cert=None,
+    ):
         """Add extensions based on certificate profile using ProfileManager
 
         Args:
@@ -557,36 +561,32 @@ class PythonCA:
                 )
             )
 
-        # Add all profile-defined extensions (BasicConstraints, KeyUsage,
-        # ExtendedKeyUsage)
-        for ext in profile_extensions:
-            builder = builder.add_extension(ext.value, critical=ext.critical)
+        # Add all profile-defined extensions (KeyUsage, ExtendedKeyUsage).
+        # get_extensions_for_profile() returns (oid_str, critical, der) tuples.
+        for oid_str, critical, der in profile_extensions:
+            builder = builder.add_extension(oid_str, critical, der)
 
-        # Copy subject alternative names from CSR if present
-        # This is not profile-specific, so handle separately
-        try:
-            for ext in csr.extensions:
-                if ext.oid == ExtensionOID.SUBJECT_ALTERNATIVE_NAME:
-                    builder = builder.add_extension(
-                        ext.value, critical=ext.critical
-                    )
-                    break  # Only copy SAN once
-        except x509.ExtensionNotFound:
-            pass
+        # Copy subject alternative names from CSR if present.
+        san_oid = str(synta.oids.SUBJECT_ALT_NAME)
+        san_der = csr.get_extension_value_der(san_oid)
+        if san_der is not None:
+            builder = builder.add_extension(san_oid, False, san_der)
 
         # Add authority key identifier (always required for cert chain
         # validation)
+        aki_der = synta.ext.authority_key_identifier(
+            issuer_cert.subject_public_key_info_der
+        )
         builder = builder.add_extension(
-            x509.AuthorityKeyIdentifier.from_issuer_public_key(
-                issuer_cert.public_key()
-            ),
-            critical=False,
+            str(synta.oids.AUTHORITY_KEY_IDENTIFIER), False, aki_der
         )
 
         # Add subject key identifier (always required for cert identification)
+        ski_der = synta.ext.subject_key_identifier(
+            csr.subject_public_key_info_der
+        )
         builder = builder.add_extension(
-            x509.SubjectKeyIdentifier.from_public_key(csr.public_key()),
-            critical=False,
+            str(synta.oids.SUBJECT_KEY_IDENTIFIER), False, ski_der
         )
 
         return builder
@@ -645,7 +645,53 @@ class PythonCA:
 
         logger.debug("Certificate %s taken off hold", serial_number)
 
-    def generate_crl(self) -> x509.CertificateRevocationList:
+    @staticmethod
+    def _build_crl_sig_alg_der(signing_key, hash_algo: str) -> bytes:
+        """Build the DER AlgorithmIdentifier for CRL signing.
+
+        Args:
+            signing_key: synta.PrivateKey or HSMPrivateKeyProxy
+            hash_algo: Hash algorithm string (e.g. 'sha256'), or None for
+                       prehash-less algorithms such as ML-DSA.
+
+        Returns:
+            DER bytes of the AlgorithmIdentifier SEQUENCE.
+        """
+        # Obtain the public key (HSMPrivateKeyProxy exposes public_key() as a
+        # method while synta.PrivateKey exposes it as a property).
+        pub = (
+            signing_key.public_key()
+            if callable(getattr(signing_key, 'public_key', None))
+            else signing_key.public_key
+        )
+        key_type = getattr(pub, 'key_type', 'rsa') if pub else 'rsa'
+
+        if key_type == 'ec':
+            ha = (hash_algo or 'sha256').lower()
+            if ha == 'sha384':
+                oid = synta.oids.ECDSA_WITH_SHA384
+            elif ha == 'sha512':
+                oid = synta.oids.ECDSA_WITH_SHA512
+            else:
+                oid = synta.oids.ECDSA_WITH_SHA256
+            return synta.AlgorithmIdentifier.from_oid_no_params(oid).to_der()
+        elif key_type in ('mldsa', 'ml-dsa'):
+            key_size = getattr(pub, 'key_size', 65)
+            oid_map = {
+                44: synta.oids.ML_DSA_44,
+                65: synta.oids.ML_DSA_65,
+                87: synta.oids.ML_DSA_87,
+            }
+            oid = oid_map.get(key_size, synta.oids.ML_DSA_65)
+            return synta.AlgorithmIdentifier.from_oid_no_params(oid).to_der()
+        else:
+            # RSA and fallback
+            alg_der = synta.signing_algorithm_der(
+                str(synta.oids.RSA_ENCRYPTION), hash_algo or 'sha256'
+            )
+            return alg_der
+
+    def generate_crl(self) -> synta.CertificateList:
         """Generate Certificate Revocation List
 
         Uses configuration settings matching Dogtag CS.cfg:
@@ -658,29 +704,27 @@ class PythonCA:
         # Read CRL timing from config
         next_update_minutes = self._get_crl_timing()[1]
 
-        # Get next CRL number from storage (RFC 5280 §5.2.3 requirement)
-        crl_number = self.storage.get_next_crl_number()
+        # Advance the CRL sequence counter in storage (RFC 5280 §5.2.3).
+        # synta.CertificateListBuilder has no add_extension() method so the
+        # CRL Number extension cannot be embedded in this release; the counter
+        # is still incremented to keep the LDAP sequence consistent.
+        self.storage.get_next_crl_number()
 
-        builder = x509.CertificateRevocationListBuilder()
-        builder = builder.issuer_name(self.ca_cert.subject)
+        # Determine signing algorithm DER
+        signing_alg = x509_utils.get_certificate_signature_algorithm(
+            self.ca_cert
+        )
+        hash_alg = x509_utils.parse_signature_algorithm(signing_alg)
+        alg_der = self._build_crl_sig_alg_der(self.ca_private_key, hash_alg)
 
         now = datetime.datetime.now(datetime.timezone.utc)
-        builder = builder.last_update(now)
-        builder = builder.next_update(
+
+        builder = synta.CertificateListBuilder()
+        builder = builder.issuer(self.ca_cert.subject_raw_der)
+        builder = builder.signature_algorithm(alg_der)
+        builder = builder.this_update_utc(now)
+        builder = builder.next_update_utc(
             now + datetime.timedelta(minutes=next_update_minutes)
-        )
-
-        # Add CRL Number extension (RFC 5280 §5.2.3 requirement)
-        builder = builder.add_extension(
-            x509.CRLNumber(crl_number), critical=False
-        )
-
-        # Add Authority Key Identifier extension (RFC 5280 §5.2.1)
-        builder = builder.add_extension(
-            x509.AuthorityKeyIdentifier.from_issuer_public_key(
-                self.ca_cert.public_key()
-            ),
-            critical=False,
         )
 
         # Get all revoked certificates from LDAP storage
@@ -697,7 +741,7 @@ class PythonCA:
                 c
                 for c in revoked_certs
                 if c.certificate is not None
-                and c.certificate.not_valid_after_utc > now
+                and c.certificate.not_after_utc > now
             ]
 
         # Add revoked certificates to CRL
@@ -710,34 +754,24 @@ class PythonCA:
                         cert_record.serial_number,
                     )
                     continue
-                revoked_cert = x509.RevokedCertificateBuilder()
-                revoked_cert = revoked_cert.serial_number(
-                    cert_record.serial_number
+                # revoke_utc() takes big-endian serial bytes, revocation
+                # datetime, and integer reason code
+                serial_bytes = cert_record.serial_number.to_bytes(
+                    (cert_record.serial_number.bit_length() + 8) // 8, 'big'
                 )
-                revoked_cert = revoked_cert.revocation_date(
-                    cert_record.revoked_at
-                )
-
+                reason_int = 0  # unspecified
                 if cert_record.revocation_reason:
-                    reason_flag = REVOCATION_REASON_TO_FLAG.get(
-                        cert_record.revocation_reason,
-                        x509.ReasonFlags.unspecified,
-                    )
-                    revoked_cert = revoked_cert.add_extension(
-                        x509.CRLReason(reason_flag),
-                        critical=False,
-                    )
+                    reason_int = cert_record.revocation_reason.value
 
-                builder = builder.add_revoked_certificate(revoked_cert.build())
+                builder = builder.revoke_utc(
+                    serial_bytes, cert_record.revoked_at, reason_int
+                )
 
-        # Sign CRL with algorithm matching CA certificate
-        # Extract algorithm from the CA cert that will sign this CRL
-        signing_alg = x509_utils.get_certificate_signature_algorithm(
-            self.ca_cert
-        )
-        hash_alg = x509_utils.parse_signature_algorithm(signing_alg)
-        crl = builder.sign(self.ca_private_key, hash_alg)
-        return crl
+        # Build TBS, sign it, then assemble the complete CRL
+        tbs_der = builder.build()
+        sig = self.ca_private_key.sign(tbs_der, hash_alg)
+        crl_der = synta.CertificateListBuilder.assemble(tbs_der, alg_der, sig)
+        return synta.CertificateList.from_der(crl_der)
 
     def find_certificates(
         self, criteria: Dict[str, Any] = None
