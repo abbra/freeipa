@@ -22,6 +22,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
+import synta
+
 from ipalib import errors
 from ipapython.dn import DN
 from ipathinca.ldap_utils import get_ldap_connection
@@ -734,11 +736,8 @@ class ACMEStorageBackend(LDAPStorageMixin):
         try:
             with get_ldap_connection() as conn:
                 # Convert PEM to DER for storage in userCertificate attribute
-                from cryptography import x509
-                from cryptography.hazmat.primitives import serialization
-
-                cert = x509.load_pem_x509_certificate(certificate_pem.encode())
-                cert_der = cert.public_bytes(serialization.Encoding.DER)
+                cert = synta.Certificate.from_pem(certificate_pem.encode())
+                cert_der = cert.to_der()
 
                 entry = conn.make_entry(
                     DN(("acmeCertificateId", cert_id), self.certificates_dn),
@@ -771,14 +770,9 @@ class ACMEStorageBackend(LDAPStorageMixin):
                 entry = conn.get_entry(dn)
 
                 # Convert DER to PEM
-                from cryptography import x509
-                from cryptography.hazmat.primitives import serialization
-
                 cert_der = entry.single_value["userCertificate"]
-                cert = x509.load_der_x509_certificate(cert_der)
-                cert_pem = cert.public_bytes(
-                    serialization.Encoding.PEM
-                ).decode()
+                cert = synta.Certificate.from_der(cert_der)
+                cert_pem = synta.Certificate.to_pem(cert).decode()
 
                 return cert_pem
         except Exception as e:

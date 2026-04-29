@@ -15,8 +15,7 @@ import os
 import threading
 from typing import Optional, List, Dict, Any
 
-from cryptography import x509
-from cryptography.hazmat.primitives import serialization
+import synta
 
 from ipalib import errors
 from ipathinca.certificate_lifecycle import (
@@ -28,6 +27,16 @@ from ipathinca.certificate_lifecycle import (
 
 
 logger = logging.getLogger(__name__)
+
+
+def _serialize_pem(obj) -> str:
+    """Serialize a synta certificate, CSR, or private key to PEM string."""
+    if isinstance(obj, synta.Certificate):
+        return synta.Certificate.to_pem(obj).decode()
+    if hasattr(obj, 'to_pem'):
+        result = obj.to_pem()
+        return result.decode() if isinstance(result, bytes) else result
+    raise TypeError(f"Cannot serialize {type(obj)} to PEM")
 
 
 class CertificateStatus(enum.Enum):
@@ -73,22 +82,6 @@ REVOCATION_STRING_TO_REASON = {
     v: k for k, v in REVOCATION_REASON_TO_STRING.items()
 }
 
-REVOCATION_REASON_TO_FLAG = {
-    RevocationReason.UNSPECIFIED: x509.ReasonFlags.unspecified,
-    RevocationReason.KEY_COMPROMISE: x509.ReasonFlags.key_compromise,
-    RevocationReason.CA_COMPROMISE: x509.ReasonFlags.ca_compromise,
-    RevocationReason.AFFILIATION_CHANGED: x509.ReasonFlags.affiliation_changed,
-    RevocationReason.SUPERSEDED: x509.ReasonFlags.superseded,
-    RevocationReason.CESSATION_OF_OPERATION: (
-        x509.ReasonFlags.cessation_of_operation
-    ),
-    RevocationReason.CERTIFICATE_HOLD: x509.ReasonFlags.certificate_hold,
-    RevocationReason.PRIVILEGE_WITHDRAWN: (
-        x509.ReasonFlags.privilege_withdrawn
-    ),
-    RevocationReason.AA_COMPROMISE: x509.ReasonFlags.aa_compromise,
-    RevocationReason.REMOVE_FROM_CRL: x509.ReasonFlags.remove_from_crl,
-}
 
 
 class CertificateRequest:
@@ -125,7 +118,7 @@ class CertificateRequest:
             return str(cls._request_counter)
 
     def __init__(
-        self, csr: x509.CertificateSigningRequest, profile: str = None
+        self, csr, profile: str = None
     ):
         self.csr = csr
         self.profile = profile or "caIPAserviceCert"
@@ -158,7 +151,7 @@ class CertificateRequest:
             "serial_number": self.serial_number,
             "submitted_at": self.submitted_at.isoformat(),
             "csr_pem": (
-                self.csr.public_bytes(serialization.Encoding.PEM).decode()
+                _serialize_pem(self.csr)
                 if self.csr
                 else None
             ),
@@ -184,7 +177,7 @@ class CertificateRecord:
 
     def __init__(
         self,
-        certificate: x509.Certificate,
+        certificate,
         request: CertificateRequest,
         principal: Optional[str] = None,
     ):
@@ -447,9 +440,7 @@ class CertificateRecord:
             ),
             "request_id": self.request_id,
             "profile": self.profile,
-            "certificate_pem": self.certificate.public_bytes(
-                serialization.Encoding.PEM
-            ).decode(),
+            "certificate_pem": _serialize_pem(self.certificate),
         }
 
         # Add lifecycle information
