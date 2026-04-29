@@ -28,11 +28,12 @@ from typing import Optional, Dict, Any, List
 import pwd
 import grp
 
-from cryptography import x509
-from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+import synta
+import synta.ext
+import synta.oids
+import synta.oids.attr
+
+from synta.crypto import aes_gcm_encrypt, aes_gcm_decrypt
 
 from ipalib import errors
 from ipaplatform.paths import paths
@@ -40,6 +41,7 @@ from ipaplatform.paths import paths
 from ipathinca.hsm import HSMConfig, HSMKeyBackend, HSMPrivateKeyProxy
 from ipathinca.ldap_utils import is_internal_token
 from ipathinca.nss_utils import NSSDatabase
+from ipathinca.x509_utils import build_name_der
 
 logger = logging.getLogger(__name__)
 
@@ -131,58 +133,49 @@ class TransportKey:
         )
 
         # Create transport certificate
-        subject = x509.Name(
-            [
-                x509.NameAttribute(
-                    NameOID.ORGANIZATION_NAME,
-                    ca_cert.subject.get_attributes_for_oid(
-                        NameOID.ORGANIZATION_NAME
-                    )[0].value,
-                ),
-                x509.NameAttribute(
-                    NameOID.COMMON_NAME, "KRA Transport Certificate"
-                ),
-            ]
+        # Extract org from CA certificate subject
+        org_name = ""
+        for oid_str, value in synta.parse_name_attrs(
+            ca_cert.subject_raw_der
+        ):
+            if oid_str == str(synta.oids.attr.ORGANIZATION):
+                org_name = value
+                break
+        subject_der = build_name_der(
+            [("O", org_name), ("CN", "KRA Transport Certificate")]
         )
 
         # Build certificate
-        builder = x509.CertificateBuilder()
-        builder = builder.subject_name(subject)
-        builder = builder.issuer_name(ca_cert.subject)
-        builder = builder.public_key(private_key.public_key())
-        builder = builder.serial_number(x509.random_serial_number())
-        builder = builder.not_valid_before(datetime.now(timezone.utc))
-        builder = builder.not_valid_after(
+        ku_bits = (
+            synta.ext.KU_KEY_ENCIPHERMENT | synta.ext.KU_DATA_ENCIPHERMENT
+        )
+        eku_der = synta.ext.ExtendedKeyUsageBuilder().client_auth().build()
+        serial = int.from_bytes(os.urandom(20), "big") >> 1
+        builder = synta.CertificateBuilder()
+        builder = builder.subject_name(subject_der)
+        builder = builder.issuer_name(ca_cert.subject_raw_der)
+        builder = builder.public_key(private_key.public_key)
+        builder = builder.serial_number(serial)
+        builder = builder.not_valid_before_utc(datetime.now(timezone.utc))
+        builder = builder.not_valid_after_utc(
             datetime.now(timezone.utc) + timedelta(days=3650)  # 10 years
         )
 
         # Add extensions for transport certificate
         builder = builder.add_extension(
-            x509.KeyUsage(
-                digital_signature=False,
-                content_commitment=False,
-                key_encipherment=True,  # For wrapping keys
-                data_encipherment=True,  # For encrypting data
-                key_agreement=False,
-                key_cert_sign=False,
-                crl_sign=False,
-                encipher_only=False,
-                decipher_only=False,
-            ),
-            critical=True,
+            str(synta.oids.KEY_USAGE),
+            True,
+            synta.ext.key_usage(ku_bits),
         )
 
         builder = builder.add_extension(
-            x509.ExtendedKeyUsage(
-                [
-                    ExtendedKeyUsageOID.CLIENT_AUTH,  # For authentication
-                ]
-            ),
-            critical=False,
+            str(synta.oids.EXTENDED_KEY_USAGE),
+            False,
+            eku_der,
         )
 
         # Sign certificate with CA key
-        certificate = builder.sign(ca_key, hashes.SHA256())
+        certificate = builder.sign(ca_key, "sha256")
 
         # Import key and certificate to NSSDB
         logger.debug(
@@ -199,7 +192,7 @@ class TransportKey:
         # Save certificate to file (for compatibility/reference)
         # Note: Private key is NOT saved to disk - it stays in NSSDB only
         self._ensure_kra_dir()
-        cert_pem = certificate.public_bytes(serialization.Encoding.PEM)
+        cert_pem = synta.Certificate.to_pem(certificate)
         with open(self.transport_cert_path, "wb") as f:
             f.write(cert_pem)
         os.chmod(self.transport_cert_path, 0o640)
@@ -326,9 +319,7 @@ class TransportKey:
         if self.certificate is None:
             self.load_transport_key()
 
-        return self.certificate.public_bytes(
-            serialization.Encoding.PEM
-        ).decode("utf-8")
+        return synta.Certificate.to_pem(self.certificate).decode("utf-8")
 
     def wrap_secret(self, secret_data: bytes) -> bytes:
         """
@@ -345,17 +336,12 @@ class TransportKey:
         if self.certificate is None:
             self.load_transport_key()
 
-        public_key = self.certificate.public_key()
+        public_key = synta.PublicKey.from_der(
+            self.certificate.subject_public_key_info_der
+        )
 
         # Use RSA-OAEP padding (same as Dogtag)
-        encrypted = public_key.encrypt(
-            secret_data,
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None,
-            ),
-        )
+        encrypted = public_key.rsa_oaep_encrypt(secret_data, "sha256")
 
         return encrypted
 
@@ -375,13 +361,8 @@ class TransportKey:
             self.load_transport_key()
 
         # Use RSA-OAEP padding (same as Dogtag)
-        decrypted = self.private_key.decrypt(
-            encrypted_data,
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None,
-            ),
+        decrypted = self.private_key.rsa_oaep_decrypt(
+            encrypted_data, "sha256"
         )
 
         return decrypted
@@ -476,51 +457,50 @@ class StorageKey:
         )
 
         # Create storage certificate
-        subject = x509.Name(
-            [
-                x509.NameAttribute(
-                    NameOID.ORGANIZATION_NAME,
-                    ca_cert.subject.get_attributes_for_oid(
-                        NameOID.ORGANIZATION_NAME
-                    )[0].value,
-                ),
-                x509.NameAttribute(
-                    NameOID.COMMON_NAME, "KRA Storage Certificate"
-                ),
-            ]
+        # Extract org from CA certificate subject
+        org_name = ""
+        for oid_str, value in synta.parse_name_attrs(
+            ca_cert.subject_raw_der
+        ):
+            if oid_str == str(synta.oids.attr.ORGANIZATION):
+                org_name = value
+                break
+        subject_der = build_name_der(
+            [("O", org_name), ("CN", "KRA Storage Certificate")]
         )
 
         # Build certificate (valid for 10 years like Dogtag)
+        ku_bits = (
+            synta.ext.KU_KEY_ENCIPHERMENT | synta.ext.KU_DATA_ENCIPHERMENT
+        )
+        eku_der = (
+            synta.ext.ExtendedKeyUsageBuilder().email_protection().build()
+        )
+        serial = int.from_bytes(os.urandom(20), "big") >> 1
         builder = (
-            x509.CertificateBuilder()
-            .subject_name(subject)
-            .issuer_name(ca_cert.subject)
-            .public_key(private_key.public_key())
-            .serial_number(x509.random_serial_number())
-            .not_valid_before(datetime.now(timezone.utc))
-            .not_valid_after(datetime.now(timezone.utc) + timedelta(days=3650))
-            .add_extension(
-                x509.KeyUsage(
-                    digital_signature=False,
-                    content_commitment=False,
-                    key_encipherment=True,
-                    data_encipherment=True,
-                    key_agreement=False,
-                    key_cert_sign=False,
-                    crl_sign=False,
-                    encipher_only=False,
-                    decipher_only=False,
-                ),
-                critical=True,
+            synta.CertificateBuilder()
+            .subject_name(subject_der)
+            .issuer_name(ca_cert.subject_raw_der)
+            .public_key(private_key.public_key)
+            .serial_number(serial)
+            .not_valid_before_utc(datetime.now(timezone.utc))
+            .not_valid_after_utc(
+                datetime.now(timezone.utc) + timedelta(days=3650)
             )
             .add_extension(
-                x509.ExtendedKeyUsage([ExtendedKeyUsageOID.EMAIL_PROTECTION]),
-                critical=True,
+                str(synta.oids.KEY_USAGE),
+                True,
+                synta.ext.key_usage(ku_bits),
+            )
+            .add_extension(
+                str(synta.oids.EXTENDED_KEY_USAGE),
+                True,
+                eku_der,
             )
         )
 
         # Sign with CA key
-        certificate = builder.sign(ca_key, hashes.SHA256())
+        certificate = builder.sign(ca_key, "sha256")
 
         # Import key and certificate to NSSDB
         logger.debug(
@@ -537,7 +517,7 @@ class StorageKey:
         # Save certificate to file (for compatibility/reference)
         # Note: Private key is NOT saved to disk - it stays in NSSDB only
         self._ensure_kra_dir()
-        cert_pem = certificate.public_bytes(serialization.Encoding.PEM)
+        cert_pem = synta.Certificate.to_pem(certificate)
         with open(self.storage_cert_path, "wb") as f:
             f.write(cert_pem)
         os.chmod(self.storage_cert_path, 0o640)
@@ -641,9 +621,7 @@ class StorageKey:
         if self.certificate is None:
             self.load_storage_key()
 
-        return self.certificate.public_bytes(
-            serialization.Encoding.PEM
-        ).decode("utf-8")
+        return synta.Certificate.to_pem(self.certificate).decode("utf-8")
 
     def encrypt_for_storage(self, plaintext: bytes) -> bytes:
         """
@@ -670,18 +648,14 @@ class StorageKey:
 
         # Encrypt data with session key using AES-GCM
         nonce = secrets.token_bytes(12)
-        aesgcm = AESGCM(session_key)
-        ciphertext = aesgcm.encrypt(nonce, plaintext, None)
+        ciphertext = aes_gcm_encrypt(session_key, nonce, plaintext, None)
 
         # Encrypt session key with storage RSA public key
-        public_key = self.certificate.public_key()
-        encrypted_session_key = public_key.encrypt(
-            session_key,
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None,
-            ),
+        public_key = synta.PublicKey.from_der(
+            self.certificate.subject_public_key_info_der
+        )
+        encrypted_session_key = public_key.rsa_oaep_encrypt(
+            session_key, "sha256"
         )
 
         # Pack: length of encrypted session key (2 bytes) + encrypted session
@@ -736,18 +710,12 @@ class StorageKey:
         ciphertext = remaining[12:]
 
         # Decrypt session key with storage RSA private key
-        session_key = self.private_key.decrypt(
-            encrypted_session_key,
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None,
-            ),
+        session_key = self.private_key.rsa_oaep_decrypt(
+            encrypted_session_key, "sha256"
         )
 
         # Decrypt data with session key
-        aesgcm = AESGCM(session_key)
-        plaintext = aesgcm.decrypt(nonce, ciphertext, None)
+        plaintext = aes_gcm_decrypt(session_key, nonce, ciphertext, None)
 
         return plaintext
 
