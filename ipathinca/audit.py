@@ -24,8 +24,6 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
 
-from cryptography.hazmat.primitives.asymmetric import padding
-
 from ipaplatform.paths import paths
 import ipathinca
 from ipathinca import x509_utils
@@ -265,10 +263,11 @@ class AuditLogger:
             audit_alg = ipathinca.get_config_value(
                 "ca", "audit_signing_algorithm", default="SHA256withRSA"
             )
+            # parse_signature_algorithm returns a string like 'sha256'
+            # (or None for ML-DSA).  synta.PrivateKey.sign() accepts the
+            # string directly; no padding object is needed.
             hash_alg = x509_utils.parse_signature_algorithm(audit_alg)
-            signature_bytes = self.signing_key.sign(
-                message_bytes, padding.PKCS1v15(), hash_alg
-            )
+            signature_bytes = self.signing_key.sign(message_bytes, hash_alg)
 
             # Base64 encode for text log format
             signature = base64.b64encode(signature_bytes).decode("ascii")
