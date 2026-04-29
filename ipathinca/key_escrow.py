@@ -17,9 +17,9 @@ import secrets
 from datetime import datetime, timezone
 from typing import List
 
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography import x509
+import synta
+import synta.ext
+import synta.oids
 
 from ipalib import errors
 from ipathinca import get_config_value
@@ -115,12 +115,10 @@ class PythonKeyEscrowBackend:
         Generate self-signed transport certificate for key wrapping
         """
         # Generate private key
-        private_key = rsa.generate_private_key(
-            public_exponent=65537, key_size=2048
-        )
+        private_key = synta.PrivateKey.generate_rsa(2048)
 
         # Create self-signed certificate
-        subject = issuer = x509_utils.build_x509_name(
+        name_der = x509_utils.build_x509_name(
             [
                 ("CN", "Transport Certificate"),
                 ("O", "IPA Key Escrow"),
@@ -130,41 +128,31 @@ class PythonKeyEscrowBackend:
             ]
         )
 
+        serial_number = int.from_bytes(os.urandom(20), 'big') >> 1
+        now = datetime.now(timezone.utc)
+        not_after = now.replace(year=now.year + 10)
+
+        san_oid = str(synta.oids.SUBJECT_ALT_NAME)
+        san_der = synta.ext.SAN().dns_name("localhost").build()
+
         cert = (
-            x509.CertificateBuilder()
-            .subject_name(subject)
-            .issuer_name(issuer)
-            .public_key(private_key.public_key())
-            .serial_number(x509.random_serial_number())
-            .not_valid_before(datetime.now(timezone.utc))
-            .not_valid_after(
-                datetime.now(timezone.utc).replace(
-                    year=datetime.now().year + 10
-                )
-            )
-            .add_extension(
-                x509.SubjectAlternativeName(
-                    [
-                        x509.DNSName("localhost"),
-                    ]
-                ),
-                critical=False,
-            )
-            .sign(private_key, hashes.SHA256())
+            synta.CertificateBuilder()
+            .subject_name(name_der)
+            .issuer_name(name_der)
+            .public_key(private_key.public_key)
+            .serial_number(serial_number)
+            .not_valid_before_utc(now)
+            .not_valid_after_utc(not_after)
+            .add_extension(san_oid, False, san_der)
+            .sign(private_key, 'sha256')
         )
 
         # Save certificate and key
         with open(self.transport_cert_path, "wb") as f:
-            f.write(cert.public_bytes(serialization.Encoding.PEM))
+            f.write(cert.to_pem())
 
         with open(self.transport_key_path, "wb") as f:
-            f.write(
-                private_key.private_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PrivateFormat.PKCS8,
-                    encryption_algorithm=serialization.NoEncryption(),
-                )
-            )
+            f.write(private_key.to_pem())
 
         # Set restrictive permissions
         os.chmod(self.transport_key_path, 0o600)
