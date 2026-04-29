@@ -34,7 +34,6 @@ from ipaserver.install.replication import replica_conn_check
 from ipaserver.masters import get_ca_service
 from ipalib import api, errors, x509
 from ipapython.dn import DN
-from cryptography.hazmat.primitives import serialization
 
 from . import conncheck, dogtag, cainstance
 
@@ -742,9 +741,7 @@ def install_step_1(standalone, replica_config, options, custodia):
             with open(paths.IPA_CA_CRT, 'rb') as f:
                 cacert_der = x509.load_pem_x509_certificate(
                     f.read()
-                ).public_bytes(
-                    serialization.Encoding.DER
-                )
+                ).public_bytes('DER')
 
             dsdb = certs.CertDB(
                 realm_name, nssdir=dirname, subject_base=subject_base)
