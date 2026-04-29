@@ -184,7 +184,8 @@ class SubjectKeyIdentifierExtDefault(Default):
 
     def apply(self, builder, csr, context: dict):
         """Add Subject Key Identifier extension"""
-        ski_der = synta.ext.subject_key_identifier(csr.subject_public_key_info_der)
+        ski_der = synta.ext.subject_key_identifier(
+            csr.subject_public_key_info_der)
         return builder.add_extension(
             str(synta.oids.SUBJECT_KEY_IDENTIFIER), self.critical, ski_der
         )
@@ -567,7 +568,7 @@ class SANToCNDefault(Default):
 
         try:
             # Get SAN extension from CSR
-            for tag_num, content in csr.subject_alt_names():
+            for tag_num, _content in csr.subject_alt_names():
                 if tag_num == gn.DNS_NAME:
                     # Use SAN DNS name as CN
                     # This will be used if the profile sets subject from SAN

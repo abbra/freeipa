@@ -19,7 +19,6 @@ import warnings
 # Don't import any ipa modules here so tracemalloc can trace memory usage.
 
 import gssapi
-# pylint: disable=import-error
 from werkzeug.middleware.profiler import ProfilerMiddleware
 from werkzeug.exceptions import NotFound
 from werkzeug.serving import run_simple

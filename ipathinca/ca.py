@@ -432,7 +432,8 @@ class PythonCA:
                 builder = synta.CertificateBuilder()
                 builder = builder.subject_name(csr.subject_raw_der)
                 builder = builder.issuer_name(self.ca_cert.subject_raw_der)
-                builder = builder.public_key_der(csr.subject_public_key_info_der)
+                builder = builder.public_key_der(
+                    csr.subject_public_key_info_der)
                 builder = builder.serial_number(serial_number)
 
                 now = datetime.datetime.now(datetime.timezone.utc)

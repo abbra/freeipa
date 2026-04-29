@@ -447,7 +447,8 @@ class InternalCA(PythonCA):
                 principal=principal or "System",
                 request_id=request_id,
                 serial_number="FAILED",
-                subject=str(x509_utils.cert_name_to_ipa_dn(csr.subject_raw_der)),
+                subject=str(
+                    x509_utils.cert_name_to_ipa_dn(csr.subject_raw_der)),
                 profile=request.profile,
                 outcome=AuditOutcome.FAILURE,
             )
