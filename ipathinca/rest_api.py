@@ -81,13 +81,19 @@ app.config["JSON_SORT_KEYS"] = False
 # ---------------------------------------------------------------------------
 
 def _encode_length(n: int) -> bytes:
-    """Encode a DER length field."""
+    """Encode a DER length field (supports up to 4-byte lengths)."""
     if n < 0x80:
         return bytes([n])
     elif n < 0x100:
         return bytes([0x81, n])
     elif n < 0x10000:
         return bytes([0x82, n >> 8, n & 0xFF])
+    elif n < 0x1000000:
+        return bytes([0x83, n >> 16, (n >> 8) & 0xFF, n & 0xFF])
+    elif n < 0x100000000:
+        return bytes(
+            [0x84, n >> 24, (n >> 16) & 0xFF, (n >> 8) & 0xFF, n & 0xFF]
+        )
     else:
         raise ValueError(f"Length too large for DER encoding: {n}")
 
