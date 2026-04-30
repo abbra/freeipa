@@ -1213,10 +1213,14 @@ def get_revoked_certificates():
             paginated = storage.get_revoked_certificates(
                 offset=offset, limit=limit
             )
+            entries = [
+                r.to_dict() if hasattr(r, "to_dict") else r
+                for r in paginated
+            ]
             return (
                 jsonify(
                     {
-                        "entries": paginated,
+                        "entries": entries,
                         "limit": limit,
                         "offset": offset,
                     }
@@ -1341,6 +1345,7 @@ def list_profiles():
 
 @app.route("/ca/rest/profiles", methods=["POST"])
 @app.route("/ca/v2/profiles", methods=["POST"])
+@require_agent_auth
 @require_ca_backend
 @handle_ca_errors
 def create_profile():
@@ -1457,6 +1462,7 @@ def get_profile(profile_id):
 
 @app.route("/ca/rest/profiles/raw", methods=["POST"])
 @app.route("/ca/v2/profiles/raw", methods=["POST"])
+@require_agent_auth
 @require_ca_backend
 @handle_ca_errors
 def create_profile_from_raw():
@@ -1590,6 +1596,7 @@ def update_profile(profile_id):
 
 @app.route("/ca/rest/profiles/<profile_id>", methods=["DELETE"])
 @app.route("/ca/v2/profiles/<profile_id>", methods=["DELETE"])
+@require_agent_auth
 @require_ca_backend
 @validate_input(profile_id=validate_profile_id)
 @handle_ca_errors
@@ -1696,6 +1703,7 @@ def get_profile_raw(profile_id):
 
 @app.route("/ca/rest/profiles/<profile_id>/raw", methods=["PUT"])
 @app.route("/ca/v2/profiles/<profile_id>/raw", methods=["PUT"])
+@require_agent_auth
 @require_ca_backend
 @validate_input(profile_id=validate_profile_id)
 @handle_ca_errors
