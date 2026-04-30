@@ -415,6 +415,16 @@ class InvalidCAConfiguration(CAConfigurationError):
     """CA configuration is invalid"""
 
 
+class ExternalCAStep1Complete(IPAThinCAError):
+    """External CA Step 1 (CSR generation) completed successfully.
+
+    Raised by _generate_external_ca_csr() instead of calling sys.exit(0)
+    directly so that finally blocks are honoured and unit tests can run
+    the function without the process terminating.  The top-level CLI
+    installer catches this exception and calls sys.exit(0).
+    """
+
+
 # ============================================================================
 # Utility Functions
 # ============================================================================
