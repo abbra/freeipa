@@ -1270,13 +1270,9 @@ class Certs:
         except errors.DuplicateEntry:
             logger.debug("pkidbuser LDAP entry already exists")
         except Exception as e:
-            logger.error(
-                "Failed to create pkidbuser LDAP entry: %s. "
-                "Health checks will fail until this entry is created. "
-                "Run 'ipa-healthcheck' to verify after installation.",
-                e,
-                exc_info=True,
-            )
+            raise errors.CertificateOperationError(
+                error=f"Failed to create pkidbuser LDAP entry: {e}"
+            ) from e
 
     def _generate_server_cert(self):
         """Generate server SSL certificate through ipathinca CA.

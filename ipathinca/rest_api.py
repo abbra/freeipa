@@ -8,6 +8,7 @@ PKI REST API endpoints, allowing ipathinca to serve as a drop-in
 replacement for Dogtag PKI's pki-tomcat service.
 """
 
+import hmac
 import logging
 import os
 import base64
@@ -3557,9 +3558,9 @@ def submit_key_request():
                         )
                     if len(plaintext_padded) < padding_length:
                         raise ValueError("Padding length exceeds data length")
-                    if not all(
-                        b == padding_length
-                        for b in plaintext_padded[-padding_length:]
+                    if not hmac.compare_digest(
+                        bytes([padding_length] * padding_length),
+                        plaintext_padded[-padding_length:],
                     ):
                         raise ValueError("Invalid PKCS7 padding bytes")
                     plaintext = plaintext_padded[:-padding_length]
