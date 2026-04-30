@@ -23,6 +23,7 @@ from ipaserver.install import sysupgrade
 from ipapython.install import typing
 from ipapython.install.core import group, knob, extend_knob
 from ipaserver.install import acmeinstance, cainstance, bindinstance, dsinstance
+from ipaserver.install.ipathincainstance import IPAThinCAInstance
 from ipapython import ipautil, certdb
 from ipapython import ipaldap
 from ipapython.admintool import ScriptError
