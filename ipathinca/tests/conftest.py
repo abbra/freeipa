@@ -12,7 +12,6 @@ import os
 import subprocess
 
 import pytest
-import synta
 from pathlib import Path
 
 from ipathinca.x509_utils import ipa_dn_to_name_der
@@ -81,12 +80,14 @@ def variable_context(ipathinca_config):
 @pytest.fixture
 def sample_key():
     """Generate a sample RSA private key."""
+    import synta
     return synta.PrivateKey.generate_rsa(2048)
 
 
 @pytest.fixture
 def sample_csr(ipathinca_config, sample_key):
     """Generate a sample CSR with proper DN ordering."""
+    import synta
     realm = ipathinca_config.get("global", "realm")
     domain = ipathinca_config.get("global", "domain")
 
