@@ -259,12 +259,17 @@ class HSMKeyBackend:
         )
 
     def find_key(self, key_label: str) -> bool:
-        """Return True if a private key with this label exists on the token."""
+        """Return True if a private key with this label exists on the token.
+
+        Raises:
+            errors.CertificateOperationError: On HSM communication failure.
+        """
         try:
             return self.token.find_key(self._make_key_uri(key_label))
         except ValueError as e:
-            logger.error("Error finding key in HSM: %s", e)
-            return False
+            raise errors.CertificateOperationError(
+                error=f"Error finding key '{key_label}' in HSM: {e}"
+            ) from e
 
     def delete_key(self, key_label: str) -> None:
         """Destroy the named private key (and its public key) from the token."""
@@ -278,12 +283,17 @@ class HSMKeyBackend:
             )
 
     def list_keys(self) -> List[str]:
-        """Return labels of all private keys on this token."""
+        """Return labels of all private keys on this token.
+
+        Raises:
+            errors.CertificateOperationError: On HSM communication failure.
+        """
         try:
             return [k.label for k in self.token.list_keys()]
         except ValueError as e:
-            logger.error("Failed to list keys in HSM: %s", e)
-            return []
+            raise errors.CertificateOperationError(
+                error=f"Failed to list keys in HSM: {e}"
+            ) from e
 
     def close(self) -> None:
         """No-op: synta manages PKCS#11 sessions per-operation."""
@@ -324,7 +334,14 @@ class HSMPrivateKeyProxy:
                     "Loading HSM key via PKCS#11 URI for label: %s",
                     self.key_label,
                 )
-                self._synta_key = synta.PrivateKey.from_pkcs11_uri(uri)
+                try:
+                    self._synta_key = synta.PrivateKey.from_pkcs11_uri(uri)
+                except Exception as e:
+                    raise errors.CertificateOperationError(
+                        error=(
+                            f"Failed to load HSM key '{self.key_label}': {e}"
+                        )
+                    ) from e
             return self._synta_key
 
     def sign(
@@ -359,17 +376,17 @@ _HSM_BACKEND_LOCK = threading.Lock()
 
 
 def get_hsm_backend(config: HSMConfig = None) -> Optional[HSMKeyBackend]:
-    """Get or create the module-level HSMKeyBackend singleton."""
+    """Get or create the module-level HSMKeyBackend singleton.
+
+    Returns None if no config is provided (HSM not configured).
+    Raises on initialization failure so the caller gets a precise error.
+    """
     global _HSM_BACKEND  # pylint: disable=global-statement
 
     with _HSM_BACKEND_LOCK:
         if _HSM_BACKEND is None and config:
-            try:
-                _HSM_BACKEND = HSMKeyBackend(config)
-                logger.info("HSM backend initialized")
-            except Exception as e:  # pylint: disable=broad-exception-caught
-                logger.error("Failed to initialize HSM backend: %s", e)
-                return None
+            _HSM_BACKEND = HSMKeyBackend(config)
+            logger.info("HSM backend initialized")
 
         return _HSM_BACKEND
 
@@ -390,9 +407,11 @@ def list_pkcs11_slots(library_path: str) -> List[Dict[str, Any]]:
         model, serial_number, flags).
     """
     if not _PKCS11_AVAILABLE:
-        raise ImportError(
-            "synta.pkcs11 is not available. "
-            "Upgrade synta to enable HSM support."
+        raise errors.DependencyError(
+            error=(
+                "synta.pkcs11 is not available. "
+                "Upgrade synta to enable HSM support."
+            )
         )
     try:
         slots = _pkcs11.list_slots(module=library_path)
@@ -433,9 +452,11 @@ def get_hsm_info(
         model, serial_number, flags.
     """
     if not _PKCS11_AVAILABLE:
-        raise ImportError(
-            "synta.pkcs11 is not available. "
-            "Upgrade synta to enable HSM support."
+        raise errors.DependencyError(
+            error=(
+                "synta.pkcs11 is not available. "
+                "Upgrade synta to enable HSM support."
+            )
         )
     if slot_id is None and not slot_label:
         raise ValueError("Either slot_id or slot_label must be provided")
