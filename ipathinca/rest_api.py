@@ -1210,17 +1210,13 @@ def get_revoked_certificates():
         storage = ca_backend.ca.storage
 
         if hasattr(storage, "get_revoked_certificates"):
-            revoked = storage.get_revoked_certificates()
-
-            # Apply pagination
-            total = len(revoked)
-            paginated = revoked[offset : offset + limit]
-
+            paginated = storage.get_revoked_certificates(
+                offset=offset, limit=limit
+            )
             return (
                 jsonify(
                     {
                         "entries": paginated,
-                        "total": total,
                         "limit": limit,
                         "offset": offset,
                     }
