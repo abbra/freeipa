@@ -706,10 +706,7 @@ class PythonCA:
         next_update_minutes = self._get_crl_timing()[1]
 
         # Advance the CRL sequence counter in storage (RFC 5280 §5.2.3).
-        # synta.CertificateListBuilder has no add_extension() method so the
-        # CRL Number extension cannot be embedded in this release; the counter
-        # is still incremented to keep the LDAP sequence consistent.
-        self.storage.get_next_crl_number()
+        crl_number = self.storage.get_next_crl_number()
 
         # Determine signing algorithm DER
         signing_alg = x509_utils.get_certificate_signature_algorithm(
@@ -767,6 +764,13 @@ class PythonCA:
                 builder = builder.revoke_utc(
                     serial_bytes, cert_record.revoked_at, reason_int
                 )
+
+        # Embed CRL Number extension (RFC 5280 §5.2.1)
+        builder = builder.add_extension(
+            str(synta.oids.CRL_NUMBER),
+            False,
+            synta.ext.crl_number(crl_number),
+        )
 
         # Build TBS, sign it, then assemble the complete CRL
         tbs_der = builder.build()
