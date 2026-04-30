@@ -35,7 +35,7 @@ from ipapython.certdb import get_ca_nickname
 from ipathinca.ca import CertificateRequest, CertificateRecord, PythonCA
 from ipathinca.exceptions import ExternalCAStep1Complete
 from ipathinca.hsm import HSMConfig, HSMKeyBackend, HSMPrivateKeyProxy
-from ipathinca.key_utils import generate_private_key
+from ipathinca.key_utils import generate_private_key, DEFAULT_RSA_KEY_SIZE
 from ipathinca.nss_utils import NSSDatabase
 from ipathinca.storage_factory import get_storage_backend
 from ipathinca.x509_utils import (
@@ -60,7 +60,7 @@ def get_cert_params_from_config(pki_config, cert_type):
         tuple: (key_size, signing_algorithm) with defaults if not in config
     """
     if pki_config is None:
-        return (2048, "SHA256withRSA")
+        return (DEFAULT_RSA_KEY_SIZE, "SHA256withRSA")
 
     config_prefix = {
         "ca_signing": "pki_ca_signing",
@@ -73,7 +73,9 @@ def get_cert_params_from_config(pki_config, cert_type):
     key_size = pki_config.getint(
         "CA",
         f"{config_prefix}_key_size",
-        fallback=pki_config.getint("DEFAULT", "ipa_key_size", fallback=2048),
+        fallback=pki_config.getint(
+            "DEFAULT", "ipa_key_size", fallback=DEFAULT_RSA_KEY_SIZE
+        ),
     )
 
     signing_alg = pki_config.get(
