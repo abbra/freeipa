@@ -5066,13 +5066,18 @@ def generate_hsm_key():
             hsm_config = HSMConfig(hsm_config_dict)
             hsm_backend = HSMKeyBackend(hsm_config)
 
-            # Generate key pair
-            pub_handle, priv_handle = hsm_backend.generate_key_pair(
-                key_label, key_size, key_type
+            # Map short key_type to signing_alg for dispatch
+            _alg_map = {
+                "RSA": "SHA256withRSA",
+                "EC": "SHA256withEC",
+            }
+            signing_alg = _alg_map.get(
+                key_type.upper(), key_type
             )
 
-            # Get public key
-            public_key = hsm_backend.get_public_key(key_label)
+            hsm_backend.generate_key_pair(
+                key_label, key_size, signing_alg
+            )
 
             hsm_backend.close()
 
@@ -5083,9 +5088,6 @@ def generate_hsm_key():
                     "key_label": key_label,
                     "key_type": key_type,
                     "key_size": key_size,
-                    "public_key_handle": str(pub_handle),
-                    "private_key_handle": str(priv_handle),
-                    "has_public_key": public_key is not None,
                 },
                 status_code=201,
             )
