@@ -149,7 +149,15 @@ def _parse_ocsp_request(der_bytes: bytes) -> _ParsedOCSPRequest:
                                 nonce_bytes, synta.Encoding.DER
                             )
                             nonce = nonce_dec.decode_octet_string().to_bytes()
-                        except Exception:
+                        except Exception as _nonce_err:
+                            # RFC 6960 is ambiguous about inner OCTET STRING
+                            # wrapping; fall back to raw extnValue bytes.
+                            logger.debug(
+                                "OCSP nonce inner OCTET STRING parse failed "
+                                "(%s); using raw extnValue bytes per "
+                                "RFC 6960 §4.1.2",
+                                _nonce_err,
+                            )
                             nonce = nonce_bytes
             else:
                 tbs.decode_raw_tlv()
@@ -187,6 +195,7 @@ class OCSPResponder:
     def __init__(
         self,
         ca,
+        ca_id: str = "unknown",
         ocsp_cert_path: str = None,
         ocsp_key_path: str = None,
         cache_timeout: int = 300,
@@ -196,6 +205,7 @@ class OCSPResponder:
 
         Args:
             ca: Certificate Authority instance (PythonCA or InternalCA)
+            ca_id: CA identifier (used in log messages)
             ocsp_cert_path: Path to OCSP signing certificate (optional, will
                             use CA cert if not provided)
             ocsp_key_path: Path to OCSP signing private key (optional)
@@ -203,6 +213,7 @@ class OCSPResponder:
                            300 = 5 minutes)
         """
         self.ca = ca
+        self.ca_id = ca_id
         self.cache_timeout = cache_timeout
         self.response_cache: OrderedDict = OrderedDict()
         self.cache_maxsize = 1000
@@ -406,8 +417,10 @@ class OCSPResponder:
 
         except Exception as e:
             logger.error(
-                "Error checking certificate status for serial %s: %s",
+                "Error checking certificate status for serial %s in CA '%s':"
+                " %s",
                 serial_number,
+                self.ca_id,
                 e,
             )
             return _OCSP_STATUS_UNKNOWN, None, None, None
@@ -619,7 +632,10 @@ class OCSPResponderManager:
 
     def get_responder(self, ca, ca_id: str = "ipa") -> OCSPResponder:
         """
-        Get or create OCSP responder for a CA
+        Get or create OCSP responder for a CA.
+
+        Raises if OCSP signing cert generation fails (C-5): the CA private key
+        is never used as a silent fallback.
 
         Args:
             ca: CA instance
@@ -640,6 +656,7 @@ class OCSPResponderManager:
                 # construction doesn't leave a broken entry in the map.
                 responder = OCSPResponder(
                     ca=ca,
+                    ca_id=ca_id,
                     ocsp_cert_path=str(ocsp_cert_path),
                     ocsp_key_path=str(ocsp_key_path),
                 )
