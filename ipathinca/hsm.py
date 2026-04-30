@@ -306,23 +306,26 @@ class HSMPrivateKeyProxy:
         self.key_label = key_label
         self._synta_key: Optional[synta.PrivateKey] = None
         self._public_key_cache: Optional[synta.PublicKey] = None
+        self._key_lock = threading.Lock()
 
     def _load_key(self) -> synta.PrivateKey:
         """Load the key from the HSM via synta PKCS#11 URI (lazy, cached)."""
-        if self._synta_key is None:
-            slot_label = self.hsm_backend.config.slot_label
-            pin = self.hsm_backend.config.token_pin
-            uri = (
-                f"pkcs11:token={slot_label}"
-                f";object={self.key_label}"
-                f";type=private"
-                f"?pin-value={pin}"
-            )
-            logger.debug(
-                "Loading HSM key via PKCS#11 URI for label: %s", self.key_label
-            )
-            self._synta_key = synta.PrivateKey.from_pkcs11_uri(uri)
-        return self._synta_key
+        with self._key_lock:
+            if self._synta_key is None:
+                slot_label = self.hsm_backend.config.slot_label
+                pin = self.hsm_backend.config.token_pin
+                uri = (
+                    f"pkcs11:token={slot_label}"
+                    f";object={self.key_label}"
+                    f";type=private"
+                    f"?pin-value={pin}"
+                )
+                logger.debug(
+                    "Loading HSM key via PKCS#11 URI for label: %s",
+                    self.key_label,
+                )
+                self._synta_key = synta.PrivateKey.from_pkcs11_uri(uri)
+            return self._synta_key
 
     def sign(
         self,
