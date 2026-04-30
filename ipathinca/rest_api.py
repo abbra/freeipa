@@ -2265,6 +2265,7 @@ def ocsp_request(ocsp_data=None):
 
 
 @app.route("/ca/rest/ocsp/stats", methods=["GET"])
+@require_agent_auth
 def ocsp_stats():
     """Get OCSP responder statistics"""
     try:
@@ -2282,6 +2283,7 @@ def ocsp_stats():
 
 
 @app.route("/ca/rest/ocsp/cache/clear", methods=["POST"])
+@require_agent_auth
 def ocsp_clear_cache():
     """Clear OCSP response cache"""
     try:
@@ -2344,6 +2346,7 @@ def get_ocsp_cert():
 
 
 @app.route("/ca/rest/ocsp/cert/renew", methods=["POST"])
+@require_agent_auth
 def renew_ocsp_cert():
     """Regenerate OCSP signing certificate"""
     try:
@@ -2381,6 +2384,7 @@ def renew_ocsp_cert():
 
 
 @app.route("/ca/rest/ocsp/responders", methods=["GET"])
+@require_agent_auth
 def list_ocsp_responders():
     """List all OCSP responders (multi-CA support)"""
     try:
@@ -4616,6 +4620,7 @@ def acme_endpoint(endpoint):
 
 
 @app.route("/acme/enable", methods=["POST"])
+@require_agent_auth
 def acme_enable():
     """
     Enable ACME service (Dogtag compatibility endpoint)
@@ -4634,6 +4639,7 @@ def acme_enable():
 
 
 @app.route("/acme/disable", methods=["POST"])
+@require_agent_auth
 def acme_disable():
     """
     Disable ACME service (Dogtag compatibility endpoint)
@@ -4657,6 +4663,7 @@ def acme_disable():
 
 
 @app.route("/ca/rest/hsm/config", methods=["GET"])
+@require_agent_auth
 def get_hsm_config():
     """Get HSM configuration for a CA"""
     try:
@@ -4698,6 +4705,7 @@ def get_hsm_config():
 
 
 @app.route("/ca/rest/hsm/config", methods=["PUT", "POST"])
+@require_agent_auth
 def update_hsm_config():
     """Update HSM configuration"""
     try:
@@ -4746,6 +4754,7 @@ def update_hsm_config():
 
 
 @app.route("/ca/rest/hsm/config", methods=["DELETE"])
+@require_agent_auth
 def delete_hsm_config():
     """Delete/disable HSM configuration"""
     try:
@@ -4798,6 +4807,7 @@ def delete_hsm_config():
 
 
 @app.route("/ca/rest/hsm/test", methods=["POST"])
+@require_agent_auth
 def test_hsm_connection():
     """Test HSM connection"""
     try:
@@ -4858,6 +4868,7 @@ def test_hsm_connection():
 
 
 @app.route("/ca/rest/hsm/slots", methods=["GET"])
+@require_agent_auth
 def list_hsm_slots():
     """
     List available HSM slots
@@ -4905,6 +4916,7 @@ def list_hsm_slots():
 
 
 @app.route("/ca/rest/hsm/info", methods=["GET"])
+@require_agent_auth
 def get_hsm_info():
     """
     Get HSM device information
@@ -4957,6 +4969,7 @@ def get_hsm_info():
 
 
 @app.route("/ca/rest/hsm/keys", methods=["GET"])
+@require_agent_auth
 def list_hsm_keys():
     """List keys in HSM"""
     try:
@@ -5008,6 +5021,7 @@ def list_hsm_keys():
 
 
 @app.route("/ca/rest/hsm/keys/generate", methods=["POST"])
+@require_agent_auth
 def generate_hsm_key():
     """
     Generate a new key pair in HSM
@@ -5106,6 +5120,7 @@ def generate_hsm_key():
 
 
 @app.route("/ca/rest/hsm/keys/<key_label>", methods=["DELETE"])
+@require_agent_auth
 def delete_hsm_key(key_label):
     """
     Delete a key from HSM
