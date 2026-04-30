@@ -91,6 +91,13 @@ def get_cert_params_from_config(pki_config, cert_type):
     return (key_size, signing_alg)
 
 
+def get_ec_curve_from_config(pki_config) -> str:
+    """Read the EC curve name from pki_config, defaulting to nistp256."""
+    if pki_config is None:
+        return "nistp256"
+    return pki_config.get("CA", "DEFAULT_ECC_CURVE", fallback="nistp256")
+
+
 def convert_signing_algorithm(signing_alg):
     """Convert PKI signing algorithm string to a synta hash algorithm name.
 
@@ -304,7 +311,10 @@ class Certs:
             "Generating %s key in NSSDB: %s", ca_signing_alg, ca_nickname
         )
         private_key = nssdb.generate_key_pair(
-            ca_nickname, key_size=ca_key_size, signing_alg=ca_signing_alg
+            ca_nickname,
+            key_size=ca_key_size,
+            signing_alg=ca_signing_alg,
+            ec_curve=get_ec_curve_from_config(self.pki_config),
         )
 
         # Build CSR
@@ -567,7 +577,10 @@ class Certs:
                 ca_nickname,
             )
             private_key = nssdb.generate_key_pair(
-                ca_nickname, key_size=ca_key_size, signing_alg=ca_signing_alg
+                ca_nickname,
+                key_size=ca_key_size,
+                signing_alg=ca_signing_alg,
+                ec_curve=get_ec_curve_from_config(self.pki_config),
             )
 
         # Build certificate subject using shared utility
@@ -1115,7 +1128,10 @@ class Certs:
             # cert)
             logger.debug("Generating key pair for NSSDB: %s", nssdb_nickname)
             private_key = nssdb.generate_key_pair(
-                nssdb_nickname, key_size=key_size, signing_alg=signing_alg
+                nssdb_nickname,
+                key_size=key_size,
+                signing_alg=signing_alg,
+                ec_curve=get_ec_curve_from_config(self.pki_config),
             )
 
             # Build subject using shared utility
@@ -1337,7 +1353,10 @@ class Certs:
             "Generating server key pair for NSSDB: %s", server_nickname
         )
         private_key = nssdb.generate_key_pair(
-            server_nickname, key_size=key_size, signing_alg=signing_alg
+            server_nickname,
+            key_size=key_size,
+            signing_alg=signing_alg,
+            ec_curve=get_ec_curve_from_config(self.pki_config),
         )
 
         # Build subject for server certificate (CN=<fqdn>)
@@ -1455,7 +1474,11 @@ class Certs:
         )
 
         # Generate private key matching the configured algorithm
-        private_key = generate_private_key(signing_alg, key_size)
+        private_key = generate_private_key(
+            signing_alg,
+            key_size,
+            ec_curve=get_ec_curve_from_config(self.pki_config),
+        )
 
         # Build subject for RA certificate
         # Simple DN: CN=IPA RA (matches what validator expects)
