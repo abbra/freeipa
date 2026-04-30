@@ -690,7 +690,10 @@ class InternalCA(PythonCA):
                     # revoke_utc() takes big-endian serial bytes, revocation
                     # datetime, and integer reason code
                     serial_bytes = cert_record.serial_number.to_bytes(
-                        (cert_record.serial_number.bit_length() + 8) // 8,
+                        max(
+                            1,
+                            (cert_record.serial_number.bit_length() + 7) // 8,
+                        ),
                         'big',
                     )
                     reason_int = 0  # unspecified
