@@ -41,7 +41,7 @@ except ImportError:
 class HSMConfig:
     """HSM Configuration"""
 
-    def __init__(self, config_dict: Dict[str, Any] = None):
+    def __init__(self, config_dict: Optional[Dict[str, Any]] = None):
         config = config_dict or {}
 
         # PKCS#11 library path (e.g., /usr/lib64/pkcs11/libsofthsm2.so)
@@ -105,7 +105,7 @@ class HSMKeyBackend:
         except ValueError as e:
             raise errors.CertificateOperationError(
                 error=f"Failed to load PKCS#11 library: {e}"
-            )
+            ) from e
 
         # Verify the named token is present and accessible.
         try:
@@ -113,7 +113,7 @@ class HSMKeyBackend:
         except ValueError as e:
             raise errors.CertificateOperationError(
                 error=f"Failed to enumerate HSM slots: {e}"
-            )
+            ) from e
         found = any(
             s.token_label == self.config.slot_label for s in slots
         )
@@ -236,9 +236,14 @@ class HSMKeyBackend:
                 )
                 return
             except ValueError:
-                logger.info(
-                    "HSM does not support ML-DSA natively; generating in "
-                    "software and importing via softhsm2-util"
+                logger.warning(
+                    "HSM token '%s' does not support native ML-DSA key "
+                    "generation (requires PKCS#11 3.0); falling back to "
+                    "software generation and import via softhsm2-util for "
+                    "key '%s'. Key material will briefly exist in process "
+                    "memory.",
+                    self.config.slot_label,
+                    key_label,
                 )
             soft_key = generate_private_key(signing_alg, 0)
             self._import_pkcs8_key(key_label, soft_key.to_der())
@@ -252,7 +257,7 @@ class HSMKeyBackend:
         except ValueError as e:
             raise errors.CertificateOperationError(
                 error=f"Failed to generate key pair on HSM: {e}"
-            )
+            ) from e
 
         logger.info(
             "Generated %s key pair on HSM: %s", signing_alg, key_label
@@ -280,7 +285,7 @@ class HSMKeyBackend:
         except ValueError as e:
             raise errors.CertificateOperationError(
                 error=f"Failed to delete key from HSM: {e}"
-            )
+            ) from e
 
     def list_keys(self) -> List[str]:
         """Return labels of all private keys on this token.
