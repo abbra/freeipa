@@ -21,7 +21,7 @@ import synta
 
 from ipalib import errors
 from ipathinca.exceptions import CAConfigurationError
-from ipathinca.key_utils import generate_private_key
+from ipathinca.key_utils import generate_private_key, DEFAULT_RSA_KEY_SIZE
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +198,7 @@ class HSMKeyBackend:
     def generate_key_pair(
         self,
         key_label: str,
-        key_size: int = 2048,
+        key_size: int = DEFAULT_RSA_KEY_SIZE,
         signing_alg: str = "SHA256withRSA",
     ) -> None:
         """Generate (or import) a key pair on the HSM token.

@@ -14,6 +14,10 @@ import synta
 
 logger = logging.getLogger(__name__)
 
+# NIST SP 800-131A Rev 2 minimum RSA key size for new keys (bits).
+# Used as the fallback when no key size is configured.
+DEFAULT_RSA_KEY_SIZE = 3072
+
 # Map NSS/Dogtag curve names to the names synta's generate_ec() expects.
 _NSS_CURVE_MAP = {
     "nistp256": "P-256",
