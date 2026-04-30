@@ -146,6 +146,7 @@ ca_backend = None
 
 # Global KRA instance
 kra_backend = None
+kra_init_error = None
 
 # Global configuration (loaded from ipathinca.conf)
 ipa_ca_config = None
@@ -193,7 +194,7 @@ def init_ca():
 
 def init_kra():
     """Initialize KRA backend"""
-    global kra_backend
+    global kra_backend, kra_init_error
     if kra_backend is not None:
         return
     with _kra_init_lock:
@@ -239,13 +240,16 @@ def init_kra():
                     "CA keys not found, KRA initialization failed: %s", e
                 )
                 logger.error(traceback.format_exc())
+                kra_init_error = f"CA keys not found: {e}"
             except Exception as e:
                 logger.error("Failed to load CA keys for KRA: %s", e)
                 logger.error(traceback.format_exc())
+                kra_init_error = f"Key load error: {e}"
 
         except Exception as e:
             logger.error("Failed to initialize KRA backend: %s", e)
             logger.error(traceback.format_exc())
+            kra_init_error = str(e)
             # Don't raise - KRA is optional
 
 
@@ -3360,8 +3364,11 @@ def kra_info():
             init_kra()
 
         if kra_backend is None:
+            detail = f"; init error: {kra_init_error}" if kra_init_error else ""
             return error_response(
-                "KRANotAvailable", "KRA subsystem not initialized", 503
+                "KRANotAvailable",
+                f"KRA subsystem not initialized{detail}",
+                503,
             )
 
         return success_response(
@@ -3385,8 +3392,11 @@ def kra_status():
             init_kra()
 
         if kra_backend is None:
+            detail = f"; init_error={kra_init_error}" if kra_init_error else ""
             return Response(
-                "status=unavailable", mimetype="text/plain", status=503
+                f"status=unavailable{detail}",
+                mimetype="text/plain",
+                status=503,
             )
 
         return Response("status=running", mimetype="text/plain")
@@ -3458,8 +3468,11 @@ def submit_key_request():
             init_kra()
 
         if kra_backend is None:
+            detail = f"; init error: {kra_init_error}" if kra_init_error else ""
             return error_response(
-                "KRANotAvailable", "KRA subsystem not initialized", 503
+                "KRANotAvailable",
+                f"KRA subsystem not initialized{detail}",
+                503,
             )
 
         data = request.get_json() or {}
@@ -3702,8 +3715,11 @@ def list_key_requests():
             init_kra()
 
         if kra_backend is None:
+            detail = f"; init error: {kra_init_error}" if kra_init_error else ""
             return error_response(
-                "KRANotAvailable", "KRA subsystem not initialized", 503
+                "KRANotAvailable",
+                f"KRA subsystem not initialized{detail}",
+                503,
             )
 
         # Parse query parameters
@@ -3745,8 +3761,11 @@ def get_key_request_info(request_id):
             init_kra()
 
         if kra_backend is None:
+            detail = f"; init error: {kra_init_error}" if kra_init_error else ""
             return error_response(
-                "KRANotAvailable", "KRA subsystem not initialized", 503
+                "KRANotAvailable",
+                f"KRA subsystem not initialized{detail}",
+                503,
             )
 
         # Get request from storage
@@ -3817,8 +3836,11 @@ def approve_key_request(request_id):
             init_kra()
 
         if kra_backend is None:
+            detail = f"; init error: {kra_init_error}" if kra_init_error else ""
             return error_response(
-                "KRANotAvailable", "KRA subsystem not initialized", 503
+                "KRANotAvailable",
+                f"KRA subsystem not initialized{detail}",
+                503,
             )
 
         # Check if request/key exists
@@ -3860,8 +3882,11 @@ def reject_key_request(request_id):
             init_kra()
 
         if kra_backend is None:
+            detail = f"; init error: {kra_init_error}" if kra_init_error else ""
             return error_response(
-                "KRANotAvailable", "KRA subsystem not initialized", 503
+                "KRANotAvailable",
+                f"KRA subsystem not initialized{detail}",
+                503,
             )
 
         # Mark key as inactive
@@ -3901,8 +3926,11 @@ def cancel_key_request(request_id):
             init_kra()
 
         if kra_backend is None:
+            detail = f"; init error: {kra_init_error}" if kra_init_error else ""
             return error_response(
-                "KRANotAvailable", "KRA subsystem not initialized", 503
+                "KRANotAvailable",
+                f"KRA subsystem not initialized{detail}",
+                503,
             )
 
         # Delete the key
@@ -3963,8 +3991,11 @@ def archive_key():
             init_kra()
 
         if kra_backend is None:
+            detail = f"; init error: {kra_init_error}" if kra_init_error else ""
             return error_response(
-                "KRANotAvailable", "KRA subsystem not initialized", 503
+                "KRANotAvailable",
+                f"KRA subsystem not initialized{detail}",
+                503,
             )
 
         data = request.get_json() or {}
@@ -4050,8 +4081,11 @@ def retrieve_key():
             init_kra()
 
         if kra_backend is None:
+            detail = f"; init error: {kra_init_error}" if kra_init_error else ""
             return error_response(
-                "KRANotAvailable", "KRA subsystem not initialized", 503
+                "KRANotAvailable",
+                f"KRA subsystem not initialized{detail}",
+                503,
             )
 
         data = request.get_json() or {}
@@ -4180,8 +4214,11 @@ def list_keys():
             init_kra()
 
         if kra_backend is None:
+            detail = f"; init error: {kra_init_error}" if kra_init_error else ""
             return error_response(
-                "KRANotAvailable", "KRA subsystem not initialized", 503
+                "KRANotAvailable",
+                f"KRA subsystem not initialized{detail}",
+                503,
             )
 
         # Parse query parameters
@@ -4236,8 +4273,11 @@ def get_key_info(key_id):
             init_kra()
 
         if kra_backend is None:
+            detail = f"; init error: {kra_init_error}" if kra_init_error else ""
             return error_response(
-                "KRANotAvailable", "KRA subsystem not initialized", 503
+                "KRANotAvailable",
+                f"KRA subsystem not initialized{detail}",
+                503,
             )
 
         # Get key metadata from storage
@@ -4282,8 +4322,11 @@ def modify_key_status(key_id):
             init_kra()
 
         if kra_backend is None:
+            detail = f"; init error: {kra_init_error}" if kra_init_error else ""
             return error_response(
-                "KRANotAvailable", "KRA subsystem not initialized", 503
+                "KRANotAvailable",
+                f"KRA subsystem not initialized{detail}",
+                503,
             )
 
         # python-pki sends status as URL parameter
@@ -4340,8 +4383,11 @@ def get_active_key_info(client_key_id):
             init_kra()
 
         if kra_backend is None:
+            detail = f"; init error: {kra_init_error}" if kra_init_error else ""
             return error_response(
-                "KRANotAvailable", "KRA subsystem not initialized", 503
+                "KRANotAvailable",
+                f"KRA subsystem not initialized{detail}",
+                503,
             )
 
         # List keys for this client, filtered by active status
@@ -4394,8 +4440,11 @@ def get_transport_cert():
             init_kra()
 
         if kra_backend is None:
+            detail = f"; init error: {kra_init_error}" if kra_init_error else ""
             return error_response(
-                "KRANotAvailable", "KRA subsystem not initialized", 503
+                "KRANotAvailable",
+                f"KRA subsystem not initialized{detail}",
+                503,
             )
 
         # Get transport certificate
@@ -4430,8 +4479,11 @@ def get_transport_cert_config():
             init_kra()
 
         if kra_backend is None:
+            detail = f"; init error: {kra_init_error}" if kra_init_error else ""
             return error_response(
-                "KRANotAvailable", "KRA subsystem not initialized", 503
+                "KRANotAvailable",
+                f"KRA subsystem not initialized{detail}",
+                503,
             )
 
         # Get transport certificate PEM
@@ -4465,8 +4517,11 @@ def kra_stats():
             init_kra()
 
         if kra_backend is None:
+            detail = f"; init error: {kra_init_error}" if kra_init_error else ""
             return error_response(
-                "KRANotAvailable", "KRA subsystem not initialized", 503
+                "KRANotAvailable",
+                f"KRA subsystem not initialized{detail}",
+                503,
             )
 
         stats = kra_backend.storage_backend.get_statistics()
