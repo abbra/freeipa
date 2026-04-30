@@ -33,6 +33,7 @@ from ipaplatform.paths import paths
 
 import ipathinca
 from ipathinca import x509_utils
+from ipathinca.key_utils import generate_private_key
 
 logger = logging.getLogger(__name__)
 
@@ -255,8 +256,13 @@ class OCSPResponder:
                     "ca", "ocsp_signing_key_size", default="3072"
                 )
             )
-            self.ocsp_key = synta.PrivateKey.generate_rsa(ocsp_key_size)
-            logger.info("Generated OCSP signing key (%s bits)", ocsp_key_size)
+            ca_signing_alg = x509_utils.get_certificate_signature_algorithm(
+                self.ca.ca_cert
+            )
+            self.ocsp_key = generate_private_key(ca_signing_alg, ocsp_key_size)
+            logger.info(
+                "Generated OCSP signing key (%s)", ca_signing_alg
+            )
 
             # Derive CN from CA cert subject
             ca_attrs = synta.parse_name_attrs(
