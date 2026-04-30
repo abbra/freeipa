@@ -85,6 +85,7 @@ class NSSDatabase:
         nickname: str,
         key_size: int = 4096,
         signing_alg: str = "SHA256withRSA",
+        ec_curve: str = "P-256",
     ) -> synta.PrivateKey:
         """Generate a key pair for NSSDB.
 
@@ -96,6 +97,8 @@ class NSSDatabase:
             key_size:    Key size in bits (used for RSA; ignored for ML-DSA).
             signing_alg: PKI signing algorithm string such as
                          ``"SHA256withRSA"`` or ``"ML-DSA-65"``.
+            ec_curve:    EC curve name (NSS form "nistp256" or synta form
+                         "P-256"). Ignored for RSA and ML-DSA.
 
         Returns:
             Private key object (in memory, will be imported to NSSDB).
@@ -103,7 +106,7 @@ class NSSDatabase:
         logger.debug(
             "Generating %s key pair for NSSDB: %s", signing_alg, nickname
         )
-        private_key = generate_private_key(signing_alg, key_size)
+        private_key = generate_private_key(signing_alg, key_size, ec_curve)
         logger.debug(
             "Generated %s key pair (will be imported to NSSDB)", signing_alg
         )
