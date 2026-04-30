@@ -280,7 +280,9 @@ def load_certificate_from_ldap_data(cert_data) -> synta.Certificate:
         try:
             return synta.Certificate.from_pem(cert_bytes)
         except Exception as e:
-            raise ValueError(f"Could not load certificate from LDAP data: {e}")
+            raise ValueError(
+                f"Could not load certificate from LDAP data: {e}"
+            ) from e
 
 
 def decode_ldap_attribute(value, expected_type: type = str):

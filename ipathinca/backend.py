@@ -294,14 +294,14 @@ class PythonCABackend:
                     "Certificate request failed: CA not configured yet during "
                     "installation"
                 )
-                raise errors.NotFound(reason="CA is not configured")
+                raise errors.NotFound(reason="CA is not configured") from e
             else:
                 logger.error("Certificate request failed: %s", e)
                 raise e
         except Exception as e:
             logger.error("Certificate request failed: %s", e, exc_info=True)
             error_msg = str(e) if str(e) else f"{type(e).__name__}: {repr(e)}"
-            raise errors.CertificateOperationError(error=error_msg)
+            raise errors.CertificateOperationError(error=error_msg) from e
 
     def check_request_status(self, request_id) -> dict:
         """
@@ -436,7 +436,7 @@ class PythonCABackend:
             raise
         except Exception as e:
             logger.error("Certificate revocation failed: %s", e)
-            raise errors.CertificateOperationError(error=str(e))
+            raise errors.CertificateOperationError(error=str(e)) from e
 
     def take_certificate_off_hold(self, serial_number) -> dict:
         """
@@ -463,7 +463,7 @@ class PythonCABackend:
             raise
         except Exception as e:
             logger.error("Take certificate off hold failed: %s", e)
-            raise errors.CertificateOperationError(error=str(e))
+            raise errors.CertificateOperationError(error=str(e)) from e
 
     # Certificate Search Operations
 
@@ -522,7 +522,7 @@ class PythonCABackend:
 
         except Exception as e:
             logger.error("Certificate search failed: %s", e)
-            raise errors.CertificateOperationError(error=str(e))
+            raise errors.CertificateOperationError(error=str(e)) from e
 
     # Profile Management Operations
 
@@ -562,7 +562,7 @@ class PythonCABackend:
 
         except Exception as e:
             logger.error("Profile read failed: %s", e)
-            raise errors.CertificateOperationError(error=str(e))
+            raise errors.CertificateOperationError(error=str(e)) from e
 
     def update_profile(self, profile_data) -> dict:
         """
@@ -590,7 +590,7 @@ class PythonCABackend:
             return {"status": "deleted", "profile_id": profile_id}
         except Exception as e:
             error_msg = f"Failed to delete profile {profile_id}: {str(e)}"
-            raise errors.CertificateOperationError(error=error_msg)
+            raise errors.CertificateOperationError(error=error_msg) from e
 
     def enable_profile(self, profile_id) -> None:
         """Enable certificate profile - NOT SUPPORTED"""
@@ -676,7 +676,7 @@ class PythonCABackend:
 
         except Exception as e:
             logger.error("CRL update failed: %s", e)
-            raise errors.CertificateOperationError(error=str(e))
+            raise errors.CertificateOperationError(error=str(e)) from e
 
     # ACME Operations
 
@@ -772,7 +772,7 @@ class PythonCABackend:
 
         except Exception as e:
             logger.error("ACME request failed: %s", e)
-            raise errors.CertificateOperationError(error=str(e))
+            raise errors.CertificateOperationError(error=str(e)) from e
 
     def _get_account_id_from_key(self, account_key):
         """Extract account ID from account key"""
@@ -882,7 +882,7 @@ class PythonCABackend:
             logger.error("CA certificate creation failed: %s", e)
             raise errors.CertificateOperationError(
                 error=f"Failed to create CA certificate: {e}"
-            )
+            ) from e
 
     def setup_acme(self) -> None:
         """
@@ -896,7 +896,7 @@ class PythonCABackend:
             logger.error("ACME setup failed: %s", e)
             raise errors.CertificateOperationError(
                 error=f"Failed to setup ACME: {e}"
-            )
+            ) from e
 
     # System Operations
 

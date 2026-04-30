@@ -203,7 +203,7 @@ class CertificateRecord:
             logger.error(
                 "Failed to issue certificate %s: %s", self.serial_number, e
             )
-            raise errors.CertificateOperationError(error=str(e))
+            raise errors.CertificateOperationError(error=str(e)) from e
 
     @property
     def status(self) -> CertificateStatus:
@@ -284,7 +284,7 @@ class CertificateRecord:
             logger.error(
                 "Cannot revoke certificate %s: %s", self.serial_number, e
             )
-            raise errors.CertificateOperationError(error=str(e))
+            raise errors.CertificateOperationError(error=str(e)) from e
 
     def put_on_hold(self, principal: Optional[str] = None):
         """
@@ -312,7 +312,7 @@ class CertificateRecord:
             logger.error(
                 "Cannot put certificate %s on hold: %s", self.serial_number, e
             )
-            raise errors.CertificateOperationError(error=str(e))
+            raise errors.CertificateOperationError(error=str(e)) from e
 
     def take_off_hold(self, principal: Optional[str] = None):
         """
@@ -342,7 +342,7 @@ class CertificateRecord:
                 self.serial_number,
                 e,
             )
-            raise errors.CertificateOperationError(error=str(e))
+            raise errors.CertificateOperationError(error=str(e)) from e
 
     def mark_as_expired(self, principal: Optional[str] = None):
         """
@@ -407,7 +407,7 @@ class CertificateRecord:
             logger.error(
                 "Cannot supersede certificate %s: %s", self.serial_number, e
             )
-            raise errors.CertificateOperationError(error=str(e))
+            raise errors.CertificateOperationError(error=str(e)) from e
 
     def get_state_history(self) -> List[Dict[str, Any]]:
         """
