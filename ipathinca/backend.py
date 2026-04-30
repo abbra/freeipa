@@ -38,6 +38,7 @@ from ipapython.dn import DN
 from ipaplatform.paths import paths
 import ipathinca
 from ipathinca import x509_utils, set_global_config, load_config
+from ipathinca.key_utils import generate_private_key
 from ipathinca.acme import ACMEServer
 from ipathinca.acme_state import ACMEStateManager
 from ipathinca.ca import RevocationReason
@@ -637,7 +638,7 @@ class PythonCABackend:
             # Generate timestamped filename
             # (Dogtag format: MasterCRL-YYYYMMDD-HHMMSS.der)
 
-            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
             timestamped_filename = f"MasterCRL-{timestamp}.der"
             timestamped_path = os.path.join(publish_dir, timestamped_filename)
 
@@ -794,13 +795,14 @@ class PythonCABackend:
         try:
             logger.debug("Creating CA certificate with subject: %s", subject)
 
-            # Generate private key (key size from config, default 3072)
+            # Generate private key matching the requested signing algorithm.
             ca_key_size = int(
                 ipathinca.get_config_value(
                     "ca", "ca_signing_key_size", default="3072"
                 )
             )
-            private_key = synta.PrivateKey.generate_rsa(ca_key_size)
+            signing_alg = algorithm or "SHA256withRSA"
+            private_key = generate_private_key(signing_alg, ca_key_size)
 
             # Parse subject DN
             subject_dn = DN(subject)
