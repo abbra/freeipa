@@ -423,12 +423,12 @@ def get_service_key_usage_extension() -> Tuple[str, bytes]:
 
 
 def get_ocsp_key_usage_extension() -> Tuple[str, bytes]:
-    """Return (oid, DER) for OCSP signing certificate KeyUsage."""
-    bits = (
-        synta.ext.KU_DIGITAL_SIGNATURE
-        | synta.ext.KU_KEY_ENCIPHERMENT
-        | synta.ext.KU_DATA_ENCIPHERMENT
-    )
+    """Return (oid, DER) for OCSP signing certificate KeyUsage.
+
+    RFC 5280 §4.2.1.3 and RFC 6960 §4.2.2.2 allow only digitalSignature for
+    OCSP responder certs.  keyEncipherment and dataEncipherment must not be set.
+    """
+    bits = synta.ext.KU_DIGITAL_SIGNATURE
     return str(synta.oids.KEY_USAGE), synta.ext.key_usage(bits)
 
 
