@@ -707,10 +707,13 @@ class CertificateStorage(BaseStorageBackend):
             request_id = cert_request.request_id
             request_dn = DN(("cn", request_id), self.requests_base_dn)
 
-            # Encode CSR as PEM
-            csr_pem = synta.CertificationRequest.to_pem(
-                cert_request.csr
-            ).decode("ascii")
+            # Encode CSR as PEM; CA-cert and sub-CA issuance have no CSR.
+            csr = cert_request.csr
+            csr_pem = (
+                synta.CertificationRequest.to_pem(csr).decode("ascii")
+                if csr is not None
+                else ""
+            )
 
             try:
                 # Check if request already exists
@@ -973,12 +976,22 @@ class CertificateStorage(BaseStorageBackend):
                             raise
 
                         except errors.NotFound:
+                            if attempt > 0:
+                                raise RuntimeError(
+                                    "CA config entry missing after schema "
+                                    "initialization; LDAP schema may be broken"
+                                )
                             logger.debug(
                                 "CA config entry not found, "
                                 "initializing schema"
                             )
                             self.initialize_schema()
-                            return self.get_next_serial_number()
+                            # continue to next loop iteration (not recursive)
+
+            raise RuntimeError(
+                "Failed to allocate serial number after "
+                f"{max_retries} attempts"
+            )
 
     def get_next_crl_number(self) -> int:
         """
@@ -1021,8 +1034,17 @@ class CertificateStorage(BaseStorageBackend):
                     raise
 
                 except errors.NotFound:
+                    if attempt > 0:
+                        raise RuntimeError(
+                            "CA config entry missing after schema "
+                            "initialization; LDAP schema may be broken"
+                        )
                     logger.debug(
                         "CA config entry not found, initializing schema"
                     )
                     self.initialize_schema()
-                    return self.get_next_crl_number()
+                    # continue to next loop iteration (not recursive)
+
+        raise RuntimeError(
+            f"Failed to allocate CRL number after {max_retries} attempts"
+        )
