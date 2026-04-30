@@ -168,11 +168,9 @@ def _parse_ocsp_request(der_bytes: bytes) -> _ParsedOCSPRequest:
 class OCSPResponse:
     """OCSP Response container"""
 
-    def __init__(self, response_bytes: bytes, cache_until: datetime = None):
+    def __init__(self, response_bytes: bytes, cache_until: datetime):
         self.response_bytes = response_bytes
-        self.cache_until = cache_until or (
-            datetime.now(timezone.utc) + timedelta(minutes=5)
-        )
+        self.cache_until = cache_until
 
     def is_expired(self) -> bool:
         """Check if cached response is expired"""
@@ -430,7 +428,10 @@ class OCSPResponder:
                 parsed_req = _parse_ocsp_request(request_der)
             except Exception as e:
                 logger.warning("Failed to parse OCSP request: %s", e)
-                return self._create_error_response()
+                # RFC 6960 §2.3: use malformedRequest (1) when the request
+                # cannot be parsed; internalError (2) is for server-side
+                # failures.
+                return self._create_error_response(status=1)
 
             serial_number = parsed_req.serial_number
             nonce = parsed_req.nonce
@@ -562,12 +563,16 @@ class OCSPResponder:
             # Return internal error response
             return self._create_error_response()
 
-    def _create_error_response(self) -> bytes:
-        """Create OCSP error response (internalError, RFC 6960 status 2).
+    def _create_error_response(self, status: int = 2) -> bytes:
+        """Create OCSP error response (RFC 6960 section 2.3).
 
-        DER encoding: SEQUENCE { ENUMERATED { 2 } }
+        Args:
+            status: 1 = malformedRequest, 2 = internalError (default),
+                    3 = tryLater, 5 = sigRequired, 6 = unauthorized.
+
+        DER encoding: SEQUENCE { ENUMERATED { status } }
         """
-        return bytes([0x30, 0x03, 0x0a, 0x01, 0x02])
+        return bytes([0x30, 0x03, 0x0a, 0x01, status])
 
     def clear_cache(self):
         """Clear response cache"""
