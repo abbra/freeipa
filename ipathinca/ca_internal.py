@@ -649,9 +649,6 @@ class InternalCA(PythonCA):
 
         try:
             # Advance the CRL sequence counter in storage (RFC 5280 §5.2.3).
-            # synta.CertificateListBuilder has no add_extension() method so the
-            # CRL Number extension cannot be embedded in this release; the
-            # counter is still incremented to keep the LDAP sequence consistent.
             crl_number = self.ldap_storage.get_next_crl_number()
 
             # Read CRL timing from config
@@ -704,6 +701,13 @@ class InternalCA(PythonCA):
                         serial_bytes, cert_record.revoked_at, reason_int
                     )
                     num_revoked += 1
+
+            # Embed CRL Number extension (RFC 5280 §5.2.1)
+            builder = builder.add_extension(
+                str(synta.oids.CRL_NUMBER),
+                False,
+                synta.ext.crl_number(crl_number),
+            )
 
             # Build TBS, sign it, then assemble the complete CRL
             tbs_der = builder.build()
