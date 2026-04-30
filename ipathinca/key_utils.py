@@ -14,14 +14,25 @@ import synta
 
 logger = logging.getLogger(__name__)
 
+# Map NSS/Dogtag curve names to the names synta's generate_ec() expects.
+_NSS_CURVE_MAP = {
+    "nistp256": "P-256",
+    "nistp384": "P-384",
+    "nistp521": "P-521",
+}
 
-def generate_private_key(signing_alg: str, key_size: int) -> synta.PrivateKey:
+
+def generate_private_key(
+    signing_alg: str, key_size: int, ec_curve: str = "P-256"
+) -> synta.PrivateKey:
     """Generate a private key appropriate for the given signing algorithm.
 
     Args:
         signing_alg: PKI algorithm string such as ``"SHA256withRSA"``,
                      ``"SHA256withEC"``, or ``"ML-DSA-65"``.
         key_size:    RSA key size in bits (ignored for EC and ML-DSA).
+        ec_curve:    EC curve name in either synta form ("P-256") or NSS/Dogtag
+                     form ("nistp256"). Ignored for RSA and ML-DSA.
 
     Returns:
         A freshly generated :class:`synta.PrivateKey`.
@@ -42,8 +53,9 @@ def generate_private_key(signing_alg: str, key_size: int) -> synta.PrivateKey:
         )
 
     if "EC" in alg_upper or "ECDSA" in alg_upper:
-        logger.debug("Generating EC private key (P-256)")
-        return synta.PrivateKey.generate_ec("P-256")
+        synta_curve = _NSS_CURVE_MAP.get(ec_curve.lower(), ec_curve)
+        logger.debug("Generating EC private key (%s)", synta_curve)
+        return synta.PrivateKey.generate_ec(synta_curve)
 
     logger.debug("Generating %d-bit RSA private key", key_size)
     return synta.PrivateKey.generate_rsa(key_size)
