@@ -21,6 +21,7 @@ from pathlib import Path
 import synta
 
 from ipapython import ipautil
+from ipathinca.key_utils import generate_private_key
 from ipaplatform.paths import paths
 
 logger = logging.getLogger(__name__)
@@ -77,42 +78,32 @@ class NSSDatabase:
         raise RuntimeError(f"NSSDB password not found in {self.password_file}")
 
     def generate_key_pair(
-        self, nickname: str, key_size: int = 4096
+        self,
+        nickname: str,
+        key_size: int = 4096,
+        signing_alg: str = "SHA256withRSA",
     ) -> synta.PrivateKey:
-        """
-        Generate RSA key pair for NSSDB
+        """Generate a key pair for NSSDB.
 
-        Hybrid approach (Option B):
-        - Generate key in memory using cryptography library
-        - Key will be imported to NSSDB later via import_key_and_cert()
-        - No PEM files created on disk
-        - Key ends up ONLY in NSSDB
-
-        This avoids certutil hanging issues while maintaining NSSDB-only
-        storage.
+        The key is generated in memory and imported to NSSDB later via
+        import_key_and_cert(). No PEM files are created on disk.
 
         Args:
-            nickname: Certificate/key nickname in NSSDB (for logging)
-            key_size: RSA key size in bits (default: 4096)
+            nickname:    Certificate/key nickname in NSSDB (for logging).
+            key_size:    Key size in bits (used for RSA; ignored for ML-DSA).
+            signing_alg: PKI signing algorithm string such as
+                         ``"SHA256withRSA"`` or ``"ML-DSA-65"``.
 
         Returns:
-            RSA private key object (in memory, will be imported to NSSDB)
-
-        Raises:
-            RuntimeError: If key generation fails
+            Private key object (in memory, will be imported to NSSDB).
         """
         logger.debug(
-            "Generating %s-bit RSA key pair for NSSDB: %s", key_size, nickname
+            "Generating %s key pair for NSSDB: %s", signing_alg, nickname
         )
-
-        # Generate RSA key pair in memory
-        private_key = synta.PrivateKey.generate_rsa(key_size)
-
+        private_key = generate_private_key(signing_alg, key_size)
         logger.debug(
-            "Generated %s-bit RSA key pair (will be imported to NSSDB)",
-            key_size,
+            "Generated %s key pair (will be imported to NSSDB)", signing_alg
         )
-
         return private_key
 
     def extract_private_key(self, nickname: str) -> synta.PrivateKey:

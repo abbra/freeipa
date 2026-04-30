@@ -34,6 +34,7 @@ from ipapython.dn import DN
 from ipapython.certdb import get_ca_nickname
 from ipathinca.ca import CertificateRequest, CertificateRecord, PythonCA
 from ipathinca.hsm import HSMConfig, HSMKeyBackend, HSMPrivateKeyProxy
+from ipathinca.key_utils import generate_private_key
 from ipathinca.nss_utils import NSSDatabase
 from ipathinca.storage_factory import get_storage_backend
 from ipathinca.x509_utils import (
@@ -81,6 +82,10 @@ def get_cert_params_from_config(pki_config, cert_type):
             "DEFAULT", "ipa_signing_algorithm", fallback="SHA256withRSA"
         ),
     )
+
+    alg_upper = signing_alg.upper()
+    if "ML-DSA" in alg_upper or "MLDSA" in alg_upper:
+        key_size = 0
 
     return (key_size, signing_alg)
 
@@ -264,6 +269,13 @@ class Certs:
         else:
             alg_str = str(self.ca_signing_algorithm)
 
+        alg_str_upper = alg_str.upper()
+        if "ML-DSA" in alg_str_upper or "MLDSA" in alg_str_upper:
+            logger.info(
+                "Using ML-DSA signing algorithm: %s (no pre-hash)", alg_str
+            )
+            return None
+
         algorithm_map = {
             "SHA1withRSA": "sha1",
             "SHA256withRSA": "sha256",
@@ -275,7 +287,8 @@ class Certs:
         if hash_alg is None:
             raise ValueError(
                 f"Unsupported CA signing algorithm: {alg_str}. "
-                f"Supported algorithms: {', '.join(algorithm_map.keys())}"
+                f"Supported algorithms: ML-DSA-44, ML-DSA-65, ML-DSA-87, "
+                + ", ".join(algorithm_map.keys())
             )
 
         logger.info("Using CA signing algorithm: %s", alg_str)
@@ -301,17 +314,17 @@ class Certs:
 
         ca_nickname = "caSigningCert cert-pki-ca"
 
-        # Get CA signing key size from config
-        ca_key_size = get_cert_params_from_config(
+        # Get CA signing parameters from config
+        ca_key_size, ca_signing_alg = get_cert_params_from_config(
             self.pki_config, "ca_signing"
-        )[0]
+        )
 
-        # Generate key pair in NSSDB
+        # Generate key pair
         logger.info(
-            "Generating %s-bit RSA key in NSSDB: %s", ca_key_size, ca_nickname
+            "Generating %s key in NSSDB: %s", ca_signing_alg, ca_nickname
         )
         private_key = nssdb.generate_key_pair(
-            ca_nickname, key_size=ca_key_size
+            ca_nickname, key_size=ca_key_size, signing_alg=ca_signing_alg
         )
 
         # Build CSR
@@ -543,36 +556,35 @@ class Certs:
 
             hsm = HSMKeyBackend(hsm_config)
 
-            # Generate RSA key pair in HSM with configured key size
+            # Generate key pair in HSM with configured algorithm
             key_label = "ipa-ca-signing"
             logger.debug(
-                "Generating %s-bit RSA key in HSM with label: %s",
-                ca_key_size,
+                "Generating %s key in HSM with label: %s",
+                ca_signing_alg,
                 key_label,
             )
             hsm.generate_key_pair(
-                key_label, key_size=ca_key_size, key_type="RSA"
+                key_label, key_size=ca_key_size, signing_alg=ca_signing_alg
             )
 
-            # Get public key for certificate building
+            # Key is in HSM; proxy delegates signing via synta PKCS#11 URI
             private_key = HSMPrivateKeyProxy(hsm, key_label)
             logger.debug("HSM key pair generated successfully")
         else:
-            # NSSDB path - generate key in NSSDB (default)
+            # NSSDB path - generate key in memory, import to NSSDB later
             logger.debug("Generating CA key pair in NSSDB (default)")
             nssdb = NSSDatabase(
                 nssdb_dir=self.nssdb_dir,
                 nssdb_password=self.nssdb_password,
             )
 
-            # Generate private key (in memory, will be imported to NSSDB)
             logger.debug(
-                "Generating %s-bit RSA key pair for NSSDB: %s",
-                ca_key_size,
+                "Generating %s key pair for NSSDB: %s",
+                ca_signing_alg,
                 ca_nickname,
             )
             private_key = nssdb.generate_key_pair(
-                ca_nickname, key_size=ca_key_size
+                ca_nickname, key_size=ca_key_size, signing_alg=ca_signing_alg
             )
 
         # Build certificate subject using shared utility
@@ -1110,7 +1122,7 @@ class Certs:
             # cert)
             logger.debug("Generating key pair for NSSDB: %s", nssdb_nickname)
             private_key = nssdb.generate_key_pair(
-                nssdb_nickname, key_size=key_size
+                nssdb_nickname, key_size=key_size, signing_alg=signing_alg
             )
 
             # Build subject using shared utility
@@ -1325,7 +1337,7 @@ class Certs:
             "Generating server key pair for NSSDB: %s", server_nickname
         )
         private_key = nssdb.generate_key_pair(
-            server_nickname, key_size=key_size
+            server_nickname, key_size=key_size, signing_alg=signing_alg
         )
 
         # Build subject for server certificate (CN=<fqdn>)
@@ -1442,8 +1454,8 @@ class Certs:
             signing_alg,
         )
 
-        # Generate private key
-        private_key = synta.PrivateKey.generate_rsa(key_size)
+        # Generate private key matching the configured algorithm
+        private_key = generate_private_key(signing_alg, key_size)
 
         # Build subject for RA certificate
         # Simple DN: CN=IPA RA (matches what validator expects)
