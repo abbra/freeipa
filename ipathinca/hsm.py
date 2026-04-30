@@ -12,6 +12,8 @@ Security Modules (HSMs).
 
 import logging
 import os
+import subprocess
+import tempfile
 import threading
 from typing import Optional, Dict, Any, List, Tuple
 
@@ -239,68 +241,80 @@ class HSMKeyBackend:
                 error=f"Failed to find HSM slot: {e}"
             )
 
-    def generate_key_pair(
-        self, key_label: str, key_size: int = 2048, key_type: str = "RSA"
-    ) -> Tuple[Any, Any]:
+    def _import_pkcs8_key(self, key_label: str, pkcs8_der: bytes) -> None:
+        """Import a PKCS#8 DER key into the HSM via softhsm2-util.
+
+        Used for algorithms (e.g. ML-DSA) that most HSMs cannot generate
+        natively via PKCS#11 C_GenerateKeyPair.  A software key is generated
+        by synta and imported into SoftHSM2 as a token object.
         """
-        Generate key pair in HSM
+        with tempfile.NamedTemporaryFile(
+            suffix=".pk8", delete=False
+        ) as tmp:
+            tmp.write(pkcs8_der)
+            tmp_path = tmp.name
+        os.chmod(tmp_path, 0o600)
+
+        try:
+            cmd = [
+                "softhsm2-util",
+                "--import", tmp_path,
+                "--token", self.config.slot_label,
+                "--label", key_label,
+                "--id", "00",
+                "--pin", self.config.token_pin,
+            ]
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, check=False
+            )
+            if result.returncode != 0:
+                raise errors.CertificateOperationError(
+                    error=(
+                        f"softhsm2-util --import failed for key {key_label!r}:"
+                        f" {result.stderr.strip()}"
+                    )
+                )
+            logger.info("Imported PKCS#8 key into HSM: %s", key_label)
+        finally:
+            os.unlink(tmp_path)
+
+    def generate_key_pair(
+        self,
+        key_label: str,
+        key_size: int = 2048,
+        signing_alg: str = "SHA256withRSA",
+    ) -> None:
+        """Generate (or import) a key pair in the HSM.
+
+        For RSA and EC, the key pair is generated directly in the HSM via
+        PKCS#11 C_GenerateKeyPair.  For ML-DSA, the key is generated in
+        software by synta and imported via softhsm2-util because most HSMs do
+        not yet support ML-DSA key generation natively (PKCS#11 3.0 feature).
 
         Args:
-            key_label: Label for the key in HSM
-            key_size: Key size in bits (default: 2048)
-            key_type: Key type ("RSA" or "EC", default: "RSA")
-
-        Returns:
-            Tuple of (public_key_handle, private_key_handle)
+            key_label:   Label for the key in the HSM.
+            key_size:    RSA key size in bits (ignored for EC and ML-DSA).
+            signing_alg: PKI signing algorithm string (e.g. ``"ML-DSA-65"``).
         """
+        alg_upper = signing_alg.upper()
         logger.info(
-            "Generating %s key pair in HSM with label: %s", key_type, key_label
+            "Generating %s key pair in HSM with label: %s",
+            signing_alg,
+            key_label,
         )
+
+        if "ML-DSA" in alg_upper or "MLDSA" in alg_upper:
+            # Generate ML-DSA key in software and import to HSM
+            from ipathinca.key_utils import generate_private_key
+            soft_key = generate_private_key(signing_alg, key_size)
+            self._import_pkcs8_key(key_label, soft_key.to_der())
+            logger.info("Stored ML-DSA key in HSM via PKCS#8 import: %s", key_label)
+            return
 
         with self.session_manager as session:
             try:
-                if key_type == "RSA":
-                    # RSA key generation
-                    public_template = [
-                        (PyKCS11.CKA_CLASS, PyKCS11.CKO_PUBLIC_KEY),
-                        (PyKCS11.CKA_KEY_TYPE, PyKCS11.CKK_RSA),
-                        (PyKCS11.CKA_TOKEN, True),
-                        (PyKCS11.CKA_PRIVATE, False),
-                        (PyKCS11.CKA_MODULUS_BITS, key_size),
-                        (
-                            PyKCS11.CKA_PUBLIC_EXPONENT,
-                            (0x01, 0x00, 0x01),
-                        ),  # 65537
-                        (PyKCS11.CKA_ENCRYPT, True),
-                        (PyKCS11.CKA_VERIFY, True),
-                        (PyKCS11.CKA_WRAP, True),
-                        (PyKCS11.CKA_LABEL, key_label),
-                    ]
-
-                    private_template = [
-                        (PyKCS11.CKA_CLASS, PyKCS11.CKO_PRIVATE_KEY),
-                        (PyKCS11.CKA_KEY_TYPE, PyKCS11.CKK_RSA),
-                        (PyKCS11.CKA_TOKEN, True),
-                        (PyKCS11.CKA_PRIVATE, True),
-                        (PyKCS11.CKA_SENSITIVE, True),
-                        (PyKCS11.CKA_DECRYPT, True),
-                        (PyKCS11.CKA_SIGN, True),
-                        (PyKCS11.CKA_UNWRAP, True),
-                        (
-                            PyKCS11.CKA_EXTRACTABLE,
-                            False,
-                        ),  # Cannot extract private key
-                        (PyKCS11.CKA_LABEL, key_label),
-                    ]
-
-                    pub_key, priv_key = session.generateKeyPair(
-                        public_template, private_template
-                    )
-
-                elif key_type == "EC":
+                if "EC" in alg_upper or "ECDSA" in alg_upper:
                     # EC key generation (P-256 curve)
-                    # This is a simplified example - you may want to support
-                    # more curves
                     public_template = [
                         (PyKCS11.CKA_CLASS, PyKCS11.CKO_PUBLIC_KEY),
                         (PyKCS11.CKA_KEY_TYPE, PyKCS11.CKK_EC),
@@ -308,24 +322,12 @@ class HSMKeyBackend:
                         (PyKCS11.CKA_PRIVATE, False),
                         (PyKCS11.CKA_VERIFY, True),
                         (PyKCS11.CKA_LABEL, key_label),
-                        # EC parameters for P-256 curve (secp256r1)
+                        # DER-encoded OID for secp256r1 (P-256)
                         (
                             PyKCS11.CKA_EC_PARAMS,
-                            (
-                                0x06,
-                                0x08,
-                                0x2A,
-                                0x86,
-                                0x48,
-                                0xCE,
-                                0x3D,
-                                0x03,
-                                0x01,
-                                0x07,
-                            ),
+                            (0x06, 0x08, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07),
                         ),
                     ]
-
                     private_template = [
                         (PyKCS11.CKA_CLASS, PyKCS11.CKO_PRIVATE_KEY),
                         (PyKCS11.CKA_KEY_TYPE, PyKCS11.CKK_EC),
@@ -336,18 +338,37 @@ class HSMKeyBackend:
                         (PyKCS11.CKA_EXTRACTABLE, False),
                         (PyKCS11.CKA_LABEL, key_label),
                     ]
-
-                    pub_key, priv_key = session.generateKeyPair(
-                        public_template, private_template
-                    )
-
                 else:
-                    raise ValueError(f"Unsupported key type: {key_type}")
+                    # RSA key generation (default)
+                    public_template = [
+                        (PyKCS11.CKA_CLASS, PyKCS11.CKO_PUBLIC_KEY),
+                        (PyKCS11.CKA_KEY_TYPE, PyKCS11.CKK_RSA),
+                        (PyKCS11.CKA_TOKEN, True),
+                        (PyKCS11.CKA_PRIVATE, False),
+                        (PyKCS11.CKA_MODULUS_BITS, key_size),
+                        (PyKCS11.CKA_PUBLIC_EXPONENT, (0x01, 0x00, 0x01)),
+                        (PyKCS11.CKA_ENCRYPT, True),
+                        (PyKCS11.CKA_VERIFY, True),
+                        (PyKCS11.CKA_WRAP, True),
+                        (PyKCS11.CKA_LABEL, key_label),
+                    ]
+                    private_template = [
+                        (PyKCS11.CKA_CLASS, PyKCS11.CKO_PRIVATE_KEY),
+                        (PyKCS11.CKA_KEY_TYPE, PyKCS11.CKK_RSA),
+                        (PyKCS11.CKA_TOKEN, True),
+                        (PyKCS11.CKA_PRIVATE, True),
+                        (PyKCS11.CKA_SENSITIVE, True),
+                        (PyKCS11.CKA_DECRYPT, True),
+                        (PyKCS11.CKA_SIGN, True),
+                        (PyKCS11.CKA_UNWRAP, True),
+                        (PyKCS11.CKA_EXTRACTABLE, False),
+                        (PyKCS11.CKA_LABEL, key_label),
+                    ]
 
+                session.generateKeyPair(public_template, private_template)
                 logger.info(
                     "Successfully generated key pair in HSM: %s", key_label
                 )
-                return pub_key, priv_key
 
             except PyKCS11.PyKCS11Error as e:
                 logger.error("Failed to generate key pair in HSM: %s", e)
@@ -505,73 +526,6 @@ class HSMKeyBackend:
                 logger.error("Error getting public key from HSM: %s", e)
                 return None
 
-    def sign(
-        self, key_label: str, data: bytes, hash_algorithm: str = 'sha256'
-    ) -> bytes:
-        """
-        Sign data using HSM private key
-
-        Args:
-            key_label: Key label in HSM
-            data: Data to sign
-            hash_algorithm: Hash algorithm name string (e.g. 'sha256')
-
-        Returns:
-            Signature bytes
-        """
-        logger.debug("Signing data with HSM key: %s", key_label)
-
-        with self.session_manager as session:
-            try:
-                # Find private key (use session directly to avoid deadlock)
-                template = [
-                    (PyKCS11.CKA_CLASS, PyKCS11.CKO_PRIVATE_KEY),
-                    (PyKCS11.CKA_LABEL, key_label),
-                ]
-                objects = session.findObjects(template)
-
-                if not objects:
-                    raise errors.NotFound(
-                        reason=f"Private key not found in HSM: {key_label}"
-                    )
-
-                priv_key = objects[0]
-
-                # Determine mechanism based on hash algorithm string
-                # Note: CKM_SHA*_RSA_PKCS mechanisms perform hashing internally
-                alg_lower = (hash_algorithm or 'sha256').lower()
-                if alg_lower == 'sha384':
-                    mechanism = PyKCS11.Mechanism(
-                        PyKCS11.CKM_SHA384_RSA_PKCS, None
-                    )
-                elif alg_lower == 'sha512':
-                    mechanism = PyKCS11.Mechanism(
-                        PyKCS11.CKM_SHA512_RSA_PKCS, None
-                    )
-                else:
-                    # Default to SHA256
-                    mechanism = PyKCS11.Mechanism(
-                        PyKCS11.CKM_SHA256_RSA_PKCS, None
-                    )
-
-                # Sign the data (pass original data, not hash, as mechanism
-                # includes hashing)
-                signature = session.sign(priv_key, data, mechanism)
-
-                # Convert to bytes
-                signature_bytes = bytes(signature)
-
-                logger.debug(
-                    "Successfully signed data with HSM key: %s", key_label
-                )
-                return signature_bytes
-
-            except PyKCS11.PyKCS11Error as e:
-                logger.error("Failed to sign data with HSM: %s", e)
-                raise errors.CertificateOperationError(
-                    error=f"Failed to sign data with HSM: {e}"
-                )
-
     def delete_key(self, key_label: str):
         """
         Delete key from HSM
@@ -651,68 +605,63 @@ class HSMKeyBackend:
 
 
 class HSMPrivateKeyProxy:
-    """
-    Private Key Proxy for HSM-backed keys
+    """Proxy for an HSM-backed private key using synta's PKCS#11 URI support.
 
-    This class acts as a proxy for private keys stored in an HSM, making them
-    compatible with synta's signing interface.
+    Signing is delegated to :func:`synta.PrivateKey.from_pkcs11_uri` which
+    loads the key from the token via OpenSSL's pkcs11-provider.  This handles
+    all key types (RSA, EC, ML-DSA) transparently without hard-coded PKCS#11
+    mechanisms.
+
+    Key generation is still handled by :class:`HSMKeyBackend`; this class only
+    manages the signing interface.
     """
 
     def __init__(self, hsm_backend: HSMKeyBackend, key_label: str):
-        """
-        Initialize HSM private key proxy
-
-        Args:
-            hsm_backend: HSM backend instance
-            key_label: Label of the key in the HSM
-        """
         self.hsm_backend = hsm_backend
         self.key_label = key_label
-        self._public_key = None
+        self._synta_key: Optional[synta.PrivateKey] = None
+        self._public_key_cache: Optional[synta.PublicKey] = None
 
-    def sign(self, data: bytes, hash_algorithm: str = 'sha256') -> bytes:
+    def _load_key(self) -> synta.PrivateKey:
+        """Load the key from the HSM via synta PKCS#11 URI (lazy, cached)."""
+        if self._synta_key is None:
+            slot_label = self.hsm_backend.config.slot_label
+            pin = self.hsm_backend.config.token_pin
+            uri = (
+                f"pkcs11:token={slot_label}"
+                f";object={self.key_label}"
+                f";type=private"
+                f"?pin-value={pin}"
+            )
+            logger.debug("Loading HSM key via PKCS#11 URI for label: %s", self.key_label)
+            self._synta_key = synta.PrivateKey.from_pkcs11_uri(uri)
+        return self._synta_key
+
+    def sign(
+        self,
+        data: bytes,
+        hash_algorithm: Optional[str] = None,
+        context: Optional[bytes] = None,
+    ) -> bytes:
+        """Sign data using the HSM key.
+
+        Delegates to synta, which selects the correct PKCS#11 mechanism for
+        the key type.  Pass ``hash_algorithm=None`` for ML-DSA (no pre-hash).
+        ``context`` is the ML-DSA domain-separation string (FIPS 204).
         """
-        Sign data using HSM private key
-
-        This method is compatible with synta's PrivateKey.sign() interface.
-
-        Args:
-            data: Data to sign
-            hash_algorithm: Hash algorithm name string (e.g. 'sha256')
-
-        Returns:
-            Signature bytes
-        """
-        # The HSM backend's sign method handles the signing
-        return self.hsm_backend.sign(self.key_label, data, hash_algorithm)
+        return self._load_key().sign(data, hash_algorithm, context)
 
     @property
-    def public_key(self):
-        """
-        Get the public key corresponding to this private key
-
-        Returns:
-            synta.PublicKey object, or None if not available
-        """
-        if self._public_key is None:
-            self._public_key = self.hsm_backend.get_public_key(self.key_label)
-        return self._public_key
+    def public_key(self) -> synta.PublicKey:
+        """Extract the public key from the HSM-loaded key."""
+        if self._public_key_cache is None:
+            self._public_key_cache = self._load_key().public_key
+        return self._public_key_cache
 
     @property
-    def key_size(self) -> int:
-        """
-        Get key size in bits
-
-        Returns:
-            Key size in bits
-        """
-        # Get the public key and extract key size from it
-        pub_key = self.public_key
-        if pub_key:
-            if hasattr(pub_key, "key_size"):
-                return pub_key.key_size
-        # Default to 2048 if we can't determine
-        return 2048
+    def key_size(self) -> Optional[int]:
+        """Key size in bits, or None for ML-DSA and Ed* keys."""
+        return self._load_key().key_size
 
 
 _HSM_BACKEND = None
