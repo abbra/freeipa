@@ -24,6 +24,7 @@ if __name__ == "__main__":
             "cryptography",
             "python-gunicorn",
             "python-flask",
+            "ipapython",  # ipautil.run, ipautil.fsdecode
         ],
         extras_require={
             "install": ["ipaplatform"],
