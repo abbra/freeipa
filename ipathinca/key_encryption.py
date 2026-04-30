@@ -126,7 +126,7 @@ class KeyEncryption:
         except Exception as e:
             raise KeyEncryptionError(
                 f"Failed to get master encryption key: {e}"
-            )
+            ) from e
 
     def _derive_key(self, salt: bytes) -> bytes:
         """
@@ -183,7 +183,9 @@ class KeyEncryption:
             return encrypted_data
 
         except Exception as e:
-            raise KeyEncryptionError(f"Failed to encrypt private key: {e}")
+            raise KeyEncryptionError(
+                f"Failed to encrypt private key: {e}"
+            ) from e
 
     def decrypt_key(self, encrypted_data: bytes) -> bytes:
         """
@@ -225,7 +227,7 @@ class KeyEncryption:
             raise KeyEncryptionError(
                 "Failed to decrypt private key (possible tampering or "
                 f"wrong master key): {e}"
-            )
+            ) from e
 
 
 # Global key encryption instance
