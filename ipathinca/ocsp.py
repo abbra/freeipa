@@ -510,22 +510,14 @@ class OCSPResponder:
 
             # Build signature AlgorithmIdentifier
             ocsp_pub_key = self.ocsp_cert.subject_public_key_info_der
-            # Get the public key OID via synta
-            pk_obj = synta.PublicKey.from_der(ocsp_pub_key)
-            if pk_obj.key_type == "rsa":
-                key_oid = str(synta.oids.RSA_ENCRYPTION)
-            elif pk_obj.key_type == "ec":
-                key_oid = str(synta.oids.EC_PUBLIC_KEY)
-            else:
-                # ML-DSA or other — use signing_algorithm_der with None hash
-                key_oid = str(synta.oids.RSA_ENCRYPTION)
-
+            key_oid = synta.decode_public_key_info(
+                ocsp_pub_key
+            )["algorithm_oid"]
             sig_alg_der = synta.signing_algorithm_der(key_oid, hash_alg)
             if sig_alg_der is None:
-                # Fall back to a pre-built AlgorithmIdentifier
-                sig_alg_der = synta.AlgorithmIdentifier.from_oid(
-                    synta.oids.SHA256_WITH_RSA
-                ).to_der()
+                raise ValueError(
+                    f"Unsupported OCSP signing key algorithm OID {key_oid!r}"
+                )
 
             response_bytes = synta.OCSPResponseBuilder.assemble(
                 tbs_der, sig_alg_der, sig
