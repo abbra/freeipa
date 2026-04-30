@@ -114,10 +114,11 @@ def convert_signing_algorithm(signing_alg):
     elif "SHA1" in alg_upper:
         return "sha1"
     else:
-        logger.warning(
-            "Unknown signing algorithm '%s', defaulting to sha256", signing_alg
+        raise ValueError(
+            f"Unknown signing algorithm {signing_alg!r}. "
+            f"Supported: ML-DSA-44/65/87, SHA256withRSA, SHA384withRSA, "
+            f"SHA512withRSA, SHA256withEC, SHA384withEC, SHA512withEC."
         )
-        return "sha256"
 
 
 class Certs:
@@ -253,49 +254,25 @@ class Certs:
     def _get_signing_hash_algorithm(self):
         """Map CA signing algorithm to a synta hash algorithm name string.
 
-        Uses ipaserver.install.ca.CASigningAlgorithm enum values.
-        Default from ipaca_customize.ini: SHA256withRSA
+        Delegates to convert_signing_algorithm() which handles RSA, EC, and
+        ML-DSA uniformly.
 
         Returns:
             Hash algorithm name string suitable for synta (e.g. 'sha256'),
-            or None for ML-DSA algorithms.
+            or None for ML-DSA (no pre-hash).
 
         Raises:
-            ValueError: If algorithm is unsupported
+            ValueError: If algorithm is unsupported.
         """
         if self.ca_signing_algorithm is None:
             return "sha256"
 
-        # Get the algorithm string value from enum
         if hasattr(self.ca_signing_algorithm, "value"):
             alg_str = self.ca_signing_algorithm.value
         else:
             alg_str = str(self.ca_signing_algorithm)
 
-        alg_str_upper = alg_str.upper()
-        if "ML-DSA" in alg_str_upper or "MLDSA" in alg_str_upper:
-            logger.info(
-                "Using ML-DSA signing algorithm: %s (no pre-hash)", alg_str
-            )
-            return None
-
-        algorithm_map = {
-            "SHA1withRSA": "sha1",
-            "SHA256withRSA": "sha256",
-            "SHA384withRSA": "sha384",
-            "SHA512withRSA": "sha512",
-        }
-
-        hash_alg = algorithm_map.get(alg_str)
-        if hash_alg is None:
-            raise ValueError(
-                f"Unsupported CA signing algorithm: {alg_str}. "
-                f"Supported algorithms: ML-DSA-44, ML-DSA-65, ML-DSA-87, "
-                + ", ".join(algorithm_map.keys())
-            )
-
-        logger.info("Using CA signing algorithm: %s", alg_str)
-        return hash_alg
+        return convert_signing_algorithm(alg_str)
 
     def _generate_external_ca_csr(self):
         """Generate CA signing CSR for external CA
