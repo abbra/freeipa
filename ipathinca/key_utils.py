@@ -33,7 +33,7 @@ def generate_private_key(signing_alg: str, key_size: int) -> synta.PrivateKey:
 
     if "ML-DSA" in alg_upper or "MLDSA" in alg_upper:
         for param_set in ("ML-DSA-87", "ML-DSA-65", "ML-DSA-44"):
-            if param_set in signing_alg:
+            if param_set in alg_upper:
                 logger.debug("Generating %s private key", param_set)
                 return synta.PrivateKey.generate_ml_dsa(param_set)
         raise ValueError(
