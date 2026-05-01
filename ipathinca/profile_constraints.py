@@ -152,6 +152,18 @@ class KeyConstraint(Constraint):
         errors = []
         public_key = synta.PublicKey.from_der(csr.subject_public_key_info_der)
 
+        # ML-DSA is a post-quantum signing-only key type that predates PQC
+        # support in Dogtag profile definitions.  Legacy profiles specify
+        # keyType=RSA; allow ML-DSA through unless the profile explicitly
+        # demands EC or DSA (which are semantically distinct key families).
+        actual_key_type = public_key.key_type  # e.g. 'rsa', 'ec', 'ml-dsa-65'
+        if actual_key_type.startswith('ml-dsa-') or actual_key_type == 'mldsa':
+            if self.key_type in ("EC", "DSA"):
+                errors.append(
+                    f"Key type must be {self.key_type}, not {actual_key_type}"
+                )
+            return errors
+
         # Check key type
         if self.key_type == "RSA":
             if public_key.key_type != 'rsa':
