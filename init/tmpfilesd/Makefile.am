@@ -1,11 +1,13 @@
 dist_noinst_DATA =     \
 	ipa.conf.in    \
 	ipaclient.conf.in \
-	ipa-dnssec.conf.in
+	ipa-dnssec.conf.in \
+	ipa-ipathinca.conf.in
 
 systemdtmpfiles_DATA =         \
 	ipa.conf \
-	ipaclient.conf
+	ipaclient.conf \
+	ipa-ipathinca.conf
 
 appdir = $(IPA_DATA_DIR)
 dist_app_DATA =	\
