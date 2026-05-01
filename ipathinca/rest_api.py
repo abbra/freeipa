@@ -1549,6 +1549,142 @@ def delete_crl_issuing_point(crl_name):
 
 
 # ============================================================================
+# Certificate and Request Pruning Endpoints
+# ============================================================================
+
+
+@app.route("/ca/rest/pruning/config", methods=["GET"])
+@app.route("/ca/v2/pruning/config", methods=["GET"])
+@require_ca_backend
+def get_pruning_config():
+    """
+    Get pruning configuration
+
+    Returns configuration for certificate and request pruning including
+    retention times, search limits, and enabled status.
+    """
+    try:
+        config = ca_backend.pruning_manager.get_config()
+        return success_response(config)
+
+    except Exception as e:
+        logger.error(f"Error getting pruning config: {e}", exc_info=True)
+        return error_response("ServerError", str(e), 500)
+
+
+@app.route("/ca/rest/pruning/config", methods=["POST", "PUT"])
+@app.route("/ca/v2/pruning/config", methods=["POST", "PUT"])
+@require_agent_auth
+@require_ca_backend
+def update_pruning_config():
+    """
+    Update pruning configuration
+
+    Requires agent authentication.
+
+    Request body can include:
+    - certRetentionTime: Certificate retention time value
+    - certRetentionUnit: Certificate retention unit (minute, hour, day, year)
+    - certSearchSizeLimit: LDAP search size limit for certificates
+    - certSearchTimeLimit: LDAP search time limit for certificates
+    - requestRetentionTime: Request retention time value
+    - requestRetentionUnit: Request retention unit
+    - requestSearchSizeLimit: LDAP search size limit for requests
+    - requestSearchTimeLimit: LDAP search time limit for requests
+    - cronSchedule: Cron schedule for automatic pruning
+    """
+    try:
+        data = request.get_json() or {}
+
+        # Validate and update configuration
+        ca_backend.pruning_manager.update_config(data)
+
+        # Get updated config to return
+        config = ca_backend.pruning_manager.get_config()
+        return success_response(config)
+
+    except Exception as e:
+        logger.error(f"Error updating pruning config: {e}", exc_info=True)
+        return error_response("ServerError", str(e), 500)
+
+
+@app.route("/ca/rest/pruning/enable", methods=["POST"])
+@app.route("/ca/v2/pruning/enable", methods=["POST"])
+@require_agent_auth
+@require_ca_backend
+def enable_pruning():
+    """
+    Enable certificate pruning
+
+    Sets pruningEnabled=TRUE in LDAP configuration.
+    Requires agent authentication.
+    """
+    try:
+        ca_backend.pruning_manager.set_enabled(True)
+        logger.info("Certificate pruning enabled")
+        return success_response(
+            {"Status": "SUCCESS", "Message": "Pruning enabled"}
+        )
+
+    except Exception as e:
+        logger.error(f"Error enabling pruning: {e}", exc_info=True)
+        return error_response("ServerError", str(e), 500)
+
+
+@app.route("/ca/rest/pruning/disable", methods=["POST"])
+@app.route("/ca/v2/pruning/disable", methods=["POST"])
+@require_agent_auth
+@require_ca_backend
+def disable_pruning():
+    """
+    Disable certificate pruning
+
+    Sets pruningEnabled=FALSE in LDAP configuration.
+    Requires agent authentication.
+    """
+    try:
+        ca_backend.pruning_manager.set_enabled(False)
+        logger.info("Certificate pruning disabled")
+        return success_response(
+            {"Status": "SUCCESS", "Message": "Pruning disabled"}
+        )
+
+    except Exception as e:
+        logger.error(f"Error disabling pruning: {e}", exc_info=True)
+        return error_response("ServerError", str(e), 500)
+
+
+@app.route("/ca/rest/pruning/run", methods=["POST"])
+@app.route("/ca/v2/pruning/run", methods=["POST"])
+@require_agent_auth
+@require_ca_backend
+def run_pruning():
+    """
+    Run pruning job manually
+
+    Executes certificate and request pruning based on current configuration.
+    Requires agent authentication.
+
+    Returns:
+    {
+        "certificates_deleted": 123,
+        "requests_deleted": 45,
+        "errors": []
+    }
+    """
+    try:
+        results = ca_backend.pruning_manager.run_pruning()
+        return success_response(results)
+
+    except ValueError as e:
+        # Pruning not enabled
+        return error_response("PruningNotEnabled", str(e), 400)
+    except Exception as e:
+        logger.error(f"Error running pruning job: {e}", exc_info=True)
+        return error_response("ServerError", str(e), 500)
+
+
+# ============================================================================
 # Main Entry Point
 # ============================================================================
 
