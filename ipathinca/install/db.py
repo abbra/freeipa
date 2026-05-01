@@ -43,16 +43,13 @@ class NSSDB:
         self.nssdb_dir = Path(paths.PKI_TOMCAT_ALIAS_DIR)
         self.nssdb_password_file = Path(paths.PKI_TOMCAT_PASSWORD_CONF)
 
-        # Create directories
+        # Create directories if absent.  Final ownership (pkiuser:pkiuser) and
+        # POSIX ACLs are applied below by systemd-tmpfiles, which reads
+        # ipa-pki-tomcat.conf.  Creating here with mode 0o750 is a safe
+        # baseline that is always overwritten before any custodia handler runs.
         self.nssdb_dir.mkdir(parents=True, exist_ok=True, mode=0o750)
         self.nssdb_password_file.parent.mkdir(
             parents=True, exist_ok=True, mode=0o750
-        )
-
-        # Set ownership (same as Dogtag: ipaca:ipaca)
-        shutil.chown(self.nssdb_dir, user="ipaca", group="ipaca")
-        shutil.chown(
-            self.nssdb_password_file.parent, user="ipaca", group="ipaca"
         )
 
         # Check if NSS database already exists (e.g., from previous Dogtag
@@ -140,14 +137,17 @@ class NSSDB:
         if not (self.nssdb_dir / "cert9.db").exists():
             raise RuntimeError(f"Failed to create NSSDB at {self.nssdb_dir}")
 
-        # Fix ownership of NSSDB files (certutil creates as root, need ipaca)
-        logger.debug("Setting NSSDB file ownership to ipaca:ipaca")
-        for nssdb_file in ["cert9.db", "key4.db", "pkcs11.txt"]:
-            file_path = self.nssdb_dir / nssdb_file
-            if file_path.exists():
-                shutil.chown(file_path, user="ipaca", group="ipaca")
-        logger.debug("NSSDB file ownership set to ipaca:ipaca")
-
+        # Create pwdfile.txt (raw password, no prefix) so that the
+        # ipa-custodia-pki-tomcat handler can authenticate to the NSSDB
+        # via pk12util -k pwdfile.txt.  Dogtag creates this file; we must
+        # do the same for replica key transfer via custodia to work.
+        pwdfile_txt = Path(paths.PKI_TOMCAT_ALIAS_PWDFILE_TXT)
+        fd = os.open(
+            str(pwdfile_txt), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600
+        )
+        with os.fdopen(fd, "w") as f:
+            f.write(self.nssdb_password)
+        logger.debug("Created NSSDB pwdfile.txt at %s", pwdfile_txt)
         logger.debug("NSS database created and verified")
 
     def load_nssdb_password(self):
@@ -181,6 +181,25 @@ class NSSDB:
 
         raise RuntimeError(
             f"NSSDB password not found in {self.nssdb_password_file}"
+        )
+
+    def apply_nssdb_permissions(self):
+        """Apply ownership and ACLs to the NSSDB directory tree.
+
+        Must be called after ALL pk12util / certutil write operations so that
+        NSS WAL and SHM files (cert9.db-wal, cert9.db-shm, …) created by
+        root-run install steps also receive the correct group:ipaca ACL.
+        Without this, ipathinca (runas: ipaca) cannot open the NSSDB.
+        """
+        logger.debug("Applying NSSDB ownership via systemd-tmpfiles")
+        ipautil.run(
+            [
+                paths.SYSTEMD_TMPFILES,
+                "--create",
+                "--prefix",
+                paths.PKI_TOMCAT,
+            ],
+            raiseonerr=False,
         )
 
     def import_cert_to_nssdb(
