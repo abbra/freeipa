@@ -109,11 +109,11 @@ def convert_signing_algorithm(signing_alg):
 
     Returns:
         Hash algorithm name string suitable for synta (e.g. 'sha256'),
-        or None for algorithms that do not use a pre-hash (ML-DSA).
+        or "" for algorithms that do not use a pre-hash (ML-DSA).
     """
     alg_upper = signing_alg.upper()
     if "ML-DSA" in alg_upper or "MLDSA" in alg_upper:
-        return None
+        return ""
     elif "SHA512" in alg_upper:
         return "sha512"
     elif "SHA384" in alg_upper:
@@ -268,7 +268,7 @@ class Certs:
 
         Returns:
             Hash algorithm name string suitable for synta (e.g. 'sha256'),
-            or None for ML-DSA (no pre-hash).
+            or "" for ML-DSA (synta ignores the algorithm for ML-DSA keys).
 
         Raises:
             ValueError: If algorithm is unsupported.

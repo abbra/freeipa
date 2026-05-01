@@ -311,11 +311,11 @@ def parse_signature_algorithm(algorithm_string: str) -> str:
 
     Returns:
         Hash algorithm name string suitable for synta (e.g. "sha256"),
-        or None for algorithms that do not use a pre-hash (ML-DSA).
+        or "" for algorithms that do not use a pre-hash (ML-DSA).
     """
     alg_upper = algorithm_string.upper()
     if 'ML-DSA' in alg_upper or 'MLDSA' in alg_upper:
-        return None  # ML-DSA uses no pre-hash
+        return ""  # ML-DSA: no pre-hash; synta ignores algorithm
     if 'SHA512' in alg_upper:
         return 'sha512'
     if 'SHA384' in alg_upper:
