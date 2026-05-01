@@ -1,0 +1,25 @@
+[Unit]
+Description=IPA thin CA Service
+After=network.target dirsrv.target
+Wants=dirsrv.target
+Conflicts=pki-tomcatd@pki-tomcat.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=ipaca
+Group=ipaca
+Environment=LC_ALL=C.UTF-8
+WorkingDirectory=/var/lib/ipathinca/
+RuntimeDirectory=ipathinca
+RuntimeDirectoryMode=0755
+LogsDirectory=ipathinca
+LogsDirectoryMode=0750
+ExecStart=$SBIN_DIR/ipathinca --foreground
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
