@@ -19,6 +19,7 @@ if __name__ == "__main__":
         packages=[
             "ipathinca",
             "ipathinca.install",
+            "ipathinca.rest_api",
         ],
         install_requires=[
             "cryptography",

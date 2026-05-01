@@ -93,7 +93,8 @@ def create_wsgi_app():
 
     # Import and create Flask app
     try:
-        from ipathinca.rest_api import create_app, ca_backend
+        from ipathinca.rest_api import create_app
+        import ipathinca.rest_api._globals as _rest_api_globals
         from ipathinca.cert_reload import get_reload_manager
 
         # Create application with configuration
@@ -120,7 +121,7 @@ def create_wsgi_app():
         # This allows sending SIGHUP to reload certificates without
         # service restart
         try:
-            reload_manager = get_reload_manager(ca_backend)
+            reload_manager = get_reload_manager(_rest_api_globals.ca_backend)
             reload_manager.setup_signal_handler()
             logger.info(
                 "Certificate reload manager initialized - send SIGHUP "
