@@ -19,7 +19,7 @@ from ipalib.constants import CA_TRACKING_REQS, RENEWAL_CA_NAME
 from ipaplatform.paths import paths
 from ipapython import ipautil
 
-from ipathinca import set_global_config
+from ipathinca import get_config_value, set_global_config
 from ipathinca.backend import get_python_ca_backend
 
 logger = logging.getLogger(__name__)
@@ -462,11 +462,42 @@ class ServiceMgmt:
 
         logger.debug("Apache HTTP proxy configured successfully")
 
+    def _wait_for_ds(self, timeout=120):
+        """Wait for Directory Server LDAPI socket to be ready.
+
+        Called after certmonger's post-save restart commands have completed.
+        Gates on the LDAPI socket file appearing in the filesystem: once
+        present, 389-DS is accepting connections and the autobind mapping
+        (configured by _configure_ldap_access, which runs before this) is
+        active.  Testing authentication here would run as root (the install
+        process), which bypasses the nsLDAPIFixedAuthMap and gives a false
+        positive.
+        """
+        instance = get_config_value("global", "realm").replace(".", "-")
+        socket_path = paths.SLAPD_INSTANCE_SOCKET_TEMPLATE % instance
+        logger.debug(
+            "Waiting for Directory Server LDAPI socket: %s", socket_path
+        )
+
+        try:
+            ipautil.wait_for_open_socket(socket_path, timeout=timeout)
+        except Exception as e:
+            raise RuntimeError(
+                f"Directory Server socket did not appear within {timeout}s "
+                f"({socket_path}): {e}"
+            ) from e
+
+        logger.debug("Directory Server LDAPI socket is available")
+
     def _start_service(self):
         """Start ipathinca service and wait for it to be ready."""
         logger.debug("Starting ipa-ca service")
 
         try:
+            # Certmonger may have restarted DS after issuing subsystem certs.
+            # ipathinca connects to LDAP on startup, so wait for DS first.
+            self._wait_for_ds()
+
             ipautil.run(["systemctl", "start", "ipathinca.service"])
             logger.debug("ipathinca service started successfully")
 
