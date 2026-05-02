@@ -11,6 +11,7 @@ from __future__ import print_function, absolute_import
 import enum
 import logging
 import os.path
+import shutil
 import tempfile
 
 import pki.util
