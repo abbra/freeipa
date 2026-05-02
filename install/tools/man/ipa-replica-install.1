@@ -116,6 +116,9 @@ The path to LDIF file that will be used to modify configuration of dse.ldif duri
 Install and configure a CA on this replica. If a CA is not configured then
 certificate operations will be forwarded to a master with a CA installed.
 .TP
+\fB\-\-use\-ipathinca\fR
+Use the native Python CA (ipathinca) instead of Dogtag/pki\-tomcat as the CA backend. Must be used together with \fB\-\-setup\-ca\fR. ipathinca supports post\-quantum algorithms (ML\-DSA) and does not require a Java runtime. The master server must already be configured with ipathinca as its CA backend. When this option is set, \fBca_backend = ipathinca\fR is written to \fI/etc/ipa/default.conf\fR so that \fBipactl\fR manages the \fBipathinca.service\fR systemd unit on this replica.
+.TP
 \fB\-\-no\-pkinit\fR
 Disables pkinit setup steps.
 .TP

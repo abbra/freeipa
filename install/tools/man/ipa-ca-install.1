@@ -82,6 +82,9 @@ Signing algorithm of the IPA CA certificate. Possible values are SHA1withRSA, SH
 \fB\-\-no\-host\-dns\fR
 Do not use DNS for hostname lookup during installation
 .TP
+\fB\-\-use\-ipathinca\fR
+Use the native Python CA (ipathinca) instead of Dogtag/pki\-tomcat as the CA backend. ipathinca supports post\-quantum algorithms (ML\-DSA) and does not require a Java runtime. When this option is set, \fBca_backend = ipathinca\fR is written to \fI/etc/ipa/default.conf\fR and \fBipactl\fR manages the \fBipathinca.service\fR systemd unit instead of \fBpki\-tomcatd@pki\-tomcat.service\fR.
+.TP
 \fB\-\-random\-serial\-numbers\fR
 Enable Random Serial Numbers (RSN) and certificate pruning. This option is enabled by default if the system is installed with a 389-ds version that supports LMDB or if another CA in the topology is configured with Random Serial Numbers. This option remains present to avoid issues with automation. In mixed environments where existing CA servers are configured with sequential numbers, it is recommended to replace the sequential servers as soon as reasonably possible.
 .TP
