@@ -181,7 +181,7 @@ def install_dns_records(config, options, remote_api, fstore=None):
                     'on master: %s', str(e))
 
 
-def create_ipa_conf(fstore, config, ca_enabled, master=None):
+def create_ipa_conf(fstore, config, ca_enabled, master=None, ca_backend=None):
     """
     Create /etc/ipa/default.conf master configuration
     :param fstore: sysrestore file store used for backup and restore of
@@ -190,6 +190,8 @@ def create_ipa_conf(fstore, config, ca_enabled, master=None):
     :param ca_enabled: True if the topology includes a CA
     :param master: if set, the xmlrpc_uri parameter will use the provided
                    master instead of this host
+    :param ca_backend: 'ipathinca' or 'dogtag'; written only when this
+                       replica is itself a CA server (config.setup_ca)
     """
     # Save client file on Domain Level 1
     target_fname = paths.IPA_DEFAULT_CONF
@@ -224,6 +226,9 @@ def create_ipa_conf(fstore, config, ca_enabled, master=None):
             ipaconf.setOption('ra_plugin', 'dogtag'),
             ipaconf.setOption('dogtag_version', '10')
         ])
+
+        if config.setup_ca and ca_backend:
+            gopts.append(ipaconf.setOption('ca_backend', ca_backend))
 
         if not config.setup_ca:
             gopts.append(ipaconf.setOption('ca_host', config.ca_host_name))
@@ -1370,7 +1375,11 @@ def install(installer):
         # successful uninstallation
         # The configuration creation has to be here otherwise previous call
         # To config certmonger would try to connect to local server
-        create_ipa_conf(fstore, config, ca_enabled)
+        _ca_backend = (
+            'ipathinca' if getattr(options, 'use_ipathinca', False)
+            else 'dogtag'
+        )
+        create_ipa_conf(fstore, config, ca_enabled, ca_backend=_ca_backend)
 
     krb = install_krb(
         config,
@@ -1394,7 +1403,8 @@ def install(installer):
     # This is why we need to force the use of the same master by
     # setting xmlrpc_uri
     create_ipa_conf(fstore, config, ca_enabled,
-                    master=config.master_host_name)
+                    master=config.master_host_name,
+                    ca_backend=_ca_backend)
 
     # we now need to enable ssl on the ds
     ds.enable_ssl()
@@ -1408,7 +1418,7 @@ def install(installer):
         fstore=fstore)
 
     # Need to point back to ourself after the cert for HTTP is obtained
-    create_ipa_conf(fstore, config, ca_enabled)
+    create_ipa_conf(fstore, config, ca_enabled, ca_backend=_ca_backend)
 
     otpd = otpdinstance.OtpdInstance()
     otpd.create_instance('OTPD', config.host_name,
