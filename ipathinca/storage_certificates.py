@@ -9,7 +9,8 @@ from __future__ import absolute_import
 import logging
 from typing import Dict, Any, List
 import secrets
-from datetime import datetime, timezone
+import re
+from datetime import datetime, timedelta, timezone
 
 import synta
 
@@ -26,6 +27,37 @@ from ipathinca.storage_base import biginteger_to_db
 
 # Import LDAP filter escaping from shared location
 from ipathinca.storage_base import escape_filter_chars
+
+# LDAP GeneralizedTime: YYYYMMDDHHmmss[.fff][Z|±HHMM]
+_GENERALIZEDTIME_RE = re.compile(
+    r'^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})'
+    r'(?:\.(\d+))?'
+    r'(Z|[+-]\d{4})?$'
+)
+
+
+def _parse_ldap_date(value: str) -> datetime:
+    """Parse an ISO format or LDAP GeneralizedTime date string."""
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        pass
+    m = _GENERALIZEDTIME_RE.match(value)
+    if m:
+        year, month, day, hour, minute, second = (int(g) for g in m.groups()[:6])
+        frac = m.group(7) or "0"
+        microsecond = int(frac[:6].ljust(6, "0"))
+        tz_token = m.group(8) or "Z"
+        if tz_token == "Z":
+            tz = timezone.utc
+        else:
+            sign = 1 if tz_token[0] == "+" else -1
+            tz = timezone(
+                timedelta(hours=sign * int(tz_token[1:3]),
+                          minutes=sign * int(tz_token[3:5]))
+            )
+        return datetime(year, month, day, hour, minute, second, microsecond, tz)
+    raise ValueError(f"Cannot parse date/time string: {value!r}")
 
 
 logger = logging.getLogger(__name__)
@@ -307,7 +339,7 @@ class CertificateStorage(BaseStorageBackend):
                 )[0]
                 if isinstance(created, bytes):
                     created = created.decode("utf-8")
-                issued_at = datetime.fromisoformat(created)
+                issued_at = _parse_ldap_date(created)
                 cert_record.issued_at = issued_at
 
                 # Extract revocation_reason if present
@@ -515,7 +547,7 @@ class CertificateStorage(BaseStorageBackend):
                     )[0]
                     if isinstance(created, bytes):
                         created = created.decode("utf-8")
-                    cert_record.issued_at = datetime.fromisoformat(created)
+                    cert_record.issued_at = _parse_ldap_date(created)
 
                     # Extract revocation_reason
                     revocation_reason = None
@@ -848,7 +880,7 @@ class CertificateStorage(BaseStorageBackend):
                 )[0]
                 if isinstance(create_date, bytes):
                     create_date = create_date.decode("utf-8")
-                cert_request.submitted_at = datetime.fromisoformat(create_date)
+                cert_request.submitted_at = _parse_ldap_date(create_date)
 
                 # Extract serial number if present
                 if "extdata-cert-serial-number" in entry:
