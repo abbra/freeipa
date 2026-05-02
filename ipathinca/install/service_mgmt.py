@@ -16,6 +16,7 @@ from pathlib import Path
 
 
 from ipalib.constants import CA_TRACKING_REQS, RENEWAL_CA_NAME
+from ipalib.install.certmonger import wait_for_requests_by_postsave
 from ipaplatform.paths import paths
 from ipapython import ipautil
 
@@ -494,8 +495,19 @@ class ServiceMgmt:
         logger.debug("Starting ipa-ca service")
 
         try:
-            # Certmonger may have restarted DS after issuing subsystem certs.
-            # ipathinca connects to LDAP on startup, so wait for DS first.
+            # On replica install certmonger asynchronously fetches DS and
+            # httpd certificates from the master and then restarts each
+            # service via its post-save command.  Wait for all requests
+            # whose post-save command matches restart_dirsrv or restart_httpd
+            # to reach a stable state before gating on the DS socket;
+            # otherwise a late restart_dirsrv can fire after we see DS
+            # ready, causing ipathinca to fail its LDAP connection.
+            wait_for_requests_by_postsave(
+                ('restart_dirsrv', 'restart_httpd'), timeout=300
+            )
+
+            # DS may still be in the middle of its own startup after the
+            # certmonger-triggered restart.  Gate on the LDAPI socket.
             self._wait_for_ds()
 
             ipautil.run(["systemctl", "start", "ipathinca.service"])
