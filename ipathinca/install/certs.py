@@ -29,7 +29,7 @@ import synta.oids.attr
 from ipalib import errors
 from ipalib.constants import IPA_CA_CN, IPAAPI_GROUP
 from ipaplatform.paths import paths
-from ipapython import ipautil, dogtag
+from ipapython import dogtag
 from ipapython.dn import DN
 from ipapython.certdb import get_ca_nickname
 from ipathinca.ca import CertificateRequest, CertificateRecord, PythonCA
