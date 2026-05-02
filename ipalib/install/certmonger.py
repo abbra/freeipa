@@ -815,6 +815,13 @@ def wait_for_requests_by_postsave(patterns, timeout=300):
     """Wait until every certmonger request whose post-save command matches
     any of the given substrings has reached a terminal state.
 
+    This is used during replica install to wait for certmonger to finish
+    issuing the DS (restart_dirsrv) and httpd (restart_httpd) certificates
+    before ipacta is started.  Once certmonger runs the post-save command
+    it restarts the service; only after all matching requests are stable is
+    it safe to gate on the DS LDAPI socket.
+
+
     :param patterns: iterable of substrings matched against
                      cert-postsave-command (e.g. ('restart_dirsrv',
                      'restart_httpd'))
