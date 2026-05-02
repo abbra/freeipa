@@ -124,6 +124,17 @@ installer connects to an existing IPAthinCA master, clones the CA certificate ch
 and signing key material, and starts the local `ipathinca` service. The Dogtag LDAP
 suffix (`o=ipaca`) is shared between all replicas via standard LDAP replication.
 
+For software key deployments, the CA signing key and certificate chain are
+transferred to the replica as a PKCS#12 bundle retrieved from the master via
+custodia. The replica installer imports the bundle into its
+`/var/lib/ipathinca/ca/` directory before starting the service.
+
+For HSM deployments the key is not extracted — it never leaves the HSM. All
+replicas share access to the same signing key by connecting to the network HSM
+directly. The replica only receives the CA certificate chain; HSM configuration
+(token name, library path, pin) must be replicated separately by the
+administrator.
+
 ---
 
 ## How to Use
@@ -181,6 +192,12 @@ ipactl status
 
 Do not start or stop `ipathinca.service` directly with `systemctl` — IPA
 manages service ordering and dependencies.
+
+`ipactl` determines which CA service to manage by reading the `ca_backend` key
+from `/etc/ipa/default.conf`. The installer writes `ca_backend = ipathinca`
+when ipathinca is configured, causing `ipactl` to track `ipathinca.service`
+instead of `pki-tomcatd@pki-tomcat.service`. This applies to both the primary
+server install and any replica that runs ipathinca.
 
 ### Certificate operations
 
@@ -452,6 +469,60 @@ Software PKCS#11 tokens (SoftHSM2, Kryoptic) may be used for single-host
 testing only; they cannot provide the shared key access required for
 multi-replica deployments.
 
+### NSSDB for certmonger compatibility
+
+IPAthinCA creates and maintains an NSS database at `/etc/pki/pki-tomcat/alias/`
+to provide a drop-in replacement interface for tools that expect Dogtag's NSSDB:
+
+- **Certmonger** tracks certificates by nickname inside this NSSDB. Without it,
+  certmonger cannot track or renew the service certificates.
+- **`certutil` and `pk12util`** work against this NSSDB for diagnostic use.
+- **ipa-custodia** uses the `pwdfile.txt` inside this directory when transferring
+  keys to replicas.
+
+The database is created with `certutil -N` during installation. Ownership and
+ACLs are applied after all write operations (including NSS WAL/SHM files created
+by root during install) using direct `os.chown`, `os.chmod`, and `setfacl`
+calls — `systemd-tmpfiles` cannot be used here because it rejects operations
+on root-owned files inside a `pkiuser`-owned directory (exit code 73 "unsafe path
+transition").
+
+For HSM deployments only the CA certificate (not the private key) is imported
+into the NSSDB; the key stays on the HSM.
+
+### Startup sequencing and DS readiness
+
+`ipathinca.service` depends on Directory Server being reachable via LDAPI before
+it can initialise its CA backend (load keys, connect to the LDAP pool, etc.).
+During installation, certmonger restarts DS after issuing the subsystem
+certificates, so a naive `systemctl start ipathinca` would fail with connection
+errors if DS has not yet come back.
+
+The installer gates the `systemctl start ipathinca` call on the DS LDAPI socket
+at `/run/slapd-<realm-instance>.socket` becoming available, using
+`ipautil.wait_for_open_socket()` with a 60-second timeout. A
+`TimeoutError` is raised and propagated as a meaningful message if DS does not
+recover within the timeout.
+
+### CA service registration in LDAP
+
+After installation is complete, the installer registers the CA service in the
+IPA masters tree:
+
+```ldif
+dn: cn=CA,cn=<hostname>,cn=masters,cn=ipa,cn=etc,<basedn>
+ipaConfigString: enabledService
+ipaConfigString: startOrder 50
+```
+
+This entry is what causes the host to appear as an "IPA CA server" in
+`ipa server-show` and in the topology view. It is also what `ipactl` reads to
+build the ordered list of services to manage. Without this entry, `ipactl`
+would not know to start or stop the CA service on this host.
+
+On the primary server the `ipaConfigString` also includes `caRenewalMaster`
+to designate it as the CA renewal master.
+
 ### Audit logging
 
 A structured audit log is written to `/var/log/ipathinca/audit.log`. Each entry
@@ -487,9 +558,17 @@ Existing dependencies that are no longer needed when Dogtag is replaced:
 
 ```
 /etc/ipa/ipathinca.conf          Main configuration
+/etc/ipa/default.conf            IPA global config (ca_backend = ipathinca written here)
+/etc/pki/pki-tomcat/
+    password.conf                NSSDB password (Dogtag-format: "internal=<pw>")
+    alias/
+        cert9.db                 NSS certificate database (certmonger/certutil compat)
+        key4.db                  NSS key database
+        pkcs11.txt               NSS PKCS#11 module list
+        pwdfile.txt              Raw NSSDB password (used by custodia for replica transfer)
 /var/lib/ipathinca/
     ca/
-        ca_signing.key           CA signing private key (or PKCS#11 URI)
+        ca_signing.key           CA signing private key (or PKCS#11 URI for HSM)
         ca_signing.crt           CA signing certificate
         subcas/<ca_id>/          Sub-CA keys and certificates
     audit/
@@ -534,6 +613,19 @@ Certmonger is used to renew the service certificates (server TLS, RA agent,
 subsystem, OCSP signing, audit signing). Renewal scripts are installed under
 `/usr/lib/ipa/certmonger/` and follow the same pattern as the existing Dogtag
 certmonger helpers.
+
+Certmonger tracks certificates by nickname inside the NSSDB at
+`/etc/pki/pki-tomcat/alias/` — the same location Dogtag uses. IPAthinCA
+creates and populates this NSSDB during installation so certmonger does not
+need any configuration changes. When certmonger issues a renewal request to
+ipathinca and the new certificate is returned, ipathinca updates both its
+internal PEM files under `/var/lib/ipathinca/` and the NSSDB entry so the two
+stores stay in sync.
+
+Note that certmonger restarts Directory Server after issuing subsystem
+certificates during install. The ipathinca start-up sequence waits for DS to be
+reachable again before attempting to connect to LDAP (see
+"Startup sequencing and DS readiness" above).
 
 ---
 
@@ -613,6 +705,17 @@ Because IPAthinCA and Dogtag share the same `o=ipaca` LDAP suffix via standard
 replication, it is possible to run a mixed environment during transition:
 some replicas run Dogtag, others run IPAthinCA. Both service the same certificate
 database. This allows zero-downtime migration.
+
+### System CA trust
+
+The CA certificate is added to the system-wide trust store by the
+`ipa-client-install --on-master` step that runs at the end of server
+installation. This calls `tasks.insert_ca_certs_into_systemwide_ca_store()`
+and `tasks.reload_systemwide_ca_store()`, which invoke `update-ca-trust`.
+
+IPAthinCA does not run `trust anchor --store` directly: that command uses the
+PKCS#11 layer which rejects keys with unknown OIDs (including ML-DSA), causing
+installation failures on post-quantum deployments.
 
 ### Schema upgrades
 
@@ -739,8 +842,14 @@ getcert list -r                             # Show renewal status
 | Symptom | Likely cause | Diagnostic step |
 |---------|-------------|-----------------|
 | `ipathinca` fails to start | LDAP not reachable | `ldapsearch -H ldapi:/// -Y EXTERNAL -b "" -s base` |
+| `ipathinca` fails to start | DS still restarting after certmonger | Wait 60 s; check DS journal: `journalctl -u dirsrv@<realm>` |
 | 503 on all CA requests | `ca_backend` not initialized | Check `ipathinca.log` for init errors |
+| `ipactl status` shows `pki-tomcatd STOPPED` | `ca_backend` missing from `default.conf` | Check `/etc/ipa/default.conf` for `ca_backend = ipathinca` |
+| Host not listed as "IPA CA server" | CA not registered in LDAP masters tree | `ldapsearch -H ldapi:/// -Y EXTERNAL -b "cn=CA,cn=$(hostname),cn=masters,cn=ipa,cn=etc,<basedn>"` |
+| Certmonger cannot track certs | NSSDB missing or wrong ownership | `certutil -L -d /etc/pki/pki-tomcat/alias`; check `ls -la /etc/pki/pki-tomcat/alias/` |
+| NSSDB permission errors on install | systemd-tmpfiles "unsafe path transition" | Should not occur; install now uses direct chown/setfacl |
 | CRL not updating | CRL signing key unreadable | Check permissions on `/var/lib/ipathinca/ca/` |
 | OCSP returns `internalError` | LDAP search failure | Check LDAP pool / `ldap_utils` errors in log |
 | HSM signing fails | pkcs11-provider not configured | Check `OPENSSL_CONF`, `/etc/pki/pkcs11/pkcs11.conf` |
 | KRA 503 | KRA init failed | Check `kra_init_error` in log; verify transport key exists |
+| `ipa server-del` returns 400 on security domain cleanup | Should not occur | Security domain DELETE endpoint accepts lowercase subsystem names (`ca`, `kra`) |
