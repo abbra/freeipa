@@ -27,6 +27,7 @@ from logging.handlers import RotatingFileHandler
 from ipaplatform.paths import paths
 import ipathinca
 from ipathinca import x509_utils
+from ipathinca.exceptions import CAConfigurationError
 from ipathinca.nss_utils import NSSDatabase
 
 logger = logging.getLogger(__name__)
@@ -159,15 +160,10 @@ class AuditLogger:
 
             self.logger.addHandler(handler)
         except (PermissionError, OSError) as e:
-            # If we can't create the audit log file, just log to stderr
-            logger.warning(
-                "Cannot create audit log file %s: %s", self.log_file, e
-            )
-            logger.warning("Audit logging will be sent to stderr instead")
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter("%(message)s")
-            handler.setFormatter(formatter)
-            self.logger.addHandler(handler)
+            raise CAConfigurationError(
+                f"Cannot open audit log file {self.log_file}: {e}",
+                context={"log_file": str(self.log_file)},
+            ) from e
 
         # During ipa-server-install the process runs as root, which means
         # RotatingFileHandler creates audit.log owned by root.  Fix the
@@ -274,8 +270,10 @@ class AuditLogger:
             return signature
 
         except Exception as e:
-            logger.error("Failed to sign audit message: %s", e)
-            return ""
+            logger.error(
+                "Failed to sign audit message: %s", e, exc_info=True
+            )
+            return "SIGNING_FAILED"
 
     def log_event(
         self,
