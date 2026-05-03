@@ -9,7 +9,6 @@ or other WSGI servers for production deployment.
 """
 
 import os
-import sys
 import logging
 from pathlib import Path
 
@@ -206,6 +205,10 @@ def main():
     # Build Gunicorn command
     gunicorn_args = [
         "gunicorn",
+        # gunicorn_conf.py defines post_fork() to reinitialise the LDAP
+        # pool in every worker after --preload forks them from the master.
+        "--config",
+        "python:ipathinca.gunicorn_conf",
         "--bind",
         args.bind,
         "--workers",
