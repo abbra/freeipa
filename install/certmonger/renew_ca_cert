@@ -7,6 +7,7 @@
 # Usage: renew_ca_cert "nickname"
 
 set -euo pipefail
+umask 077
 
 NICKNAME="$1"
 
