@@ -7,7 +7,7 @@ Storage module extracted from storage_ca.py for modularity
 from __future__ import absolute_import
 
 import logging
-from typing import Dict, Any, List, NamedTuple, Optional
+from typing import Dict, Any, List, Optional
 import secrets
 import re
 from datetime import datetime, timedelta, timezone
@@ -44,7 +44,9 @@ def _parse_ldap_date(value: str) -> datetime:
         pass
     m = _GENERALIZEDTIME_RE.match(value)
     if m:
-        year, month, day, hour, minute, second = (int(g) for g in m.groups()[:6])
+        year, month, day, hour, minute, second = (
+            int(g) for g in m.groups()[:6]
+        )
         frac = m.group(7) or "0"
         microsecond = int(frac[:6].ljust(6, "0"))
         tz_token = m.group(8) or "Z"
@@ -173,7 +175,9 @@ class CertificateStorage(BaseStorageBackend):
                     "notAfter": [not_after],
                     "certStatus": [dogtag_status],
                     "userCertificate;binary": [cert_der],
-                    "dateOfCreate": [_to_generalizedtime(cert_record.issued_at)],
+                    "dateOfCreate": [
+                        _to_generalizedtime(cert_record.issued_at)
+                    ],
                 }
 
                 # Note: requestId is not stored in certificate entries in
@@ -411,7 +415,9 @@ class CertificateStorage(BaseStorageBackend):
                     )
                 ) from e
 
-    def find_certificates(self, criteria: Dict[str, Any] = None) -> List:
+    def find_certificates(
+        self, criteria: Optional[Dict[str, Any]] = None
+    ) -> List:
         """
         Search certificates in Dogtag-compatible LDAP schema
 
@@ -656,7 +662,10 @@ class CertificateStorage(BaseStorageBackend):
                 try:
                     serial = int(serial_raw)
                 except ValueError:
-                    logger.warning("Skipping CRL entry with non-integer cn: %s", serial_raw)
+                    logger.warning(
+                        "Skipping CRL entry with non-integer cn: %s",
+                        serial_raw,
+                    )
                     continue
 
                 # Revocation time (fall back to now if missing)
@@ -874,7 +883,9 @@ class CertificateStorage(BaseStorageBackend):
                     "cn": [request_id],
                     "requestState": [cert_request.status],
                     "extdata-cert-request": [csr_pem],
-                    "dateOfCreate": [_to_generalizedtime(cert_request.submitted_at)],
+                    "dateOfCreate": [
+                        _to_generalizedtime(cert_request.submitted_at)
+                    ],
                 }
 
                 # Store profile (using extdata-* attribute which
