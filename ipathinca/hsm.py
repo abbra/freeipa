@@ -12,6 +12,7 @@ via OpenSSL's pkcs11-provider.
 import hashlib
 import logging
 import os
+import re
 import subprocess
 import tempfile
 import threading
@@ -24,6 +25,18 @@ from ipathinca.exceptions import CAConfigurationError
 from ipathinca.key_utils import generate_private_key, DEFAULT_RSA_KEY_SIZE
 
 logger = logging.getLogger(__name__)
+
+_PIN_VALUE_RE = re.compile(r'(?<=\?|&)pin-value=[^&]*', re.IGNORECASE)
+
+
+def _sanitize_uri(uri: str) -> str:
+    """Return a PKCS#11 URI with any pin-value= component replaced by '***'.
+
+    Use this whenever a URI needs to appear in a log message or exception
+    string to avoid leaking the HSM PIN into log files.
+    """
+    return _PIN_VALUE_RE.sub("pin-value=***", uri)
+
 
 try:
     import synta.pkcs11 as _pkcs11
@@ -99,17 +112,20 @@ class HSMKeyBackend:
             f"?pin-value={self.config.token_pin}"
         )
         try:
-            self.token = _pkcs11.Pkcs11Token(
+            self.token = _pkcs11.Pkcs11Token(  # pylint: disable=no-member
                 token_uri, self.config.pkcs11_library
             )
         except ValueError as e:
+            safe_msg = _sanitize_uri(str(e))
             raise errors.CertificateOperationError(
-                error=f"Failed to load PKCS#11 library: {e}"
+                error=f"Failed to load PKCS#11 library: {safe_msg}"
             ) from e
 
         # Verify the named token is present and accessible.
         try:
-            slots = _pkcs11.list_slots(module=self.config.pkcs11_library)
+            slots = _pkcs11.list_slots(  # pylint: disable=no-member
+                module=self.config.pkcs11_library
+            )
         except ValueError as e:
             raise errors.CertificateOperationError(
                 error=f"Failed to enumerate HSM slots: {e}"
@@ -342,9 +358,13 @@ class HSMPrivateKeyProxy:
                 try:
                     self._synta_key = synta.PrivateKey.from_pkcs11_uri(uri)
                 except Exception as e:
+                    # Sanitise the error message: synta may echo the URI back
+                    # in the exception string, which would expose pin-value=.
+                    safe_msg = _sanitize_uri(str(e))
                     raise errors.CertificateOperationError(
                         error=(
-                            f"Failed to load HSM key '{self.key_label}': {e}"
+                            f"Failed to load HSM key '{self.key_label}': "
+                            f"{safe_msg}"
                         )
                     ) from e
             return self._synta_key
@@ -419,7 +439,9 @@ def list_pkcs11_slots(library_path: str) -> List[Dict[str, Any]]:
             )
         )
     try:
-        slots = _pkcs11.list_slots(module=library_path)
+        slots = _pkcs11.list_slots(  # pylint: disable=no-member
+            module=library_path
+        )
     except ValueError as e:
         raise CAConfigurationError(
             f"Failed to list PKCS#11 slots: {e}"
@@ -467,7 +489,9 @@ def get_hsm_info(
         raise ValueError("Either slot_id or slot_label must be provided")
 
     try:
-        slots = _pkcs11.list_slots(module=library_path)
+        slots = _pkcs11.list_slots(  # pylint: disable=no-member
+            module=library_path
+        )
     except ValueError as e:
         raise CAConfigurationError(
             f"Failed to enumerate HSM slots: {e}"
