@@ -15,6 +15,7 @@ Key Features:
 
 import logging
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -149,56 +150,68 @@ class NSSDatabase:
             p12_path = p12_file.name
 
         try:
-            # Export key+cert to PKCS#12 using pk12util
+            # Export key+cert to PKCS#12 using pk12util.
+            # Use subprocess directly (not ipautil.run) so we can enforce
+            # a timeout: the NSSDB uses SQLite which can block indefinitely
+            # waiting for a file lock if another process holds it.
             logger.debug("Exporting %s to temporary PKCS#12", nickname)
-            result = ipautil.run(
-                [
-                    "pk12util",
-                    "-o",
-                    p12_path,
-                    "-d",
-                    str(self.nssdb_dir),
-                    "-n",
-                    nickname,
-                    "-k",
-                    temp_password_file,
-                    "-w",
-                    temp_password_file,
-                ],
-                capture_output=True,
-                raiseonerr=False,
-            )
+            try:
+                proc = subprocess.run(
+                    [
+                        "pk12util",
+                        "-o", p12_path,
+                        "-d", str(self.nssdb_dir),
+                        "-n", nickname,
+                        "-k", temp_password_file,
+                        "-w", temp_password_file,
+                    ],
+                    capture_output=True,
+                    timeout=60,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired:
+                raise CertificateOperationError(
+                    f"pk12util timed out extracting key for {nickname} "
+                    "(possible NSSDB lock contention)"
+                )
 
-            if result.returncode != 0:
-                logger.error("pk12util export failed: %s", result.error_output)
+            if proc.returncode != 0:
+                stderr = proc.stderr.decode(errors="replace")
+                logger.error("pk12util export failed: %s", stderr)
                 raise CertificateOperationError(
                     f"Failed to extract key for {nickname} from NSSDB"
                 )
 
             # Convert PKCS#12 to PEM in memory using openssl
             logger.debug("Converting PKCS#12 to PEM in memory")
-            result = ipautil.run(
-                [
-                    "openssl",
-                    "pkcs12",
-                    "-in",
-                    p12_path,
-                    "-nocerts",
-                    "-nodes",
-                    "-passin",
-                    f"file:{temp_password_file}",
-                ],
-                capture_output=True,
-                raiseonerr=True,
-            )
+            try:
+                proc = subprocess.run(
+                    [
+                        "openssl",
+                        "pkcs12",
+                        "-in", p12_path,
+                        "-nocerts",
+                        "-nodes",
+                        "-passin", f"file:{temp_password_file}",
+                    ],
+                    capture_output=True,
+                    timeout=60,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired:
+                raise CertificateOperationError(
+                    f"openssl pkcs12 timed out converting key for {nickname}"
+                )
 
-            # Load private key from PEM (in memory only)
-            key_pem = (
-                result.output.encode()
-                if isinstance(result.output, str)
-                else result.output
-            )
-            private_key = synta.PrivateKey.from_pem(key_pem)
+            if proc.returncode != 0:
+                stderr = proc.stderr.decode(errors="replace")
+                logger.error("openssl pkcs12 failed: %s", stderr)
+                raise CertificateOperationError(
+                    f"Failed to convert PKCS#12 to PEM for {nickname}"
+                )
+
+            # Load private key from PEM bytes (in memory only)
+            private_key = synta.PrivateKey.from_pem(proc.stdout)
 
             logger.debug(
                 "Successfully extracted private key from NSSDB: %s", nickname
