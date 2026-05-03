@@ -779,6 +779,52 @@ class ACMEStorageBackend(LDAPStorageMixin):
             logger.debug("Certificate not found: %s: %s", cert_id, e)
             return None
 
+    def find_order_for_certificate(self, cert_der: bytes) -> Optional[Dict]:
+        """Find the ACME order that issued a certificate given its DER bytes.
+
+        Searches orders that have a certificate_id set, fetches each stored
+        certificate DER, and returns the first order whose certificate matches.
+        This is used by revoke-cert to verify account ownership before allowing
+        revocation.
+
+        Returns the order dict (same shape as get_order()) or None if not found.
+        """
+        try:
+            with get_ldap_connection() as conn:
+                # Find all completed orders (those with acmeCertificateId set)
+                entries = conn.get_entries(
+                    self.orders_dn,
+                    scope=conn.SCOPE_ONELEVEL,
+                    filter="(&(objectClass=acmeOrder)(acmeCertificateId=*))",
+                    attrs_list=["acmeOrderId", "acmeAccountId",
+                                "acmeCertificateId"],
+                )
+        except Exception as e:
+            logger.debug("Error searching ACME orders: %s", e)
+            return None
+
+        for entry in entries:
+            cert_id = entry.single_value.get("acmeCertificateId")
+            if not cert_id:
+                continue
+            stored_pem = self.get_certificate(cert_id)
+            if not stored_pem:
+                continue
+            try:
+                stored_cert = synta.Certificate.from_pem(
+                    stored_pem.encode()
+                )
+                if stored_cert.to_der() == cert_der:
+                    order_id = entry.single_value.get("acmeOrderId")
+                    return self.get_order(order_id)
+            except Exception as e:
+                logger.debug(
+                    "Error comparing cert for order %s: %s",
+                    entry.single_value.get("acmeOrderId"),
+                    e,
+                )
+        return None
+
     # ========================================================================
     # Utility Methods
     # ========================================================================
@@ -833,7 +879,10 @@ class ACMEStorageBackend(LDAPStorageMixin):
                 entries = conn.get_entries(
                     nonces_dn,
                     scope=conn.SCOPE_ONELEVEL,
-                    filter=f"(&(objectClass=acmeNonce)(acmeExpires<={now_str}))",
+                    filter=(
+                        f"(&(objectClass=acmeNonce)"
+                        f"(acmeExpires<={now_str}))"
+                    ),
                     attrs_list=["cn"],
                 )
                 for entry in entries:
@@ -858,7 +907,10 @@ class ACMEStorageBackend(LDAPStorageMixin):
                 entries = conn.get_entries(
                     orders_dn,
                     scope=conn.SCOPE_ONELEVEL,
-                    filter=f"(&(objectClass=acmeOrder)(acmeExpires<={now_str}))",
+                    filter=(
+                        f"(&(objectClass=acmeOrder)"
+                        f"(acmeExpires<={now_str}))"
+                    ),
                     attrs_list=["cn"],
                 )
                 for entry in entries:
