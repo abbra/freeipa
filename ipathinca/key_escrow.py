@@ -112,25 +112,34 @@ class PythonKeyEscrowBackend:
 
     def _generate_transport_cert(self):
         """
-        Generate self-signed transport certificate for key wrapping
-        """
-        # Generate private key
-        private_key = synta.PrivateKey.generate_rsa(2048)
+        Generate self-signed transport certificate for key wrapping.
 
-        # Create self-signed certificate
+        Key size: RSA-3072 per NIST SP 800-131A Rev 2 (keys protecting data
+        past 2030 require at least 3072-bit RSA).
+        Validity: 2 years (short-lived; certmonger renews before expiry).
+        """
+        # RSA-3072: meets NIST SP 800-131A Rev 2 security strength requirement
+        private_key = synta.PrivateKey.generate_rsa(3072)
+
+        # Build subject DN from IPA realm config; fall back to generic value
+        # when running without a fully configured IPA environment.
+        try:
+            realm = get_config_value("global", "realm")
+            org = realm
+        except Exception:
+            org = "IPA Key Escrow"
+
         name_der = x509_utils.build_x509_name(
             [
-                ("CN", "Transport Certificate"),
-                ("O", "IPA Key Escrow"),
-                ("L", "Unknown"),
-                ("ST", "Unknown"),
-                ("C", "US"),
+                ("CN", "IPA KRA Transport Certificate"),
+                ("O", org),
             ]
         )
 
         serial_number = int.from_bytes(os.urandom(20), 'big') >> 1
         now = datetime.now(timezone.utc)
-        not_after = now.replace(year=now.year + 10)
+        # 2-year validity: short enough to stay within NIST key-lifetime limits
+        not_after = now.replace(year=now.year + 2)
 
         san_oid = str(synta.oids.SUBJECT_ALT_NAME)
         san_der = synta.ext.SAN().dns_name("localhost").build()
