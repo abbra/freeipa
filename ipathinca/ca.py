@@ -54,7 +54,7 @@ import synta.oids
 
 from ipalib import errors
 from ipathinca.profiles import ProfileManager
-from ipathinca.certificate_types import (  # noqa: F401 — re-exported
+from ipathinca.certificate_types import (  # noqa: F401 pylint: disable=W0611
     CertificateStatus,
     RevocationReason,
     CertificateRequest,
@@ -744,46 +744,17 @@ class PythonCA:
             now + datetime.timedelta(minutes=next_update_minutes)
         )
 
-        # Get all revoked certificates from LDAP storage
-        # Optionally filter out expired certificates
-        include_expired = (
-            ipathinca.get_config_value(
-                "ca", "crl_include_expired_certs", default="false"
-            ).lower()
-            == "true"
-        )
-        revoked_certs = self.storage.find_certificates({"status": "REVOKED"})
-        if not include_expired:
-            revoked_certs = [
-                c
-                for c in revoked_certs
-                if c.certificate is not None
-                and c.certificate.not_after_utc > now
-            ]
-
-        # Add revoked certificates to CRL
-        for cert_record in revoked_certs:
-            if cert_record.status == CertificateStatus.REVOKED:
-                if cert_record.revoked_at is None:
-                    logger.warning(
-                        "Revoked certificate %s has no revocation date, "
-                        "skipping in CRL",
-                        cert_record.serial_number,
-                    )
-                    continue
-                # revoke_utc() takes big-endian serial bytes, revocation
-                # datetime, and integer reason code
-                serial_bytes = cert_record.serial_number.to_bytes(
-                    max(1, (cert_record.serial_number.bit_length() + 7) // 8),
-                    'big',
-                )
-                reason_int = 0  # unspecified
-                if cert_record.revocation_reason:
-                    reason_int = cert_record.revocation_reason.value
-
-                builder = builder.revoke_utc(
-                    serial_bytes, cert_record.revoked_at, reason_int
-                )
+        # Add revoked certificates to CRL.
+        # Use get_revoked_for_crl() which fetches only serial, revocation time,
+        # and reason code — no binary certificate DER — to avoid loading all
+        # revoked cert payloads into memory at once on large deployments.
+        for serial, revoked_at, reason_int in (
+            self.storage.get_revoked_for_crl()
+        ):
+            serial_bytes = serial.to_bytes(
+                max(1, (serial.bit_length() + 7) // 8), 'big'
+            )
+            builder = builder.revoke_utc(serial_bytes, revoked_at, reason_int)
 
         # Embed CRL Number extension (RFC 5280 §5.2.1)
         builder = builder.add_extension(
