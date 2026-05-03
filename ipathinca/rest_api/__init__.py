@@ -2,7 +2,9 @@
 
 """REST API package for IPAthinCA — Flask blueprint-based implementation."""
 
+import importlib
 import logging
+import pkgutil
 
 from flask import Flask, request
 
@@ -28,15 +30,17 @@ def internal_error(error):
     return error_response("InternalServerError", "Internal server error", 500)
 
 
-# Register blueprints (import after app is created to avoid circular imports)
-from ipathinca.rest_api import (  # noqa: E402
-    ca_core, certs, profiles, crl_ocsp, authorities, ranges, kra, acme, hsm,
-)
+# Auto-register blueprints: every public submodule (no leading underscore)
+# that exposes a `bp` attribute is a blueprint module.
+# __path__ is set by Python on all package __init__.py modules.
+for _mod_info in pkgutil.iter_modules(__path__):  # noqa: F821
+    if _mod_info.name.startswith("_"):
+        continue
+    _mod = importlib.import_module(f"ipathinca.rest_api.{_mod_info.name}")
+    if hasattr(_mod, "bp"):
+        app.register_blueprint(_mod.bp)
 
-for _bp_mod in (
-    ca_core, certs, profiles, crl_ocsp, authorities, ranges, kra, acme, hsm
-):
-    app.register_blueprint(_bp_mod.bp)
+del _mod_info, _mod
 
 
 def create_app(config=None):
