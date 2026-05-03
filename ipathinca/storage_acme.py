@@ -829,19 +829,19 @@ class ACMEStorageBackend(LDAPStorageMixin):
         nonces_dn = DN(("ou", "nonces"), self.base_dn)
         deleted = 0
         try:
-            conn = get_ldap_connection()
-            entries = conn.get_entries(
-                nonces_dn,
-                scope=conn.SCOPE_ONELEVEL,
-                filter=f"(&(objectClass=acmeNonce)(acmeExpires<={now_str}))",
-                attrs_list=["cn"],
-            )
-            for entry in entries:
-                try:
-                    conn.delete_entry(entry)
-                    deleted += 1
-                except errors.NotFound:
-                    pass
+            with get_ldap_connection() as conn:
+                entries = conn.get_entries(
+                    nonces_dn,
+                    scope=conn.SCOPE_ONELEVEL,
+                    filter=f"(&(objectClass=acmeNonce)(acmeExpires<={now_str}))",
+                    attrs_list=["cn"],
+                )
+                for entry in entries:
+                    try:
+                        conn.delete_entry(entry)
+                        deleted += 1
+                    except errors.NotFound:
+                        pass
         except errors.NotFound:
             pass
         if deleted:
@@ -854,19 +854,19 @@ class ACMEStorageBackend(LDAPStorageMixin):
         orders_dn = DN(("ou", "orders"), self.base_dn)
         deleted = 0
         try:
-            conn = get_ldap_connection()
-            entries = conn.get_entries(
-                orders_dn,
-                scope=conn.SCOPE_ONELEVEL,
-                filter=f"(&(objectClass=acmeOrder)(acmeExpires<={now_str}))",
-                attrs_list=["cn"],
-            )
-            for entry in entries:
-                try:
-                    conn.delete_entry(entry)
-                    deleted += 1
-                except errors.NotFound:
-                    pass
+            with get_ldap_connection() as conn:
+                entries = conn.get_entries(
+                    orders_dn,
+                    scope=conn.SCOPE_ONELEVEL,
+                    filter=f"(&(objectClass=acmeOrder)(acmeExpires<={now_str}))",
+                    attrs_list=["cn"],
+                )
+                for entry in entries:
+                    try:
+                        conn.delete_entry(entry)
+                        deleted += 1
+                    except errors.NotFound:
+                        pass
         except errors.NotFound:
             pass
         if deleted:
@@ -879,20 +879,20 @@ class ACMEStorageBackend(LDAPStorageMixin):
         authz_dn = DN(("ou", "authorizations"), self.base_dn)
         deleted = 0
         try:
-            conn = get_ldap_connection()
-            entries = conn.get_entries(
-                authz_dn,
-                scope=conn.SCOPE_ONELEVEL,
-                filter=f"(&(objectClass=acmeAuthorization)"
-                f"(acmeExpires<={now_str}))",
-                attrs_list=["cn"],
-            )
-            for entry in entries:
-                try:
-                    conn.delete_entry(entry)
-                    deleted += 1
-                except errors.NotFound:
-                    pass
+            with get_ldap_connection() as conn:
+                entries = conn.get_entries(
+                    authz_dn,
+                    scope=conn.SCOPE_ONELEVEL,
+                    filter=f"(&(objectClass=acmeAuthorization)"
+                    f"(acmeExpires<={now_str}))",
+                    attrs_list=["cn"],
+                )
+                for entry in entries:
+                    try:
+                        conn.delete_entry(entry)
+                        deleted += 1
+                    except errors.NotFound:
+                        pass
         except errors.NotFound:
             pass
         if deleted:
