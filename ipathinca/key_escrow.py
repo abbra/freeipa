@@ -24,8 +24,12 @@ import synta.oids
 from ipalib import errors
 from ipathinca import get_config_value
 from ipathinca import x509_utils
+from ipathinca.key_encryption import KeyEncryption
 
 logger = logging.getLogger(__name__)
+
+# Magic header for encrypted escrow files (version 1)
+_ESCROW_MAGIC = b"KEF\x01"
 
 
 # Constants for key wrapping algorithms (compatible with vault.py)
@@ -95,6 +99,7 @@ class PythonKeyEscrowBackend:
         self.transport_key_path = os.path.join(
             storage_path, "transport_key.pem"
         )
+        self._key_enc = KeyEncryption()
 
         # Initialize storage directory
         os.makedirs(storage_path, mode=0o750, exist_ok=True)
@@ -201,6 +206,33 @@ class PythonKeyEscrowBackend:
         safe_id = client_key_id.replace("/", "_").replace(":", "_")
         return os.path.join(self.storage_path, f"{safe_id}.json")
 
+    def _load_records(self, filepath: str) -> list:
+        """Read and decrypt a key-escrow record file."""
+        with open(filepath, "rb") as f:
+            raw = f.read()
+        if raw.startswith(_ESCROW_MAGIC):
+            plaintext = self._key_enc.decrypt_key(raw[len(_ESCROW_MAGIC):])
+            return json.loads(plaintext.decode("utf-8"))
+        # Plaintext fallback (migration path for pre-encryption files)
+        return json.loads(raw.decode("utf-8"))
+
+    def _save_records(self, filepath: str, records: list) -> None:
+        """Encrypt and atomically write a key-escrow record file."""
+        plaintext = json.dumps(records, indent=2).encode("utf-8")
+        encrypted = self._key_enc.encrypt_key(plaintext)
+        tmp = filepath + ".tmp"
+        tmp_fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            with os.fdopen(tmp_fd, "wb") as f:
+                f.write(_ESCROW_MAGIC + encrypted)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+        os.replace(tmp, filepath)
+
     def archive_encrypted_data(
         self,
         client_key_id: str,
@@ -249,8 +281,7 @@ class PythonKeyEscrowBackend:
 
         # Load existing records or create new list
         if os.path.exists(storage_file):
-            with open(storage_file, "r") as f:
-                records = json.load(f)
+            records = self._load_records(storage_file)
         else:
             records = []
 
@@ -265,21 +296,7 @@ class PythonKeyEscrowBackend:
         # Add new record
         records.append(key_record)
 
-        # Write to a temp file then rename atomically so disk-full or OOM
-        # during json.dump never truncates the existing record store.
-        tmp_file = storage_file + ".tmp"
-        tmp_fd = os.open(tmp_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        try:
-            with os.fdopen(tmp_fd, "w") as f:
-                json.dump(records, f, indent=2)
-        except Exception:
-            try:
-                os.unlink(tmp_file)
-            except OSError:
-                pass
-            raise
-        os.replace(tmp_file, storage_file)
-        os.chmod(storage_file, 0o600)
+        self._save_records(storage_file, records)
 
         logger.info("Successfully archived data with key ID: %s", key_id)
         return key_id
@@ -304,8 +321,7 @@ class PythonKeyEscrowBackend:
         if not os.path.exists(storage_file):
             return KeyResponse([])
 
-        with open(storage_file, "r") as f:
-            records = json.load(f)
+        records = self._load_records(storage_file)
 
         key_infos = []
         for record in records:
@@ -336,8 +352,7 @@ class PythonKeyEscrowBackend:
 
             filepath = os.path.join(self.storage_path, filename)
 
-            with open(filepath, "r") as f:
-                records = json.load(f)
+            records = self._load_records(filepath)
 
             modified = False
             for record in records:
@@ -350,20 +365,7 @@ class PythonKeyEscrowBackend:
                     break
 
             if modified:
-                tmp_file = filepath + ".tmp"
-                tmp_fd = os.open(
-                    tmp_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600
-                )
-                try:
-                    with os.fdopen(tmp_fd, "w") as f:
-                        json.dump(records, f, indent=2)
-                except Exception:
-                    try:
-                        os.unlink(tmp_file)
-                    except OSError:
-                        pass
-                    raise
-                os.replace(tmp_file, filepath)
+                self._save_records(filepath, records)
                 logger.info("Updated key %s status to %s", key_id, new_status)
                 return
 
@@ -389,8 +391,7 @@ class PythonKeyEscrowBackend:
 
             filepath = os.path.join(self.storage_path, filename)
 
-            with open(filepath, "r") as f:
-                records = json.load(f)
+            records = self._load_records(filepath)
 
             for record in records:
                 if record["key_id"] == key_id:
