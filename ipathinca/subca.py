@@ -1002,14 +1002,18 @@ class SubCAManager:
             logger.debug("Loaded sub-CA %s from Dogtag LDAP schema", ca_id)
             return subca
 
+        except errors.NotFound:
+            logger.warning("Sub-CA %s not found in storage", ca_id)
+            return None
         except Exception as e:
             logger.error(
-                "Exception loading sub-CA %s from Dogtag storage: %s",
+                "Infrastructure error loading sub-CA %s"
+                " from Dogtag storage: %s",
                 ca_id,
                 e,
                 exc_info=True,
             )
-            return None
+            raise
 
     def _load_encrypted_subca_key_from_filesystem(
         self, ca_id: str
@@ -1043,8 +1047,9 @@ class SubCAManager:
                 "Failed to load private key for CA %s from filesystem: %s",
                 ca_id,
                 e,
+                exc_info=True,
             )
-            return None
+            raise
 
     def update_subca_status(self, ca_id: str, enabled: bool):
         """
