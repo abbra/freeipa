@@ -1,0 +1,43 @@
+# Ahdapa reverse proxy — managed by FreeIPA installer.
+# This file may be overwritten on upgrades.
+#
+# The placeholder hostname after "|" is mod_proxy's worker-pool key, not a
+# real destination -- the actual socket comes from the unix: prefix. It must
+# be unique across every Unix-socket-backed ProxyPass FreeIPA configures
+# (compare ipa-akamu-proxy.conf.template): mod_proxy has a long-standing
+# worker-sharing bug where two UDS workers with the same logical URL can
+# have their pooled connections cross-contaminated, silently routing a
+# request to the wrong backend socket.
+
+RedirectMatch permanent ^/idp$$ /idp/
+
+<Location "/idp/">
+    AuthType None
+    Require all granted
+
+    # ProxyPass/ProxyPassReverse/ProxyPassReverseCookiePath must live inside
+    # this Location, not at top level: mod_proxy's Set-Cookie Path rewriting
+    # is a global, load-order-dependent match on the *internal* path alone
+    # ("/" here) -- it is not scoped to which ProxyPass/backend actually
+    # served the response. Since ahdapa's and akamu's proxy confs both
+    # rewrite from "/", declaring these at top level lets whichever conf
+    # file loads first (alphabetically) silently steal the other's cookie
+    # rewrite, breaking session cookies for one of the two services.
+    # Verified empirically against httpd 2.4.68/mod_proxy.
+    ProxyPass        unix:$AHDAPA_SOCKET|http://ahdapa-local/  nocanon
+    ProxyPassReverse http://ahdapa-local/
+    ProxyPassReverseCookiePath / /idp/
+    ProxyPreserveHost On
+
+    SSLOptions +StdEnvVars +ExportCertData +StrictRequire
+    SSLVerifyClient none
+
+    RequestHeader set X-Forwarded-Proto "https"
+
+    Header always set    X-Content-Type-Options "nosniff"
+    Header always append X-Frame-Options "DENY"
+    Header always append Content-Security-Policy "frame-ancestors 'none'"
+</Location>
+
+RewriteCond %{SERVER_PORT} !^443$$
+RewriteRule ^/idp/(.*)     https://%{HTTP_HOST}/idp/$$1 [L,R=307,NC]

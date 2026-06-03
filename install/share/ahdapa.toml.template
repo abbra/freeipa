@@ -1,0 +1,60 @@
+# Ahdapa OAuth2/OIDC IdP — managed by FreeIPA installer.
+# This file may be overwritten on upgrades.
+
+[server]
+issuer       = "https://$FQDN/idp"
+realm        = "$REALM"
+display_name = "$REALM Identity"
+listen       = "unix:$AHDAPA_SOCKET"
+auth_rate_limit = 20
+
+[db]
+url             = "sqlite://$AHDAPA_STATE_DIR/ahdapa.db"
+max_connections = 10
+
+[gssapi]
+service              = "HTTP"
+gssproxy             = true
+initiator_principal  = "HTTP/$FQDN@$REALM"
+ccache               = "FILE:$AHDAPA_CCACHE"
+
+[ipa]
+uri            = "$LDAPI_SOCKET"
+cache_ttl_secs = 60
+
+[clients]
+file = "$AHDAPA_CONF_DIR/clients.toml"
+
+[webui]
+static_dir = "/usr/share/ahdapa/webui"
+
+[tokens]
+access_token_ttl  = 900
+refresh_token_ttl = 28800
+auth_code_ttl     = 60
+session_ttl       = 36000
+
+[gossip]
+ipa_topology               = true
+ipa_topology_interval_secs = 300
+interval_secs              = 5
+
+[[rbac.role]]
+name        = "admin"
+permissions = ["*"]
+
+[[rbac.role]]
+name        = "viewer"
+permissions = [
+    "clients:read", "keys:read", "federation:read",
+    "users:read",   "nodes:read", "audit:read",
+    "scopes:read",  "hbac:read",
+]
+
+[[rbac.group_role]]
+group = "admins"
+role  = "admin"
+
+[[rbac.group_role]]
+group = "ipausers"
+role  = "viewer"
