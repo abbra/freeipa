@@ -106,6 +106,19 @@ define(['dojo/_base/declare',
 
         render_buttons: function(container) {
 
+            this.oidc_btn_node = IPA.button({
+                name: 'oidc_auth',
+                label: text.get('@i18n:login.login_oidc',
+                    'Log In Using Single Sign-On'),
+                'class': 'btn-primary btn-lg',
+                click: this.login_with_oidc.bind(this)
+            })[0];
+            dom_style.set(this.oidc_btn_node, 'display', 'none');
+            construct.place(this.oidc_btn_node, container);
+            construct.place(document.createTextNode(" "), container);
+
+            this._check_oidc_availability();
+
             this.cert_btn_node = IPA.button({
                 name: 'cert_auth',
                 title: text.get('@i18n:login.login_certificate_desc',
@@ -299,6 +312,25 @@ define(['dojo/_base/declare',
                     val_summary.add_error('login', this.cert_auth_failed);
                 }
             }.bind(this));
+        },
+
+        login_with_oidc: function() {
+            IPA.login_oidc();
+        },
+
+        _check_oidc_availability: function() {
+            var self = this;
+            $.ajax({
+                url: config.oidc_login_url,
+                type: 'GET',
+                dataType: 'json',
+                success: function() {
+                    if (self.oidc_btn_node) {
+                        dom_style.set(self.oidc_btn_node, 'display', '');
+                    }
+                },
+                error: function() {}
+            });
         },
 
         parse_uri: function() {

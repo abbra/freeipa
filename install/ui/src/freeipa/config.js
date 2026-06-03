@@ -76,6 +76,11 @@ define([
         x509_login_url: '/ipa/session/login_x509',
 
         /**
+         * OIDC login url (integrated IdP)
+         */
+        oidc_login_url: '/ipa/session/login_oidc',
+
+        /**
          * Password reset url
          */
         reset_psw_url: '/ipa/session/change_password',
