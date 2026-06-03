@@ -41,7 +41,7 @@ from ipalib.facts import IPA_MODULES
 from ipaserver.install import (
     adtrust, adtrustinstance, bindinstance, ca, dns, dsinstance,
     httpinstance, installutils, kra, krbinstance,
-    otpdinstance, custodiainstance, replication, service,
+    otpdinstance, custodiainstance, ahdapainstance, replication, service,
     sysupgrade, cainstance)
 from ipaserver.install.installutils import (
     BadHostError, get_server_ip_address,
@@ -1036,6 +1036,17 @@ def install(installer):
     # Set the admin user kerberos password
     ds.change_admin_password(admin_password)
 
+    # ahdapactl needs a live Kerberos ticket for a principal ahdapa's RBAC
+    # maps to its "admin" role; the admin Kerberos key doesn't exist until
+    # the line above, so this must run after it.
+    if not options.no_idp:
+        ahdapa = ahdapainstance.AhdapaInstance(fstore)
+        ahdapa.configure_instance(
+            realm_name, host_name, domain_name,
+            ldap_suffix=ipautil.realm_to_suffix(realm_name),
+            admin_principal='admin',
+            admin_password=admin_password)
+
     # Call client install script
     service.print_msg("Configuring client side components")
     try:
@@ -1279,6 +1290,7 @@ def uninstall(installer):
     # realm isn't used, but IPAKEMKeys parses /etc/ipa/default.conf
     # otherwise, see https://codeberg.org/freeipa/freeipa/issues/7474 .
     custodiainstance.CustodiaInstance(realm='REALM.INVALID').uninstall()
+    ahdapainstance.AhdapaInstance(fstore).uninstall()
     otpdinstance.OtpdInstance().uninstall()
     tasks.restore_hostname(fstore, sstore)
     tasks.restore_pkcs11_modules(fstore)

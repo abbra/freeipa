@@ -41,7 +41,7 @@ from ipaclient.install.client import configure_krb5_conf, purge_host_keytab
 from ipaserver.install import (
     adtrust, bindinstance, ca, cainstance, dns, dsinstance, httpinstance,
     installutils, kra, krainstance, krbinstance, otpdinstance,
-    custodiainstance, service,)
+    custodiainstance, ahdapainstance, service,)
 from ipaserver.install import certs
 from ipaserver.install.installutils import (
     ReplicaConfig, load_pkcs12, validate_mask)
@@ -1413,6 +1413,14 @@ def install(installer):
     otpd = otpdinstance.OtpdInstance()
     otpd.create_instance('OTPD', config.host_name,
                          ipautil.realm_to_suffix(config.realm_name))
+
+    if not options.no_idp:
+        ahdapa = ahdapainstance.AhdapaInstance(fstore)
+        ahdapa.configure_instance(
+            config.realm_name, config.host_name, config.domain_name,
+            ldap_suffix=ipautil.realm_to_suffix(config.realm_name),
+            admin_principal=options.principal or 'admin',
+            admin_password=options.admin_password)
 
     if options.setup_kra and kra_enabled:
         # A KRA peer always provides a CA, too.
