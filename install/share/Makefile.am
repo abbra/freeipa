@@ -32,6 +32,9 @@ dist_app_DATA =				\
 	anon-princ-aci.ldif		\
 	bootstrap-template.ldif		\
 	ca-topology.uldif		\
+	ahdapa.toml.template		\
+	ahdapa-clients.toml.template	\
+	ahdapa-gssproxy.conf.template	\
 	custodia.conf.template		\
 	default-aci.ldif		\
 	default-hbac.ldif		\
@@ -96,6 +99,7 @@ dist_app_DATA =				\
 	kdcproxy.wsgi			\
 	ipakrb5.aug			\
 	ipa.conf.template		\
+	ipa-idp-proxy.conf.template	\
 	ipa-kdc-proxy.conf.template	\
 	ipa-pki-proxy.conf.template	\
 	ipa-ipacta-proxy.conf.template	\

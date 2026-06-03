@@ -1,0 +1,4 @@
+dn: cn=ahdapa,cn=ipa,cn=etc,$SUFFIX
+default: objectClass: top
+default: objectClass: nsContainer
+default: cn: ahdapa

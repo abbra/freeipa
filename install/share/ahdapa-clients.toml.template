@@ -1,0 +1,22 @@
+# Static OAuth2 clients — managed by FreeIPA installer.
+# This file may be overwritten on upgrades.
+
+[[client]]
+client_id                  = "$IDP_CLIENT_ID"
+client_name                = "FreeIPA Web UI"
+token_endpoint_auth_method = "none"
+scopes                     = ["openid", "profile", "krb5:ccache"]
+grant_types                = ["authorization_code"]
+redirect_uris              = [
+    "https://$FQDN/ipa/ui/",
+    "https://$FQDN/ipa/modern-ui/",
+]
+skip_consent               = true
+
+[[client]]
+client_id                  = "$IDP_OTPD_CLIENT_ID"
+client_name                = "FreeIPA OTP Daemon"
+token_endpoint_auth_method = "none"
+scopes                     = ["openid"]
+grant_types                = ["urn:ietf:params:oauth:grant-type:device_code"]
+skip_consent               = true

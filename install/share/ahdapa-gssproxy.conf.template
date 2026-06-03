@@ -1,0 +1,11 @@
+# gssproxy service entry for ahdapa — managed by FreeIPA installer.
+# This file may be overwritten on upgrades.
+
+[service/ahdapa]
+  mechs = krb5
+  cred_store = keytab:$HTTP_KEYTAB
+  cred_store = client_keytab:$HTTP_KEYTAB
+  allow_protocol_transition = true
+  allow_constrained_delegation = true
+  cred_usage = both
+  euid = $AHDAPA_USER
