@@ -1,0 +1,52 @@
+dn: cn=ahdapa,cn=ipa,cn=etc,$SUFFIX
+default: objectClass: top
+default: objectClass: nsContainer
+default: cn: ahdapa
+
+# Role for the ahdapa (Web UI IdP) service to read topology, trust, and
+# external IdP configuration required by [gossip] ipa_topology = true.
+# Role membership (which HTTP principal is added) is granted from Python
+# in ahdapainstance.py, not here, so hosts without ahdapa are unaffected.
+dn: cn=Ahdapa Services,cn=roles,cn=accounts,$SUFFIX
+default: objectClass: top
+default: objectClass: groupofnames
+default: objectClass: nestedgroup
+default: cn: Ahdapa Services
+default: description: HTTP service principals running the ahdapa OIDC/OAuth2 IdP
+
+dn: cn=Ahdapa Topology Read,cn=privileges,cn=pbac,$SUFFIX
+default: objectClass: top
+default: objectClass: groupofnames
+default: objectClass: nestedgroup
+default: cn: Ahdapa Topology Read
+default: description: Read topology segments and trust information for ahdapa gossip
+default: member: cn=Ahdapa Services,cn=roles,cn=accounts,$SUFFIX
+
+dn: cn=Ahdapa IdP Read,cn=privileges,cn=pbac,$SUFFIX
+default: objectClass: top
+default: objectClass: groupofnames
+default: objectClass: nestedgroup
+default: cn: Ahdapa IdP Read
+default: description: Read external IdP server configuration and user IdP attributes for ahdapa
+default: member: cn=Ahdapa Services,cn=roles,cn=accounts,$SUFFIX
+
+dn: cn=Ahdapa - Read user IdP attributes,cn=permissions,cn=pbac,$SUFFIX
+default: objectClass: top
+default: objectClass: groupofnames
+default: objectClass: ipapermission
+default: cn: Ahdapa - Read user IdP attributes
+default: ipapermissiontype: SYSTEM
+default: member: cn=Ahdapa IdP Read,cn=privileges,cn=pbac,$SUFFIX
+
+dn: cn=users,cn=accounts,$SUFFIX
+add:aci: (targetattr = "ipauserauthtype || ipaidpconfiglink || ipaidpsub")(targetfilter = "(objectclass=posixaccount)")(version 3.0;acl "permission:Ahdapa - Read user IdP attributes";allow (read,search,compare) groupdn = "ldap:///cn=Ahdapa - Read user IdP attributes,cn=permissions,cn=pbac,$SUFFIX";)
+
+# Grant the new privileges the existing System permissions they need
+dn: cn=System: Read Topology Segments,cn=permissions,cn=pbac,$SUFFIX
+add: member: cn=Ahdapa Topology Read,cn=privileges,cn=pbac,$SUFFIX
+
+dn: cn=System: Read Trust Information,cn=permissions,cn=pbac,$SUFFIX
+add: member: cn=Ahdapa Topology Read,cn=privileges,cn=pbac,$SUFFIX
+
+dn: cn=System: Read External IdP server,cn=permissions,cn=pbac,$SUFFIX
+add: member: cn=Ahdapa IdP Read,cn=privileges,cn=pbac,$SUFFIX
