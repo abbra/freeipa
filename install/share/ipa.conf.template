@@ -128,6 +128,12 @@ Alias /ipa/session/cookie "/usr/share/ipa/gssapi.login"
   Require all granted
 </Location>
 
+# Turn off Apache authentication for OIDC login via integrated IdP
+<Location "/ipa/session/login_oidc">
+  Satisfy Any
+  Require all granted
+</Location>
+
 # Login with user certificate/smartcard configuration
 # This configuration needs to be loaded after <Location "/ipa">
 <Location "/ipa/session/login_x509">
