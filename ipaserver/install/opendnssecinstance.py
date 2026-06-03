@@ -12,6 +12,7 @@ from subprocess import CalledProcessError
 
 from ipalib.install import sysrestore
 from ipaserver.dnssec.opendnssec import tasks
+from ipaserver.install import installutils
 from ipaserver.install import service
 from ipaserver.masters import ENABLED_SERVICE
 from ipapython.dn import DN
@@ -267,10 +268,9 @@ class OpenDNSSECInstance(service.Service):
         if self.kasp_db_file:
             # copy user specified kasp.db to proper location and set proper
             # privileges
-            shutil.copy(self.kasp_db_file, paths.OPENDNSSEC_KASP_DB)
-            constants.ODS_USER.chown(paths.OPENDNSSEC_KASP_DB,
-                                     gid=constants.ODS_GROUP.gid)
-            os.chmod(paths.OPENDNSSEC_KASP_DB, 0o660)
+            installutils.copy_file_secure(
+                self.kasp_db_file, paths.OPENDNSSEC_KASP_DB,
+                0o660, constants.ODS_USER.uid, constants.ODS_GROUP.gid)
 
         else:
             # initialize new kasp.db
