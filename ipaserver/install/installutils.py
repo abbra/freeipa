@@ -441,7 +441,11 @@ def create_keytab(path, principal):
     except os.error:
         logger.critical("Failed to remove %s.", path)
 
-    return kadmin("ktadd -k " + path + " " + principal)
+    old_umask = os.umask(0o177)
+    try:
+        return kadmin("ktadd -k " + path + " " + principal)
+    finally:
+        os.umask(old_umask)
 
 def copy_file_secure(source, target, mode, uid=0, gid=0):
     """Copy a file creating the target with explicit permissions.
