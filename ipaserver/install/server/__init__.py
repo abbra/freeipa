@@ -375,6 +375,12 @@ class ServerInstallInterface(ServerCertificateInstallInterface,
     )
     no_ui_redirect = enroll_only(no_ui_redirect)
 
+    no_idp = knob(
+        None,
+        description="Do not configure the integrated IdP (ahdapa)",
+    )
+    no_idp = enroll_only(no_idp)
+
     dirsrv_config_file = knob(
         str, None,
         description="The path to LDIF file that will be used to modify "

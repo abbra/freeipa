@@ -49,6 +49,7 @@ from ipaserver.install import cainstance
 from ipaserver.install import krainstance
 from ipaserver.install import certs
 from ipaserver.install import otpdinstance
+from ipaserver.install import ahdapainstance
 from ipaserver.install import schemaupdate
 from ipaserver.install import custodiainstance
 from ipaserver.install import sysupgrade
@@ -1915,6 +1916,9 @@ def upgrade_configuration():
 
     custodia = custodiainstance.CustodiaInstance(api.env.host, api.env.realm)
     custodia.upgrade_instance()
+
+    ahdapa = ahdapainstance.AhdapaInstance()
+    ahdapa.upgrade_instance()
 
     # Don't include schema upgrades in restart consideration, see
     # https://codeberg.org/freeipa/freeipa/issues/9204
