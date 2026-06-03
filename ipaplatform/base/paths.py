@@ -441,6 +441,16 @@ class BasePathNamespace:
     IPA_CUSTODIA_AUDIT_LOG = '/var/log/ipa-custodia.audit.log'
     IPA_CUSTODIA_HANDLER = "/usr/libexec/ipa/custodia"
     IPA_CUSTODIA_CHECK = "/usr/libexec/ipa/ipa-custodia-check"
+    AHDAPA_CONF_DIR = '/etc/ahdapa'
+    AHDAPA_CONF = '/etc/ahdapa/ahdapa.toml'
+    AHDAPA_CLIENTS_CONF = '/etc/ahdapa/clients.toml'
+    AHDAPA_STATE_DIR = '/var/lib/ahdapa'
+    AHDAPA_SOCKET_DIR = '/run/ahdapa'
+    AHDAPA_SOCKET = '/run/ahdapa/ahdapa.sock'
+    AHDAPA_CCACHE = '/run/ahdapa/ahdapa.ccache'
+    AHDAPA_GSSPROXY_CONF = '/etc/gssproxy/20-ahdapa.conf'
+    AHDAPACTL = '/usr/bin/ahdapactl'
+    HTTPD_IPA_IDP_PROXY_CONF = '/etc/httpd/conf.d/ipa-idp-proxy.conf'
     IPA_GETKEYTAB = '/usr/sbin/ipa-getkeytab'
     IPA_MIGRATE_LOG = '/var/log/ipa-migrate.log'
     EXTERNAL_SCHEMA_DIR = '/usr/share/ipa/schema.d'

@@ -102,6 +102,7 @@ SERVICES = [
     service_definition('named', 30, 'DNS'),
     service_definition('httpd', 40, 'HTTP'),
     service_definition('ipa-custodia', 41, 'KEYS'),
+    service_definition('ahdapa', 42, 'IDP'),
     # CA and KRA service is determined dynamically based on ca_backend config
     # Will be added to SERVICE_LIST after api is initialized
     service_definition('smb', 60, 'ADTRUST'),
