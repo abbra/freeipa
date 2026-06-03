@@ -25,9 +25,12 @@ Also see the `ipalib.rpc` module.
 
 from __future__ import absolute_import
 
+import base64
+import json
 import logging
 from xml.sax.saxutils import escape
 import os
+import tempfile
 import time
 import traceback
 from io import BytesIO
@@ -56,6 +59,7 @@ from ipalib.request import context, destroy_context
 from ipalib.rpc import xml_dumps, xml_loads
 from ipalib.ipajson import json_encode_binary, json_decode_binary
 from ipapython.dn import DN
+from ipaserver.install.ahdapainstance import IDP_CLIENT_ID
 from ipaserver.plugins.ldap2 import ldap2
 from ipalib.backend import Backend
 from ipalib.krb_utils import (
@@ -1186,6 +1190,257 @@ class login_password(Backend, KerberosSession):
                 logger.debug('Cleanup the armor ccache')
                 ipautil.run([paths.KDESTROY, '-A', '-c', armor_path],
                             env={'KRB5CCNAME': armor_path}, raiseonerr=False)
+
+
+class login_oidc(Backend, KerberosSession):
+    """Login via integrated OAuth2/OIDC identity provider (ahdapa)."""
+
+    content_type = 'application/json'
+    key = '/session/login_oidc'
+
+    def _on_finalize(self):
+        super(login_oidc, self)._on_finalize()
+        self.api.Backend.wsgi_dispatch.mount(self, self.key)
+
+    def __call__(self, environ, start_response):
+        logger.debug('WSGI login_oidc.__call__:')
+
+        method = environ.get('REQUEST_METHOD', '').upper()
+
+        if method == 'GET':
+            return self._serve_config(environ, start_response)
+        elif method == 'POST':
+            return self._handle_callback(environ, start_response)
+        else:
+            return self.bad_request(
+                environ, start_response,
+                "HTTP request method must be GET or POST")
+
+    def _serve_config(self, environ, start_response):
+        if not self.check_referer(environ):
+            return self.bad_request(environ, start_response, 'denied')
+
+        if not os.path.exists(paths.HTTPD_IPA_IDP_PROXY_CONF):
+            return self.not_found(environ, start_response,
+                                  self.key,
+                                  'ahdapa is not configured')
+
+        host = self.api.env.host
+        config = {
+            'authorization_endpoint':
+                'https://{}/idp/authorize'.format(host),
+            'client_id': IDP_CLIENT_ID,
+            'redirect_uri': 'https://{}/ipa/ui/'.format(host),
+            'scopes': 'openid profile krb5:ccache',
+        }
+
+        body = json.dumps(config).encode('utf-8')
+        headers = [
+            ('Content-Type', 'application/json'),
+            ('Content-Length', str(len(body))),
+            ('Cache-Control', 'no-store'),
+        ]
+        start_response(HTTP_STATUS_SUCCESS, headers)
+        return [body]
+
+    def _handle_callback(self, environ, start_response):
+        if not self.check_referer(environ):
+            return self.bad_request(environ, start_response, 'denied')
+
+        if not os.path.exists(paths.HTTPD_IPA_IDP_PROXY_CONF):
+            return self.not_found(environ, start_response,
+                                  self.key,
+                                  'ahdapa is not configured')
+
+        content_type = environ.get('CONTENT_TYPE', '').lower()
+        if not content_type.startswith(
+                'application/x-www-form-urlencoded'):
+            return self.bad_request(
+                environ, start_response,
+                "Content-Type must be application/x-www-form-urlencoded")
+
+        query_string = read_input(environ)
+        if query_string is None:
+            return self.bad_request(
+                environ, start_response,
+                "unable to read request body")
+
+        try:
+            query_dict = parse_qs(query_string)
+        except (ValueError, TypeError):
+            return self.bad_request(
+                environ, start_response, "cannot parse query data")
+
+        code = query_dict.get('code', [None])[0]
+        code_verifier = query_dict.get('code_verifier', [None])[0]
+        redirect_uri = query_dict.get('redirect_uri', [None])[0]
+
+        if not code or not code_verifier:
+            return self.bad_request(
+                environ, start_response,
+                "missing code or code_verifier parameter")
+
+        # Validate redirect_uri against allowed UI paths
+        host = self.api.env.host
+        allowed_redirects = (
+            'https://{}/ipa/ui/'.format(host),
+            'https://{}/ipa/modern-ui/'.format(host),
+        )
+        if redirect_uri and redirect_uri not in allowed_redirects:
+            return self.bad_request(
+                environ, start_response,
+                "invalid redirect_uri parameter")
+        if not redirect_uri:
+            redirect_uri = allowed_redirects[0]
+
+        token_url = 'https://{}/idp/token'.format(host)
+
+        token_data = {
+            'grant_type': 'authorization_code',
+            'code': code,
+            'redirect_uri': redirect_uri,
+            'client_id': IDP_CLIENT_ID,
+            'code_verifier': code_verifier,
+        }
+
+        try:
+            token_response = requests.post(
+                token_url, data=token_data, verify=paths.IPA_CA_CRT,
+                timeout=(5, 30))
+        except requests.exceptions.RequestException as e:
+            logger.error('Token exchange failed: %s', e)
+            return self.unauthorized(
+                environ, start_response,
+                'token exchange request failed',
+                'token-exchange-failed')
+
+        if token_response.status_code != 200:
+            try:
+                error_info = json.loads(token_response.text)
+                error_code = error_info.get('error', 'unknown')
+            except (ValueError, KeyError):
+                error_code = 'unparseable'
+            logger.error('Token endpoint returned %s: %s',
+                         token_response.status_code, error_code)
+            return self.unauthorized(
+                environ, start_response,
+                'token exchange failed',
+                'token-exchange-failed')
+
+        try:
+            tokens = json.loads(token_response.text)
+        except (ValueError, KeyError):
+            return self.unauthorized(
+                environ, start_response,
+                'invalid token response',
+                'token-exchange-failed')
+
+        id_token = tokens.get('id_token')
+        if not id_token:
+            return self.unauthorized(
+                environ, start_response,
+                'no id_token in response',
+                'token-exchange-failed')
+
+        # Decode and validate the ID token JWT.
+        # The token exchange is server-to-server over TLS to localhost
+        # with IPA CA verification; we validate issuer and audience
+        # claims as defense-in-depth.
+        try:
+            parts = id_token.split('.')
+            if len(parts) != 3:
+                raise ValueError('malformed JWT')
+            payload = parts[1]
+            payload += '=' * (4 - len(payload) % 4)
+            claims = json.loads(
+                base64.urlsafe_b64decode(payload).decode('utf-8'))
+        except (ValueError, KeyError, TypeError) as e:
+            logger.error('Failed to decode id_token (client IP: %s): %s',
+                         environ.get('REMOTE_ADDR', 'unknown'), e)
+            return self.unauthorized(
+                environ, start_response,
+                'invalid id_token', 'invalid-token')
+
+        expected_issuer = 'https://{}/idp'.format(host)
+        if claims.get('iss') != expected_issuer:
+            logger.error('id_token issuer mismatch: got %s, expected %s',
+                         claims.get('iss'), expected_issuer)
+            return self.unauthorized(
+                environ, start_response,
+                'invalid issuer', 'invalid-token')
+
+        aud = claims.get('aud')
+        if isinstance(aud, list):
+            aud_ok = IDP_CLIENT_ID in aud
+        else:
+            aud_ok = aud == IDP_CLIENT_ID
+        if not aud_ok:
+            logger.error('id_token audience mismatch: got %s',
+                         claims.get('aud'))
+            return self.unauthorized(
+                environ, start_response,
+                'invalid audience', 'invalid-token')
+
+        subject = claims.get('sub')
+        if not subject:
+            return self.unauthorized(
+                environ, start_response,
+                'no sub claim in id_token', 'invalid-token')
+
+        # Exchange the access token for a Kerberos ccache via ahdapa's
+        # internal API. Ahdapa performs S4U2Self on our behalf and
+        # returns the exported credential bytes.
+        access_token = tokens.get('access_token')
+        logger.debug('Token exchange: scope=%s, token_type=%s',
+                     tokens.get('scope'), tokens.get('token_type'))
+        if not access_token:
+            return self.unauthorized(
+                environ, start_response,
+                'no access_token in response',
+                'token-exchange-failed')
+
+        ccache_url = 'https://{}/idp/api/internal/ccache'.format(host)
+        try:
+            ccache_response = requests.post(
+                ccache_url,
+                headers={'Authorization': 'Bearer {}'.format(access_token)},
+                verify=paths.IPA_CA_CRT,
+                timeout=(5, 30))
+        except requests.exceptions.RequestException as e:
+            logger.error('Ccache exchange failed: %s', e)
+            return self.unauthorized(
+                environ, start_response,
+                'credential exchange failed',
+                'kerberos-impersonation-failed')
+
+        if ccache_response.status_code != 200:
+            logger.error('Ccache endpoint returned %s: %s',
+                         ccache_response.status_code,
+                         ccache_response.text[:200])
+            return self.unauthorized(
+                environ, start_response,
+                'credential exchange failed',
+                'kerberos-impersonation-failed')
+
+        # Write the exported ccache to a temporary file
+        fd, ipa_ccache_name = tempfile.mkstemp(
+            prefix='oidc_', dir=paths.IPA_CCACHES)
+        try:
+            os.write(fd, ccache_response.content)
+        finally:
+            os.close(fd)
+
+        logger.debug('OIDC login: finalizing session for %s', subject)
+        result = self.finalize_kerberos_acquisition(
+            'login_oidc', ipa_ccache_name, environ, start_response)
+
+        try:
+            os.unlink(ipa_ccache_name)
+        except OSError as e:
+            logger.debug('Failed to remove ccache %s: %s',
+                         ipa_ccache_name, e)
+
+        return result
 
 
 class change_password(Backend, HTTP_Status):
