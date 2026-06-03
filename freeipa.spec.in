@@ -525,6 +525,7 @@ Requires: gzip
 Requires: oddjob
 # 0.7.0-2: https://pagure.io/gssproxy/pull-request/172
 Requires: gssproxy >= 0.7.0-2
+Requires: ahdapa
 Requires: sssd-dbus >= %{sssd_version}
 Requires: libpwquality
 Requires: cracklib-dicts
