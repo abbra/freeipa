@@ -23,12 +23,13 @@ define([
     'dojo/Deferred',
     'dojo/on',
     'dojo/when',
+    './ipa',
     './plugin_loader',
     './phases',
     './reg',
     './Application_controller',
     'exports'
-],function(lang, Deferred, on, when, plugin_loader, phases, reg, Application_controller, app) {
+],function(lang, Deferred, on, when, IPA, plugin_loader, phases, reg, Application_controller, app) {
 
     /**
      * Application wrapper
@@ -92,6 +93,30 @@ define([
                     on.once(login_facet, "logged_in", function() {
                         deferred.resolve();
                     });
+                } else {
+                    deferred.resolve();
+                }
+                return deferred.promise;
+            }.bind(this));
+
+            phases.on('init', function() {
+                var deferred = new Deferred();
+                var params = new URLSearchParams(window.location.search);
+                var code = params.get('code');
+                var state = params.get('state');
+
+                if (code && state) {
+                    IPA.complete_oidc_login(code, state).then(
+                        function(result) {
+                            var clean_url = window.location.pathname +
+                                window.location.hash;
+                            window.history.replaceState({}, '', clean_url);
+                            if (result !== 'success') {
+                                window.sessionStorage.setItem('logout', 'true');
+                            }
+                            deferred.resolve();
+                        }
+                    );
                 } else {
                     deferred.resolve();
                 }

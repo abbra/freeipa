@@ -442,13 +442,21 @@ IPA.logout = function() {
         l.assign(l.href.split('#')[0]);
     }
 
+    function idp_logout() {
+        $.ajax({
+            url: '/idp/api/auth/logout',
+            type: 'POST',
+            complete: reload
+        });
+    }
+
     function success_handler(data, text_status, xhr) {
         topic.publish('rpc-end');
 
         if (data && data.error) {
             show_error(data.error.message);
         } else {
-            reload();
+            idp_logout();
         }
     }
 
@@ -456,7 +464,7 @@ IPA.logout = function() {
         topic.publish('rpc-end');
 
         if (xhr.status === 401) {
-            reload();
+            idp_logout();
         } else {
             show_error(text_status);
         }
@@ -538,6 +546,137 @@ IPA.login_password = function(username, password) {
     topic.publish('rpc-start');
 
     $.ajax(request);
+
+    return d.promise;
+};
+
+/**
+ * Initiate OAuth2 login via integrated IdP.
+ *
+ * Generates PKCE challenge, stores state in sessionStorage,
+ * and redirects the browser to the IdP authorization endpoint.
+ *
+ * @member IPA
+ * @return {Object} promise - resolved if OIDC is not available
+ */
+IPA.login_oidc = function() {
+    var d = new Deferred();
+
+    function generate_code_verifier() {
+        var array = new Uint8Array(48);
+        window.crypto.getRandomValues(array);
+        return btoa(String.fromCharCode.apply(null, array))
+            .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    function sha256(plain) {
+        var encoder = new TextEncoder();
+        var data = encoder.encode(plain);
+        return window.crypto.subtle.digest('SHA-256', data);
+    }
+
+    function base64url_encode(buffer) {
+        var bytes = new Uint8Array(buffer);
+        var str = String.fromCharCode.apply(null, bytes);
+        return btoa(str)
+            .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    $.ajax({
+        url: config.oidc_login_url,
+        type: 'GET',
+        dataType: 'json',
+        success: function(oidc_config) {
+            var code_verifier = generate_code_verifier();
+            var state = generate_code_verifier();
+
+            window.sessionStorage.setItem('oidc_code_verifier', code_verifier);
+            window.sessionStorage.setItem('oidc_state', state);
+
+            sha256(code_verifier).then(function(hashed) {
+                var code_challenge = base64url_encode(hashed);
+                var auth_url = oidc_config.authorization_endpoint +
+                    '?response_type=code' +
+                    '&client_id=' + encodeURIComponent(oidc_config.client_id) +
+                    '&redirect_uri=' + encodeURIComponent(oidc_config.redirect_uri) +
+                    '&scope=' + encodeURIComponent(oidc_config.scopes) +
+                    '&state=' + encodeURIComponent(state) +
+                    '&code_challenge=' + encodeURIComponent(code_challenge) +
+                    '&code_challenge_method=S256';
+
+                // Browser navigates away; the Deferred is intentionally
+                // not resolved on this path.
+                window.location.href = auth_url;
+            }, function() {
+                d.resolve('unavailable');
+            });
+        },
+        error: function() {
+            d.resolve('unavailable');
+        }
+    });
+
+    return d.promise;
+};
+
+/**
+ * Complete OAuth2 login after redirect from IdP.
+ *
+ * Extracts authorization code from URL, validates state,
+ * exchanges code for session via backend endpoint.
+ *
+ * @member IPA
+ * @param {string} code - authorization code from IdP
+ * @param {string} state - state parameter from IdP
+ * @return {Object} promise - resolves to 'success' or error reason
+ */
+IPA.complete_oidc_login = function(code, state) {
+    var d = new Deferred();
+
+    var expected_state = window.sessionStorage.getItem('oidc_state');
+    var code_verifier = window.sessionStorage.getItem('oidc_code_verifier');
+
+    window.sessionStorage.removeItem('oidc_state');
+    window.sessionStorage.removeItem('oidc_code_verifier');
+
+    if (!expected_state || state !== expected_state) {
+        d.resolve('invalid-state');
+        return d.promise;
+    }
+
+    if (!code_verifier) {
+        d.resolve('missing-verifier');
+        return d.promise;
+    }
+
+    var l = window.location;
+    var redirect_uri = l.protocol + '//' + l.host + l.pathname;
+
+    var data = {
+        code: code,
+        code_verifier: code_verifier,
+        redirect_uri: redirect_uri
+    };
+
+    function success_handler(resp_data, text_status, xhr) {
+        auth.current.set_authenticated(true, 'oidc');
+        d.resolve('success');
+    }
+
+    function error_handler(xhr, text_status, error_thrown) {
+        var reason = xhr.getResponseHeader('X-IPA-Rejection-Reason') || 'failed';
+        d.resolve(reason);
+    }
+
+    $.ajax({
+        url: config.oidc_login_url,
+        data: data,
+        contentType: 'application/x-www-form-urlencoded',
+        processData: true,
+        type: 'POST',
+        success: success_handler,
+        error: error_handler
+    });
 
     return d.promise;
 };

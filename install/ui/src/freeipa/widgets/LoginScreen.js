@@ -102,6 +102,19 @@ define(['dojo/_base/declare',
 
         render_buttons: function(container) {
 
+            this.oidc_btn_node = IPA.button({
+                name: 'oidc_auth',
+                label: text.get('@i18n:login.login_oidc',
+                    'Log In Using Single Sign-On'),
+                'class': 'btn-primary btn-lg',
+                click: this.login_with_oidc.bind(this)
+            })[0];
+            dom_style.set(this.oidc_btn_node, 'display', 'none');
+            construct.place(this.oidc_btn_node, container);
+            construct.place(document.createTextNode(" "), container);
+
+            this._check_oidc_availability();
+
             this.cert_btn_node = IPA.button({
                 name: 'cert_auth',
                 title: text.get('@i18n:login.login_certificate_desc',
@@ -295,6 +308,88 @@ define(['dojo/_base/declare',
                     val_summary.add_error('login', this.cert_auth_failed);
                 }
             }.bind(this));
+        },
+
+        login_with_oidc: function() {
+            IPA.login_oidc();
+        },
+
+        _check_oidc_availability: function() {
+            var self = this;
+            $.ajax({
+                url: config.oidc_login_url,
+                type: 'GET',
+                dataType: 'json',
+                success: function() {
+                    if (self.oidc_btn_node) {
+                        dom_style.set(self.oidc_btn_node, 'display', '');
+                    }
+                },
+                error: function() {}
+            });
+        },
+
+        parse_uri: function() {
+            var opts = {};
+            if (window.location.search.length > 1) {
+                var couples = window.location.search.substr(1).split("&");
+                for (var i=0,l=couples.length; i < l; i++) {
+                    var couple = couples[i].split("=");
+                    var key = decodeURIComponent(couple[0]);
+                    var value = couple.length > 1 ? decodeURIComponent(couple[1]) : '';
+                    opts[key] = value;
+                }
+            }
+            return opts;
+        },
+
+        redir_count_down: function(redir_url, redir_delay) {
+            var val_summary = this.get_widget('validation');
+            val_summary.add_info('redirect',
+                this.redirect_msg.replace('${count}', Math.max(redir_delay, 0)));
+
+            if (redir_delay <= 0) {
+                window.location = redir_url;
+                return;
+            }
+            window.setTimeout(this.redir_count_down.bind(this), 1000,
+                redir_url, redir_delay-1);
+        },
+
+        /* If password reset was initiated due to a failed log in to some
+         * external application one could use a redirection to the desired URL
+         * after a successfull password reset.
+         *
+         * The next uri components are supported:
+         * - 'url' destination URL, which must be URI encoded
+         * - 'delay' time in seconds to delay before redirection
+         *
+         * For example,
+         * https://ipa.demo1.freeipa.org/ipa/ui/reset_password.html?url=http%3A%2F%2Fpvoborni.fedorapeople.org%2Fdoc%2F%23!%2Fguide%2FDebugging&delay=5
+        */
+        redirect: function() {
+            var opts = this.parse_uri();
+            var url = opts['url'];
+            var delay = parseInt(opts['delay'], 10);
+
+            var val_summary = this.get_widget('validation');
+            // button for manual redirection
+            if (url) {
+                val_summary.add_success(
+                    'login',
+                    "".concat(
+                        this.password_change_complete,
+                        ' <a href="', url, '">',
+                        this.continue_msg, '</a>'
+                    )
+                );
+            } else {
+                return;
+            }
+
+            if (delay <= 0 || delay > 0) { // NaN check
+                this.redir_count_down(url, delay);
+            }
         },
 
         reset_password: function() {

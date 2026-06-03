@@ -554,6 +554,21 @@ define([
         on_authenticate: function() {
 
             var self = this;
+
+            // If the integrated IdP is available, redirect there
+            // instead of showing the classic login form.
+            IPA.login_oidc().then(function(result) {
+                if (result === 'unavailable') {
+                    self._show_login_ui();
+                }
+                // On success, the browser redirects to the IdP —
+                // this code path is not reached.
+            });
+        },
+
+        _show_login_ui: function() {
+
+            var self = this;
             if (this.auth_ui === 'dialog') {
                 var dummy_command = {
                     execute: function() {
