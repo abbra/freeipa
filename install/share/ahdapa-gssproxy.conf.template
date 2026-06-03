@@ -1,0 +1,19 @@
+# gssproxy service entry for ahdapa — managed by FreeIPA installer.
+# This file may be overwritten on upgrades.
+#
+# Both allow_protocol_transition (S4U2Self) and allow_constrained_delegation
+# (S4U2Proxy) are required: ahdapa's self-service operations (OTP/passkey/
+# profile edits) act on LDAP *as the authenticated user*, not as the ahdapa
+# service identity, so that 389-ds's own per-user ACIs enforce what each
+# user may change -- ahdapa itself is never granted broad write access to
+# other users' attributes. Dropping allow_constrained_delegation would break
+# this self-service path, not just tighten it.
+
+[service/ahdapa]
+  mechs = krb5
+  cred_store = keytab:$HTTP_KEYTAB
+  cred_store = client_keytab:$HTTP_KEYTAB
+  allow_protocol_transition = true
+  allow_constrained_delegation = true
+  cred_usage = both
+  euid = $AHDAPA_USER

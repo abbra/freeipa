@@ -68,6 +68,7 @@ app_DATA =				\
 	73-passkey.update		\
 	73-service-rbcd.update		\
 	75-user-trust-attributes.update	\
+	78-ahdapa.update		\
 	80-schema_compat.update 	\
 	81-externalmembers.update	\
 	90-post_upgrade_plugins.update	\

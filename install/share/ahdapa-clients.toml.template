@@ -1,0 +1,17 @@
+# Static OAuth2 clients — managed by FreeIPA installer.
+# This file may be overwritten on upgrades.
+
+[[client]]
+client_id                  = "$IDP_CLIENT_ID"
+client_name                = "FreeIPA Web UI"
+token_endpoint_auth_method = "none"
+scopes                     = ["openid", "profile", "krb5:ccache"]
+grant_types                = ["authorization_code"]
+redirect_uris              = [
+    "https://$FQDN/ipa/ui/",
+    "https://$FQDN/ipa/modern-ui/",
+]
+# First-party client: this is FreeIPA's own Web UI authenticating its own
+# users against its own backend, not a third party requesting delegated
+# access, so there is nothing for the user to meaningfully consent to.
+skip_consent                = true
