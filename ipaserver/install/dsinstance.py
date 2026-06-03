@@ -627,22 +627,18 @@ class DsInstance(service.Service):
     def __add_default_schemas(self):
         for schema_fname in IPA_SCHEMA_FILES:
             target_fname = schema_dirname(self.serverid) + schema_fname
-            shutil.copyfile(
+            installutils.copy_file_secure(
                 os.path.join(paths.USR_SHARE_IPA_DIR, schema_fname),
-                target_fname)
-            os.chmod(target_fname, 0o440)    # read access for dirsrv user/group
-            DS_USER.chown(target_fname)
+                target_fname, 0o440, DS_USER.uid, DS_USER.pgid)
 
         try:
             shutil.move(schema_dirname(self.serverid) + "05rfc2247.ldif",
                             schema_dirname(self.serverid) + "05rfc2247.ldif.old")
 
             target_fname = schema_dirname(self.serverid) + "05rfc2247.ldif"
-            shutil.copyfile(
+            installutils.copy_file_secure(
                 os.path.join(paths.USR_SHARE_IPA_DIR, "05rfc2247.ldif"),
-                target_fname)
-            os.chmod(target_fname, 0o440)
-            DS_USER.chown(target_fname)
+                target_fname, 0o440, DS_USER.uid, DS_USER.pgid)
         except IOError:
             # Does not apply with newer DS releases
             pass

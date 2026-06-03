@@ -335,8 +335,9 @@ class KrbInstance(service.Service):
 
         # Create kadm5.acl if it doesn't exist
         if not os.path.exists(paths.KRB5KDC_KADM5_ACL):
-            open(paths.KRB5KDC_KADM5_ACL, 'a').close()
-            os.chmod(paths.KRB5KDC_KADM5_ACL, 0o600)
+            fd = os.open(paths.KRB5KDC_KADM5_ACL,
+                         os.O_WRONLY | os.O_CREAT, 0o600)
+            os.close(fd)
 
     def __add_krb_container(self):
         self._ldap_mod("kerberos.ldif", self.sub_dict)
