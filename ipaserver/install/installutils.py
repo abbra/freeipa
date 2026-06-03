@@ -443,6 +443,19 @@ def create_keytab(path, principal):
 
     return kadmin("ktadd -k " + path + " " + principal)
 
+def copy_file_secure(source, target, mode, uid=0, gid=0):
+    """Copy a file creating the target with explicit permissions.
+
+    Avoids the TOCTOU window of shutil.copyfile() + os.chmod() where
+    the file briefly exists with default umask permissions.
+    """
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    os.fchown(fd, uid, gid)
+    with os.fdopen(fd, 'wb') as dst:
+        with open(source, 'rb') as src:
+            shutil.copyfileobj(src, dst)
+
+
 def resolve_ip_addresses_nss(fqdn):
     """Get list of IP addresses for given host (using NSS/getaddrinfo).
     :returns:
