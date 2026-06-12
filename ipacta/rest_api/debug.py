@@ -53,6 +53,8 @@ def force_gc():
     after = gc.get_count()
     return jsonify({
         "collected_unreachable": collected,
-        "gc_counts_before": {"gen0": before[0], "gen1": before[1], "gen2": before[2]},
-        "gc_counts_after": {"gen0": after[0], "gen1": after[1], "gen2": after[2]},
+        "gc_counts_before": {
+            "gen0": before[0], "gen1": before[1], "gen2": before[2]},
+        "gc_counts_after": {
+            "gen0": after[0], "gen1": after[1], "gen2": after[2]},
     })

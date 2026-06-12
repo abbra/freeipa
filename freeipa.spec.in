@@ -421,6 +421,7 @@ BuildRequires:  python3-netaddr >= %{python_netaddr_version}
 BuildRequires:  python3-ifaddr
 BuildRequires:  python3-pki >= %{pki_version}
 BuildRequires:  python3-polib
+BuildRequires:  python3-gunicorn
 BuildRequires:  python3-pycodestyle
 # .wheelconstraints.in limits pylint version in Azure and tox tests
 BuildRequires:  python3-pylint
