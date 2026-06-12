@@ -29,9 +29,9 @@ import configparser
 import logging
 import os
 import pwd
+import tempfile
 import re
 import shutil
-import tempfile
 import threading
 from pathlib import Path
 
@@ -51,7 +51,7 @@ from ipaserver.install import certs, service
 from ipaserver.install.cainstance import lookup_ldap_backend
 from ipacta import load_config, set_global_config, get_global_config
 from ipacta.config import IpactaConfig
-from ipacta.storage.factory import get_storage_backend
+from ipacta.storage_factory import get_storage_backend
 from ipacta.install import (
     ACME,
     Certs,
@@ -461,6 +461,7 @@ class IpactaInstance(service.Service):
             service_user="ipaca",
         )
 
+        # Per-instance tracking dict (not shared across instances)
         self.tracking_reqs = {}
         self.subsystem = "ipacta"
         self.realm = realm
@@ -584,7 +585,7 @@ class IpactaInstance(service.Service):
         # Composition helpers
         # ---------------------------------------------------------------
         self._nssdb = NSSDB()
-        self._repl = Replication(self.basedn, self._ldap_mod)
+        self._repl = Replication(self.basedn, self._ldap_update)
 
         if self.realm and host_name:
             self._svc = ServiceMgmt(
@@ -1073,7 +1074,6 @@ class IpactaInstance(service.Service):
 
     def enable_kra(self):
         """Enable KRA functionality — delegates to KRAInstall helper."""
-        self._ensure_global_config()
         if self._kra is None:
             self._kra = KRAInstall(
                 self.ldap,
@@ -1089,6 +1089,10 @@ class IpactaInstance(service.Service):
 
     def setup_acme(self):
         """Set up ACME service — delegates to ACME helper."""
+        # Ensure the ipacta global config singleton is initialised.
+        # During fresh install _create_service_config() sets it before this
+        # step runs.  During upgrade neither backend.py nor service_mgmt is
+        # invoked, so we load it lazily from the on-disk ipacta.conf.
         self._ensure_global_config()
         if self._acme is None:
             self._acme = ACME(self.ldap, self.config, self._ldap_mod)
@@ -1462,8 +1466,7 @@ class IpactaInstance(service.Service):
             )
 
         logger.info(
-            "Importing CA keys from master PKCS#12 into NSSDB: %s",
-            pkcs12_file,
+            "Importing CA keys from master PKCS#12 into NSSDB: %s", pkcs12_file
         )
 
         self._nssdb.load_nssdb_password()

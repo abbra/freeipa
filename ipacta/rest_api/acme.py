@@ -1,15 +1,19 @@
 # Copyright (C) 2025  FreeIPA Contributors see COPYING for license
 
+"""ACME protocol endpoints."""
+
 import json
 import logging
 
-from flask import Blueprint, Response, request, jsonify
+from flask import (
+    Blueprint, Response, request, jsonify,
+)
 
 import ipacta.rest_api._globals as _g
 from ipacta.rest_api._globals import init_ca
-from ipacta.rest_api._helpers import (
-    error_response,
+from ipacta.rest_api_helpers import (
     require_agent_auth,
+    error_response,
     success_response,
 )
 import ipacta.rate_limit as _rl
@@ -140,16 +144,13 @@ def acme_endpoint(endpoint):
             if not isinstance(result, tuple)
             else f"tuple of {len(result)} elements"
         )
-        logger.debug(
-            "Result type: %s, value: %s", type(result), result_value
-        )
+        logger.debug("Result type: %s, value: %s", type(result), result_value)
 
         # Handle special case for new-account (returns tuple)
         # RFC 8555: HTTP 201 for new account, HTTP 200 for existing
         if endpoint == "new-account":
             logger.debug(
-                "Handling new-account endpoint, result type=%s",
-                type(result),
+                "Handling new-account endpoint, result type=%s", type(result)
             )
             account_dict, is_new = result
             status_code = 201 if is_new else 200

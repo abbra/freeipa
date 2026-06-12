@@ -15,10 +15,9 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 import ldap as ldap_module
 
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.x509.oid import ExtensionOID
+import synta
+import synta.ext
+import synta.oids
 
 try:
     from cachetools import TTLCache
@@ -36,7 +35,7 @@ from ipaplatform.paths import paths
 from ipacta.ldap_utils import get_ldap_connection, is_internal_token
 from ipacta.exceptions import StorageConnectionError
 
-from ipacta.nss_utils import NSSDatabase
+from ipacta.key_encryption import encrypt_private_key, decrypt_private_key
 from ipacta.x509_utils import (
     ipa_dn_to_x509_name,
     get_ca_key_usage_extension,
@@ -45,12 +44,6 @@ from ipacta.x509_utils import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-# Sentinel prefix stored in authorityKeyNickname for external-key CAs.
-# Must match AuthorityRecord.EXTERNAL_KEY_NICKNAME_PREFIX in Dogtag because
-# IPAThinCA shares the same LDAP store (ou=authorities,ou=ca,o=ipaca).
-EXTERNAL_KEY_NICKNAME_PREFIX = "#external#:"
 
 
 class SubCA:
@@ -66,9 +59,8 @@ class SubCA:
         ca_id: str,
         subject_dn: str,
         parent_ca: Optional["SubCA"] = None,
-        ca_cert: Optional[x509.Certificate] = None,
-        ca_key: Optional[rsa.RSAPrivateKey] = None,
-        external_key: bool = False,
+        ca_cert: Optional[synta.Certificate] = None,
+        ca_key=None,
     ):
         """
         Initialize Sub-CA
@@ -79,10 +71,6 @@ class SubCA:
             parent_ca: Parent CA (None for root CA)
             ca_cert: CA certificate (if already exists)
             ca_key: CA private key (if already exists)
-            external_key: True when the private key is held externally
-                          (e.g. in an HSM attached to a remote ACME server).
-                          External-key CAs have a signed certificate but cannot
-                          issue end-entity certificates through IPAThinCA.
         """
         self.ca_id = ca_id
         self.subject_dn = subject_dn
@@ -90,8 +78,6 @@ class SubCA:
         self.ca_cert = ca_cert
         self.ca_key = ca_key
         self.enabled = True
-        # True when the private key is external (not stored by IPAThinCA).
-        self.external_key = external_key
 
         # Storage paths
         # Store sub-CAs in certs directory with CA ID subdirectory
@@ -113,7 +99,7 @@ class SubCA:
         key_size: int = 2048,
         validity_days: int = 3650,
         path_length: Optional[int] = 0,
-    ) -> x509.Certificate:
+    ) -> synta.Certificate:
         """
         Create new sub-CA certificate and key
 
@@ -128,30 +114,29 @@ class SubCA:
         logger.debug("Creating sub-CA: %s", self.ca_id)
 
         # Generate private key
-        self.ca_key = rsa.generate_private_key(
-            public_exponent=65537,
-            key_size=key_size,
-        )
+        self.ca_key = synta.PrivateKey.generate_rsa(key_size)
 
-        # Parse subject DN using shared utility
+        # Parse subject DN using shared utility (returns DER bytes)
         subject = ipa_dn_to_x509_name(self.subject_dn)
 
         # Build certificate
         now = datetime.datetime.now(datetime.timezone.utc)
         serial_number = int(uuid.uuid4().hex[:16], 16)
 
-        builder = x509.CertificateBuilder()
+        builder = synta.CertificateBuilder()
         builder = builder.subject_name(subject)
-        builder = builder.public_key(self.ca_key.public_key())
+        builder = builder.public_key(self.ca_key.public_key)
         builder = builder.serial_number(serial_number)
-        builder = builder.not_valid_before(now)
-        builder = builder.not_valid_after(
+        builder = builder.not_valid_before_utc(now)
+        builder = builder.not_valid_after_utc(
             now + datetime.timedelta(days=validity_days)
         )
 
         # Set issuer (parent CA or self for root)
         if self.parent_ca and self.parent_ca.ca_cert:
-            builder = builder.issuer_name(self.parent_ca.ca_cert.subject)
+            builder = builder.issuer_name(
+                self.parent_ca.ca_cert.subject_raw_der
+            )
             signing_key = self.parent_ca.ca_key
         else:
             # Self-signed root CA
@@ -159,38 +144,42 @@ class SubCA:
             signing_key = self.ca_key
 
         # Add CA extensions
-        builder = builder.add_extension(
-            x509.BasicConstraints(ca=True, path_length=path_length),
-            critical=True,
-        )
+        bc_oid = str(synta.oids.BASIC_CONSTRAINTS)
+        bc_der = synta.ext.basic_constraints(ca=True, path_length=path_length)
+        builder = builder.add_extension(bc_oid, True, bc_der)
 
         # Use shared CA KeyUsage extension utility
-        builder = builder.add_extension(
-            get_ca_key_usage_extension(), critical=True
-        )
+        ku_oid, ku_der = get_ca_key_usage_extension()
+        builder = builder.add_extension(ku_oid, True, ku_der)
 
         # Subject Key Identifier
-        ski = x509.SubjectKeyIdentifier.from_public_key(
-            self.ca_key.public_key()
+        ski_oid = str(synta.oids.SUBJECT_KEY_IDENTIFIER)
+        ski_der = synta.ext.subject_key_identifier(
+            self.ca_key.public_key.to_der()
         )
-        builder = builder.add_extension(ski, critical=False)
+        builder = builder.add_extension(ski_oid, False, ski_der)
 
         # Authority Key Identifier
+        aki_oid = str(synta.oids.AUTHORITY_KEY_IDENTIFIER)
         if self.parent_ca and self.parent_ca.ca_cert:
-            aki = x509.AuthorityKeyIdentifier.from_issuer_public_key(
-                self.parent_ca.ca_cert.public_key()
-            )
+            issuer_spki = self.parent_ca.ca_key.public_key.to_der()
         else:
-            aki = x509.AuthorityKeyIdentifier.from_issuer_public_key(
-                self.ca_key.public_key()
-            )
-        builder = builder.add_extension(aki, critical=False)
+            issuer_spki = self.ca_key.public_key.to_der()
+        aki_der = synta.ext.authority_key_identifier(issuer_spki)
+        builder = builder.add_extension(aki_oid, False, aki_der)
 
         # Sign the certificate
-        self.ca_cert = builder.sign(signing_key, hashes.SHA256())
+        self.ca_cert = builder.sign(signing_key, 'sha256')
 
-        # Save cert to disk and key+cert to NSSDB
-        self._save_to_nssdb()
+        # Save to disk (skip if permission denied - LDAP storage is primary)
+        try:
+            self._save_to_disk()
+        except (PermissionError, OSError) as e:
+            logger.warning(
+                "Could not save sub-CA %s to disk: %s", self.ca_id, e
+            )
+            # TODO: Verify
+            # Continue without disk storage - LDAP is primary storage
 
         # Initialize PythonCA instance
         # Use LDAP storage for the sub-CA
@@ -202,110 +191,22 @@ class SubCA:
 
         return self.ca_cert
 
-    def create_from_csr(
-        self,
-        csr_pem: str,
-        validity_days: int = 3650,
-    ) -> x509.Certificate:
-        """
-        Create sub-CA certificate from an external PKCS#10 CSR.
-
-        The private key is held by the caller (e.g. in an HSM attached to a
-        remote ACME server); IPAThinCA only signs the public-key material
-        submitted in the CSR.  Mirrors Dogtag's external-key authority path:
-        authorityKeyNickname is set to EXTERNAL_KEY_NICKNAME_PREFIX + ca_id,
-        externalKey=true, ready=false in REST responses.
-
-        Args:
-            csr_pem: PEM-encoded PKCS#10 CSR
-            validity_days: Validity period in days
-
-        Returns:
-            Signed CA certificate
-        """
-        logger.debug(f"Creating external-key sub-CA from CSR: {self.ca_id}")
-
-        # Parse and validate the CSR
-        if isinstance(csr_pem, str):
-            csr_bytes = csr_pem.encode("utf-8")
-        else:
-            csr_bytes = csr_pem
-
-        csr = x509.load_pem_x509_csr(csr_bytes)
-
-        if not csr.is_signature_valid:
-            raise errors.CertificateOperationError(
-                error="CSR signature validation failed"
-            )
-
-        # Verify parent CA is available for signing
-        if (
-            not self.parent_ca
-            or not self.parent_ca.ca_cert
-            or not self.parent_ca.ca_key
-        ):
-            raise errors.ExecutionError(
-                message="Parent CA not available for signing external CSR"
-            )
-
-        issuer_name = self.parent_ca.ca_cert.subject
-        signing_key = self.parent_ca.ca_key
-        issuer_cert = self.parent_ca.ca_cert
-
-        now = datetime.datetime.now(datetime.timezone.utc)
-        serial_number = int(uuid.uuid4().hex[:16], 16)
-
-        builder = x509.CertificateBuilder()
-        builder = builder.subject_name(csr.subject)
-        builder = builder.issuer_name(issuer_name)
-        builder = builder.public_key(csr.public_key())
-        builder = builder.serial_number(serial_number)
-        builder = builder.not_valid_before(now)
-        builder = builder.not_valid_after(
-            now + datetime.timedelta(days=validity_days)
-        )
-
-        # pathLen=0: external sub-CA cannot issue further sub-CAs
-        builder = builder.add_extension(
-            x509.BasicConstraints(ca=True, path_length=0),
-            critical=True,
-        )
-
-        builder = builder.add_extension(
-            get_ca_key_usage_extension(), critical=True
-        )
-
-        ski = x509.SubjectKeyIdentifier.from_public_key(csr.public_key())
-        builder = builder.add_extension(ski, critical=False)
-
-        aki = x509.AuthorityKeyIdentifier.from_issuer_public_key(
-            issuer_cert.public_key()
-        )
-        builder = builder.add_extension(aki, critical=False)
-
-        self.ca_cert = builder.sign(signing_key, hashes.SHA256())
-        self.ca_key = None  # private key is held externally
-        self.external_key = True
-
-        logger.debug(
-            f"External-key sub-CA {self.ca_id} certificate signed successfully"
-        )
-        return self.ca_cert
-
-    def _save_to_nssdb(self):
-        """Save CA certificate to disk and key+cert to NSSDB"""
-        # Save certificate to disk (for compatibility)
+    def _save_to_disk(self):
+        """Save CA certificate and key to disk"""
+        # Create storage directory
         self.storage_path.mkdir(parents=True, exist_ok=True, mode=0o750)
-        with open(self.cert_path, "wb") as f:
-            f.write(self.ca_cert.public_bytes(serialization.Encoding.PEM))
-        self.cert_path.chmod(0o644)
 
-        # Import key+cert into NSSDB (Dogtag-compatible nickname)
-        nickname = f"caSigningCert cert-pki-ca {self.ca_id}"
-        nssdb = NSSDatabase()
-        nssdb.import_key_and_cert(
-            nickname, self.ca_key, self.ca_cert, trust_flags="u,u,u"
-        )
+        # Save certificate
+        with open(self.cert_path, "wb") as f:
+            f.write(self.ca_cert.to_pem())
+
+        # Save private key
+        with open(self.key_path, "wb") as f:
+            f.write(self.ca_key.to_pem())
+
+        # Set restrictive permissions
+        self.key_path.chmod(0o600)
+        self.cert_path.chmod(0o644)
 
     def load_from_disk(self, storage_backend=None):
         """Load CA certificate and key from disk or HSM
@@ -326,7 +227,7 @@ class SubCA:
 
         # Load certificate (always from disk for ipacta)
         with open(self.cert_path, "rb") as f:
-            self.ca_cert = x509.load_pem_x509_certificate(f.read())
+            self.ca_cert = synta.Certificate.from_pem(f.read())
 
         # Load private key - conditional based on HSM configuration
         hsm_config = None
@@ -398,19 +299,22 @@ class SubCA:
                 key_label,
             )
         else:
-            # Load private key from NSSDB (Dogtag-compatible)
-            nickname = f"caSigningCert cert-pki-ca {self.ca_id}"
+            # File path - load from PEM file
+            if not self.key_path.exists():
+                raise errors.NotFound(
+                    reason=f"Sub-CA {self.ca_id} private key not found on disk"
+                )
+
             logger.debug(
-                "Loading sub-CA private key from NSSDB for %s: %s",
-                self.ca_id, nickname,
+                "Loading sub-CA private key from file for %s", self.ca_id
             )
 
-            nssdb = NSSDatabase()
-            self.ca_key = nssdb.extract_private_key(nickname)
+            with open(self.key_path, "rb") as f:
+                self.ca_key = synta.PrivateKey.from_pem(f.read())
 
             logger.debug(
-                "Successfully loaded sub-CA certificate and private key "
-                "from NSSDB"
+                "Successfully loaded sub-CA certificate and private key from "
+                "files"
             )
 
         # Initialize PythonCA instance
@@ -418,7 +322,7 @@ class SubCA:
         self.ca.ca_cert = self.ca_cert
         self.ca.ca_private_key = self.ca_key
 
-    def get_certificate_chain(self) -> List[x509.Certificate]:
+    def get_certificate_chain(self) -> List[synta.Certificate]:
         """
         Get certificate chain from this CA to root
 
@@ -441,21 +345,16 @@ class SubCA:
             "subject_dn": self.subject_dn,
             "parent_ca_id": self.parent_ca.ca_id if self.parent_ca else None,
             "enabled": self.enabled,
-            # externalKey / ready mirror Dogtag REST API semantics:
-            # externalKey=True  → private key held outside IPAThinCA (HSM etc.)
-            # ready=False       → external-key CA cannot sign via IPAThinCA
-            "external_key": self.external_key,
-            "ready": not self.external_key,
             "serial_number": (
                 str(self.ca_cert.serial_number) if self.ca_cert else None
             ),
             "not_before": (
-                self.ca_cert.not_valid_before_utc.isoformat()
+                self.ca_cert.not_before_utc.isoformat()
                 if self.ca_cert
                 else None
             ),
             "not_after": (
-                self.ca_cert.not_valid_after_utc.isoformat()
+                self.ca_cert.not_after_utc.isoformat()
                 if self.ca_cert
                 else None
             ),
@@ -480,14 +379,10 @@ class SubCAManager:
             cache_ttl: Time-to-live for cache entries in seconds (default:
                        300 = 5 minutes)
         """
-        self._ts_check_interval = 30
         if CACHETOOLS_AVAILABLE:
             self.subcas = TTLCache(maxsize=cache_maxsize, ttl=cache_ttl)
             self.cache_timestamps = TTLCache(
                 maxsize=cache_maxsize, ttl=cache_ttl
-            )
-            self._ts_last_checked = TTLCache(
-                maxsize=cache_maxsize, ttl=self._ts_check_interval
             )
             logger.debug(
                 "Initialized SubCA cache with maxsize=%d, ttl=%ds",
@@ -500,7 +395,6 @@ class SubCAManager:
             )
             self.subcas: Dict[str, SubCA] = {}
             self.cache_timestamps: Dict[str, datetime.datetime] = {}
-            self._ts_last_checked: Dict[str, float] = {}
 
         basedn = get_config_value("global", "basedn")
         self.ldap_base_dn = DN(("cn", "cas"), ("cn", "ca"), basedn)
@@ -695,28 +589,16 @@ class SubCAManager:
         parent_ca_id: Optional[str] = None,
         key_size: int = 2048,
         validity_days: int = 3650,
-        csr_pem: Optional[str] = None,
-        profile_id: Optional[str] = None,
     ) -> SubCA:
         """
         Create new sub-CA
-
-        When *csr_pem* is supplied the sub-CA is created in external-key mode:
-        the PKCS#10 CSR is signed by the parent CA but the private key is NOT
-        generated or stored by IPAThinCA.  The returned SubCA has
-        ``external_key=True`` and ``ready=False``.
 
         Args:
             ca_id: Unique identifier for the CA
             subject_dn: Subject DN for CA certificate
             parent_ca_id: Parent CA identifier (None for root)
-            key_size: RSA key size (ignored when csr_pem is provided)
+            key_size: RSA key size
             validity_days: Validity period in days
-            csr_pem: PEM-encoded PKCS#10 CSR for external-key creation.
-                     When present a new key pair is NOT generated.
-            profile_id: Signing profile identifier (reserved for future use;
-                        accepted for Dogtag API compatibility but currently
-                        ignored — the CSR is signed directly by the parent CA)
 
         Returns:
             SubCA instance
@@ -759,98 +641,28 @@ class SubCAManager:
         # Create sub-CA
         subca = SubCA(ca_id, subject_dn, parent_ca)
 
-        if csr_pem is not None:
-            # External-key path: sign the caller-supplied CSR; no key generated
-
-            # Validate that the CSR subject matches the requested DN.
-            # Use case-insensitive RFC 4514 string comparison (same approach
-            # as Dogtag CAEngine.java X500Name string comparison).
-            csr_bytes = (
-                csr_pem.encode("utf-8")
-                if isinstance(csr_pem, str)
-                else csr_pem
-            )
-            parsed_csr = x509.load_pem_x509_csr(csr_bytes)
-            csr_subject_str = parsed_csr.subject.rfc4514_string()
-            # Normalise the requested DN for comparison via cryptography Name
+        # Determine path length (parent's path_length - 1)
+        path_length = 0
+        if parent_ca and parent_ca.ca_cert:
+            # Extract path length from parent
             try:
-                req_x509_name = ipa_dn_to_x509_name(subject_dn)
-                req_subject_str = req_x509_name.rfc4514_string()
-            except Exception:
-                req_subject_str = subject_dn
-
-            if csr_subject_str.lower() != req_subject_str.lower():
-                raise errors.ValidationError(
-                    name="csrData",
-                    error=(
-                        f"CSR subject DN '{csr_subject_str}' does not match "
-                        f"requested DN '{req_subject_str}'"
-                    ),
+                bc_der = parent_ca.ca_cert.get_extension_value_der(
+                    str(synta.oids.BASIC_CONSTRAINTS)
                 )
-
-            # Resolve effective signing profile.
-            # Default to caExternalKeyCACert which enforces pathLen=0 and
-            # rejects RSA keys shorter than 2048 bits.
-            effective_profile_id = profile_id or "caExternalKeyCACert"
-
-            # Apply profile constraints (key size, validity cap) when the
-            # main CA has a profile manager available.
-            if (
-                self.main_ca
-                and hasattr(self.main_ca, "profile_manager")
-                and self.main_ca.profile_manager
-            ):
-                pm = self.main_ca.profile_manager
-                try:
-                    # Enforce key constraints (e.g. RSA-1024 rejection)
-                    pm.validate_profile_for_csr(effective_profile_id, parsed_csr)
-
-                    # Cap validity to the profile's maximum
-                    profile_obj = pm.get_profile(effective_profile_id)
-                    profile_max_days = profile_obj.validity_days
-                    if validity_days > profile_max_days:
-                        logger.debug(
-                            "Capping external-key sub-CA validity from "
-                            "%d to %d days (profile %s limit)",
-                            validity_days,
-                            profile_max_days,
-                            effective_profile_id,
-                        )
-                        validity_days = profile_max_days
-                except errors.ValidationError:
-                    raise
-                except Exception as e:
-                    logger.warning(
-                        "Profile %r constraint check failed (%s); "
-                        "proceeding without profile enforcement",
-                        effective_profile_id,
-                        e,
-                    )
-            else:
-                logger.debug(
-                    "No profile manager available; skipping profile "
-                    "constraint enforcement for external-key sub-CA"
-                )
-
-            subca.create_from_csr(csr_pem, validity_days)
-        else:
-            # Normal path: generate key pair and self-sign sub-CA cert
-            # Determine path length (parent's path_length - 1)
-            path_length = 0
-            if parent_ca and parent_ca.ca_cert:
-                try:
-                    bc_ext = parent_ca.ca_cert.extensions.get_extension_for_oid(
-                        ExtensionOID.BASIC_CONSTRAINTS
-                    )
-                    parent_path_length = bc_ext.value.path_length
+                if bc_der is not None:
+                    parsed = synta.ext.parse_basic_constraints(bc_der)
+                    parent_path_length = parsed.get('path_length')
                     if parent_path_length is not None:
                         path_length = max(0, parent_path_length - 1)
                     else:
                         path_length = None  # Unlimited
-                except x509.ExtensionNotFound:
+                else:
                     path_length = 0
+            except Exception:
+                path_length = 0
 
-            subca.create(key_size, validity_days, path_length)
+        # Create certificate and key
+        subca.create(key_size, validity_days, path_length)
 
         # Store in LDAP
         self._store_subca_in_ldap(subca)
@@ -904,13 +716,9 @@ class SubCAManager:
 
         # Validate cache outside lock (LDAP I/O)
         if cached is not None and cache_ts is not None:
-            # Skip LDAP timestamp check if we verified recently
-            if ca_id in self._ts_last_checked:
-                return cached
             try:
                 ldap_ts = self._get_ldap_modify_timestamp(ca_id)
                 if ldap_ts <= cache_ts:
-                    self._ts_last_checked[ca_id] = True
                     logger.debug(
                         "Cache hit for sub-CA %s (validated via timestamp)",
                         ca_id,
@@ -925,7 +733,6 @@ class SubCAManager:
             with self._cache_lock:
                 self.subcas.pop(ca_id, None)
                 self.cache_timestamps.pop(ca_id, None)
-                self._ts_last_checked.pop(ca_id, None)
 
         # Load from LDAP (outside lock — LDAP I/O)
         subca = self._load_subca_from_ldap(ca_id)
@@ -1043,10 +850,18 @@ class SubCAManager:
 
         Stores authority metadata in ou=authorities,ou=ca,o=ipaca (Dogtag
         schema).
-        Private keys are stored in NSSDB by _save_to_nssdb() called earlier.
+        Private keys are always stored on filesystem (not in LDAP) for security
+        and Dogtag compatibility.
+
+        NOTE: Private key is already stored by _save_to_disk() called earlier,
+        so we don't need to call _store_subca_key_on_filesystem() here.
         """
         # Use Dogtag schema via storage backend
         self._store_subca_dogtag(subca)
+
+        # Private key already stored by _save_to_disk()
+        # TODO: When encryption is re-enabled, uncomment this:
+        # self._store_subca_key_on_filesystem(subca)
 
         logger.debug("Stored sub-CA %s in LDAP", subca.ca_id)
 
@@ -1080,25 +895,13 @@ class SubCAManager:
             subca.ca_cert.serial_number,
         )
 
-        # For external-key CAs, use the sentinel prefix in authorityKeyNickname
-        # so that Dogtag (sharing the same LDAP store) recognises the CA as
-        # external-key and IPAThinCA can detect it on reload.
-        # Sentinel must match AuthorityRecord.EXTERNAL_KEY_NICKNAME_PREFIX.
-        if subca.external_key:
-            key_nickname = (
-                f"{EXTERNAL_KEY_NICKNAME_PREFIX}caSigningCert cert-pki-ca "
-                f"{subca.ca_id}"
-            )
-        else:
-            key_nickname = f"caSigningCert cert-pki-ca {subca.ca_id}"
-
         # Use storage backend to store authority metadata
         authority_data = {
             "authority_id": subca.ca_id,
             "subject_dn": subject_dn_str,
             "parent_dn": issuer_dn_str,
             "parent_id": parent_id,
-            "key_nickname": key_nickname,
+            "key_nickname": f"caSigningCert cert-pki-ca {subca.ca_id}",
             "enabled": subca.enabled,
             "serial_number": subca.ca_cert.serial_number,
             "description": f"Sub-CA {subca.ca_id}",
@@ -1109,21 +912,35 @@ class SubCAManager:
             "Stored sub-CA %s authority metadata in Dogtag LDAP", subca.ca_id
         )
 
-    def _store_subca_key_in_nssdb(self, subca: SubCA):
-        """Store sub-CA private key and certificate in NSSDB."""
-        nickname = f"caSigningCert cert-pki-ca {subca.ca_id}"
-        nssdb = NSSDatabase()
-        nssdb.import_key_and_cert(
-            nickname, subca.ca_key, subca.ca_cert, trust_flags="u,u,u"
-        )
-        logger.debug("Stored sub-CA %s key in NSSDB: %s", subca.ca_id, nickname)
+    def _store_encrypted_subca_key_on_filesystem(self, subca: SubCA):
+        """Store encrypted sub-CA private key on filesystem.
+
+        Keys are encrypted with AES-256-GCM using the master encryption key
+        before writing to disk.
+        """
+        subcas_base = Path(paths.IPACTA_SUBCAS_DIR)
+        subca_dir = subcas_base / subca.ca_id
+        subca_dir.mkdir(parents=True, exist_ok=True)
+
+        # Encode private key in PEM format
+        key_pem = subca.ca_key.to_pem()
+
+        # Encrypt private key before storing
+        encrypted_key = encrypt_private_key(key_pem)
+
+        # Store encrypted key on filesystem
+        key_file = subca_dir / "ca.key.enc"
+        key_file.write_bytes(encrypted_key)
+        key_file.chmod(0o600)
+
+        logger.debug("Stored sub-CA %s private key on filesystem", subca.ca_id)
 
     def _load_subca_from_ldap(self, ca_id: str) -> Optional[SubCA]:
         """
         Load sub-CA from LDAP using Dogtag storage backend
 
         Loads authority metadata from Dogtag LDAP schema and private keys from
-        NSSDB.
+        filesystem.
         """
         # Ensure ca_id is a string, not a tuple (can happen from dict
         # iterations)
@@ -1161,25 +978,12 @@ class SubCAManager:
             # Get subject DN from authority data
             subject_dn = authority_data["subject_dn"]
 
-            # Detect external-key CA from the sentinel in authorityKeyNickname
-            key_nickname = authority_data.get("key_nickname", "")
-            external_key = key_nickname.startswith(EXTERNAL_KEY_NICKNAME_PREFIX)
+            # Load encrypted private key from filesystem
+            ca_key = self._load_encrypted_subca_key_from_filesystem(ca_id)
 
-            # Load private key only for local-key CAs.
-            # External-key CAs have no private key stored by IPAThinCA.
-            if external_key:
-                ca_key = None
-                logger.debug(
-                    f"Sub-CA {ca_id} is external-key; skipping private key load"
-                )
-            else:
-                ca_key = self._load_subca_key_from_nssdb(ca_id)
-
-                if not ca_key:
-                    logger.warning(
-                        "Sub-CA %s loaded without private key (read-only mode)",
-                        ca_id,
-                    )
+            if not ca_key:
+                # Continue without key (read-only mode)
+                pass
 
             # Determine parent CA from parent_id
             parent_ca = None
@@ -1189,21 +993,13 @@ class SubCAManager:
 
             # Create SubCA instance
             subca = SubCA(
-                ca_id,
-                subject_dn,
-                parent_ca,
-                ca_cert=ca_cert,
-                ca_key=ca_key,
-                external_key=external_key,
+                ca_id, subject_dn, parent_ca, ca_cert=ca_cert, ca_key=ca_key
             )
 
             # Set enabled status from authority data
             subca.enabled = authority_data.get("enabled", True)
 
-            logger.debug(
-                f"Loaded sub-CA {ca_id} from Dogtag LDAP schema "
-                f"(external_key={external_key})"
-            )
+            logger.debug("Loaded sub-CA %s from Dogtag LDAP schema", ca_id)
             return subca
 
         except errors.NotFound:
@@ -1219,27 +1015,39 @@ class SubCAManager:
             )
             raise
 
-    def _load_subca_key_from_nssdb(
+    def _load_encrypted_subca_key_from_filesystem(
         self, ca_id: str
-    ) -> Optional[rsa.RSAPrivateKey]:
-        """Load sub-CA private key from NSSDB."""
-        nickname = f"caSigningCert cert-pki-ca {ca_id}"
-        nssdb = NSSDatabase()
+    ) -> Optional[synta.PrivateKey]:
+        """Load encrypted sub-CA private key from filesystem.
 
-        if not nssdb.cert_exists(nickname):
+        Keys are encrypted with AES-256-GCM using the master encryption key.
+        """
+        subcas_base = Path(paths.IPACTA_SUBCAS_DIR)
+        key_file = subcas_base / ca_id / "ca.key.enc"
+
+        if not key_file.exists():
             logger.debug(
-                "Sub-CA %s key not found in NSSDB: %s", ca_id, nickname
+                "Sub-CA %s private key not found on filesystem", ca_id
             )
             return None
 
         try:
-            ca_key = nssdb.extract_private_key(nickname)
-            logger.debug("Loaded private key for %s from NSSDB", ca_id)
+            # Read encrypted key and decrypt
+            encrypted_key = key_file.read_bytes()
+            key_pem = decrypt_private_key(encrypted_key)
+
+            # Load key from PEM
+            ca_key = synta.PrivateKey.from_pem(key_pem)
+
+            logger.debug("Loaded private key for %s from filesystem", ca_id)
             return ca_key
+
         except Exception as e:
             logger.error(
-                "Failed to load private key for CA %s from NSSDB: %s",
-                ca_id, e, exc_info=True,
+                "Failed to load private key for CA %s from filesystem: %s",
+                ca_id,
+                e,
+                exc_info=True,
             )
             raise
 

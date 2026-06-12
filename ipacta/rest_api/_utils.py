@@ -1,17 +1,83 @@
 # Copyright (C) 2025  FreeIPA Contributors see COPYING for license
 
+"""Shared utility functions for Ipacta REST API blueprints."""
+
+import base64
 import logging
 import secrets
 
-from flask import make_response, request
+from flask import make_response
 
-from ipacta.rest_api._helpers import (
-    CertificateHandler,
-    success_response,
-)
+from ipacta.rest_api_helpers import success_response
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# PKCS#7 degenerate SignedData (certificate-chain-only) helper
+# ---------------------------------------------------------------------------
+
+def _encode_length(n: int) -> bytes:
+    """Encode a DER length field (supports up to 4-byte lengths)."""
+    if n < 0x80:
+        return bytes([n])
+    elif n < 0x100:
+        return bytes([0x81, n])
+    elif n < 0x10000:
+        return bytes([0x82, n >> 8, n & 0xFF])
+    elif n < 0x1000000:
+        return bytes([0x83, n >> 16, (n >> 8) & 0xFF, n & 0xFF])
+    elif n < 0x100000000:
+        return bytes(
+            [0x84, n >> 24, (n >> 16) & 0xFF, (n >> 8) & 0xFF, n & 0xFF]
+        )
+    else:
+        raise ValueError(f"Length too large for DER encoding: {n}")
+
+
+def _build_pkcs7_chain_pem(certs) -> bytes:
+    """
+    Serialize a list of synta.Certificate objects as a PKCS#7 degenerate
+    SignedData PEM block (-----BEGIN PKCS7-----).
+
+    This matches the output of pkcs7.serialize_certificates(..., PEM).
+    """
+    # Concatenate DER encodings of all certs
+    certs_der = b"".join(c.to_der() for c in certs)
+    # [0] IMPLICIT certificates
+    certs_tagged = b"\xa0" + _encode_length(len(certs_der)) + certs_der
+    # Empty SET for digestAlgorithms
+    empty_set = b"\x31\x00"
+    # EncapContentInfo: SEQUENCE { OID id-data }
+    oid_data = b"\x06\x09\x2a\x86\x48\x86\xf7\x0d\x01\x07\x01"
+    encap = b"\x30" + _encode_length(len(oid_data)) + oid_data
+    # Version INTEGER 1
+    version = b"\x02\x01\x01"
+    # Empty SET for signerInfos
+    empty_signers = b"\x31\x00"
+    # SignedData SEQUENCE
+    sd_content = version + empty_set + encap + certs_tagged + empty_signers
+    signed_data = b"\x30" + _encode_length(len(sd_content)) + sd_content
+    # [0] EXPLICIT wrapper
+    explicit_0 = b"\xa0" + _encode_length(len(signed_data)) + signed_data
+    # id-signedData OID
+    oid_sd = b"\x06\x09\x2a\x86\x48\x86\xf7\x0d\x01\x07\x02"
+    # ContentInfo SEQUENCE
+    ci_body = oid_sd + explicit_0
+    pkcs7_der = b"\x30" + _encode_length(len(ci_body)) + ci_body
+    # PEM-encode
+    b64 = base64.b64encode(pkcs7_der).decode("ascii")
+    lines = [b64[i: i + 64] for i in range(0, len(b64), 64)]
+    return (
+        "-----BEGIN PKCS7-----\n"
+        + "\n".join(lines)
+        + "\n-----END PKCS7-----\n"
+    ).encode("ascii")
+
+
+# ---------------------------------------------------------------------------
+# Account login/logout shared helpers
+# ---------------------------------------------------------------------------
 
 def _account_login():
     """Shared implementation for account login endpoint.
@@ -33,7 +99,6 @@ def _account_login():
     session_token = secrets.token_hex(32)
 
     response = make_response(success_response({"Status": "success"}))
-
     response.set_cookie(
         "JSESSIONID",
         session_token,
@@ -67,7 +132,11 @@ def _account_logout_v2():
     return response
 
 
-def _search_certificates(ca_backend):
+# ---------------------------------------------------------------------------
+# Certificate search helper
+# ---------------------------------------------------------------------------
+
+def _search_certificates(request, ca_backend):
     """
     Internal helper for certificate search (handles both GET and POST)
 
@@ -87,6 +156,8 @@ def _search_certificates(ca_backend):
     - revokedOnFrom/revokedOnTo -> revoked_on_from/revoked_on_to
     - matchExactly -> exactly
     """
+    from ipacta.rest_api_helpers import CertificateHandler
+
     # Parse pagination parameters from URL (both GET and POST)
     size = request.args.get("size", type=int)
     start = request.args.get("start", type=int, default=0)

@@ -46,8 +46,9 @@ class NSSDB:
         self.nssdb_password_file = Path(paths.PKI_TOMCAT_PASSWORD_CONF)
 
         # Create directories if absent.  Final ownership (pkiuser:pkiuser) and
-        # POSIX ACLs are applied by apply_nssdb_permissions(), which runs as a
-        # separate installation step after all pk12util/certutil operations.
+        # POSIX ACLs are applied below by systemd-tmpfiles, which reads
+        # ipa-pki-tomcat.conf.  Creating here with mode 0o750 is a safe
+        # baseline that is always overwritten before any custodia handler runs.
         self.nssdb_dir.mkdir(parents=True, exist_ok=True, mode=0o750)
         self.nssdb_password_file.parent.mkdir(
             parents=True, exist_ok=True, mode=0o750
@@ -149,69 +150,6 @@ class NSSDB:
         with os.fdopen(fd, "w") as f:
             f.write(self.nssdb_password)
         logger.debug("Created NSSDB pwdfile.txt at %s", pwdfile_txt)
-
-    def apply_nssdb_permissions(self):
-        """Apply ownership, mode, and ACLs on NSSDB and parent directories.
-
-        Must be called after ALL pk12util / certutil write operations so that
-        NSS WAL and SHM files (cert9.db-wal, cert9.db-shm, ...) created by
-        root-run install steps also receive the correct ownership and ACLs.
-        Without this, ipacta (runas: ipaca) cannot open the NSSDB.
-
-        Mirrors ipa-pki-tomcat.conf.in directly instead of invoking
-        systemd-tmpfiles, which rejects root-owned files inside a
-        pkiuser-owned directory as an "unsafe path transition".
-        """
-        logger.debug("Applying NSSDB ownership and ACLs")
-
-        try:
-            pkiuser_uid = pwd.getpwnam("pkiuser").pw_uid
-            pkiuser_gid = grp.getgrnam("pkiuser").gr_gid
-        except KeyError as e:
-            logger.warning(
-                "Cannot apply NSSDB permissions, user/group missing: %s", e
-            )
-            return
-
-        pki_tomcat = Path(paths.PKI_TOMCAT)
-        alias_dir = pki_tomcat / "alias"
-
-        for d, mode in [(pki_tomcat, 0o750), (alias_dir, 0o750)]:
-            if d.exists():
-                os.chown(d, pkiuser_uid, pkiuser_gid)
-                os.chmod(d, mode)
-
-        for fname in ("cert9.db", "key4.db", "pkcs11.txt", "pwdfile.txt"):
-            fpath = alias_dir / fname
-            if fpath.exists():
-                os.chown(fpath, pkiuser_uid, pkiuser_gid)
-                os.chmod(fpath, 0o640)
-
-        for fpath in alias_dir.glob("*.db-wal"):
-            os.chown(fpath, pkiuser_uid, pkiuser_gid)
-        for fpath in alias_dir.glob("*.db-shm"):
-            os.chown(fpath, pkiuser_uid, pkiuser_gid)
-
-        ipautil.run(
-            ["setfacl", "-m", "group:ipaca:rx", str(pki_tomcat)],
-            raiseonerr=False,
-        )
-        ipautil.run(
-            ["setfacl", "-R", "-m",
-             "user:pkiuser:rw,group:ipaca:rw", str(alias_dir)],
-            raiseonerr=False,
-        )
-        ipautil.run(
-            ["setfacl", "-m",
-             "user:pkiuser:rwx,group:ipaca:rwx", str(alias_dir)],
-            raiseonerr=False,
-        )
-        ipautil.run(
-            ["setfacl", "-d", "-m",
-             "user:pkiuser:rw,group:ipaca:rw", str(alias_dir)],
-            raiseonerr=False,
-        )
-
         logger.debug("NSS database created and verified")
 
     def load_nssdb_password(self):
@@ -245,6 +183,77 @@ class NSSDB:
 
         raise RuntimeError(
             f"NSSDB password not found in {self.nssdb_password_file}"
+        )
+
+    def apply_nssdb_permissions(self):
+        """Apply ownership and ACLs to the NSSDB directory tree.
+
+        Must be called after ALL pk12util / certutil write operations so that
+        NSS WAL and SHM files (cert9.db-wal, cert9.db-shm, …) created by
+        root-run install steps also receive the correct ownership and ACLs.
+        Without this, ipacta (runas: ipaca) cannot open the NSSDB.
+
+        Mirrors ipa-pki-tomcat.conf.in directly instead of invoking
+        systemd-tmpfiles, which rejects root-owned files inside a
+        pkiuser-owned directory as an "unsafe path transition".
+        """
+        logger.debug("Applying NSSDB ownership and ACLs")
+
+        try:
+            pkiuser_uid = pwd.getpwnam("pkiuser").pw_uid
+            pkiuser_gid = grp.getgrnam("pkiuser").gr_gid
+        except KeyError as e:
+            logger.warning(
+                "Cannot apply NSSDB permissions, user/group missing: %s", e
+            )
+            return
+
+        pki_tomcat = Path(paths.PKI_TOMCAT)
+        alias_dir = pki_tomcat / "alias"
+
+        # Mirror the 'd' entries: set ownership and mode on directories.
+        for d, mode in [(pki_tomcat, 0o750), (alias_dir, 0o750)]:
+            if d.exists():
+                os.chown(d, pkiuser_uid, pkiuser_gid)
+                os.chmod(d, mode)
+
+        # Mirror the 'z' entries: set ownership and mode on known NSSDB files.
+        for fname in ("cert9.db", "key4.db", "pkcs11.txt", "pwdfile.txt"):
+            fpath = alias_dir / fname
+            if fpath.exists():
+                os.chown(fpath, pkiuser_uid, pkiuser_gid)
+                os.chmod(fpath, 0o640)
+
+        # Also fix any WAL/SHM files created by NSS SQLite during install.
+        for fpath in alias_dir.glob("*.db-wal"):
+            os.chown(fpath, pkiuser_uid, pkiuser_gid)
+        for fpath in alias_dir.glob("*.db-shm"):
+            os.chown(fpath, pkiuser_uid, pkiuser_gid)
+
+        # Mirror the 'a+' / 'A+' ACL entries.
+        # group:ipaca:rx on /etc/pki/pki-tomcat itself.
+        ipautil.run(
+            ["setfacl", "-m", "group:ipaca:rx", str(pki_tomcat)],
+            raiseonerr=False,
+        )
+        # Recursive rw for pkiuser and ipaca on alias/ and all current children
+        # (covers WAL/SHM files created as root during install).
+        ipautil.run(
+            ["setfacl", "-R", "-m",
+             "user:pkiuser:rw,group:ipaca:rw", str(alias_dir)],
+            raiseonerr=False,
+        )
+        # Upgrade alias/ itself to rwx so both principals can traverse it.
+        ipautil.run(
+            ["setfacl", "-m",
+             "user:pkiuser:rwx,group:ipaca:rwx", str(alias_dir)],
+            raiseonerr=False,
+        )
+        # Default ACL so future files created in alias/ inherit rw access.
+        ipautil.run(
+            ["setfacl", "-d", "-m",
+             "user:pkiuser:rw,group:ipaca:rw", str(alias_dir)],
+            raiseonerr=False,
         )
 
     def import_cert_to_nssdb(

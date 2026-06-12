@@ -18,14 +18,11 @@ if __name__ == "__main__":
         package_dir={"ipacta": ""},
         packages=[
             "ipacta",
-            "ipacta.certificate",
             "ipacta.install",
-            "ipacta.profile",
             "ipacta.rest_api",
-            "ipacta.storage",
         ],
         install_requires=[
-            "cryptography>=42.0",
+            "cryptography",
             "python-gunicorn",
             "python-flask",
             "ipapython",  # ipautil.run, ipautil.fsdecode

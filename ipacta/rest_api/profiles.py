@@ -1,5 +1,7 @@
 # Copyright (C) 2025  FreeIPA Contributors see COPYING for license
 
+"""Certificate profile management endpoints."""
+
 import logging
 import re
 from xml.sax.saxutils import escape as xml_escape
@@ -8,7 +10,7 @@ from flask import Blueprint, Response, request
 
 import ipacta.rest_api._globals as _g
 from ipacta.rest_api._globals import require_ca_backend, init_ca
-from ipacta.rest_api._helpers import (
+from ipacta.rest_api_helpers import (
     handle_ca_errors,
     validate_input,
     require_agent_auth,
@@ -305,9 +307,7 @@ def update_profile(profile_id):
 
         is_update = request.method == "PUT"
         return (
-            ProfileHandler.update_raw(
-                profile_id, cfg_content, _g.ca_backend
-            )
+            ProfileHandler.update_raw(profile_id, cfg_content, _g.ca_backend)
             if is_update
             else ProfileHandler.create_raw(
                 profile_id, cfg_content, _g.ca_backend
@@ -334,9 +334,7 @@ def update_profile(profile_id):
     return (
         ProfileHandler.update_raw(profile_id, cfg_content, _g.ca_backend)
         if is_update
-        else ProfileHandler.create_raw(
-            profile_id, cfg_content, _g.ca_backend
-        )
+        else ProfileHandler.create_raw(profile_id, cfg_content, _g.ca_backend)
     )
 
 
@@ -521,9 +519,7 @@ def profile_submit_ssl_client():
         # Get the issued certificate if available
         cert_pem = None
         if result.get("serial_number"):
-            cert_result = _g.ca_backend.get_certificate(
-                result["serial_number"]
-            )
+            cert_result = _g.ca_backend.get_certificate(result["serial_number"])
             cert_pem = cert_result["certificate"]
 
         # Return response
@@ -546,9 +542,7 @@ def profile_submit_ssl_client():
             return Response(response_xml, mimetype="application/xml")
         else:
             # Return cert in PEM format
-            return Response(
-                cert_pem or "", mimetype="application/x-pem-file"
-            )
+            return Response(cert_pem or "", mimetype="application/x-pem-file")
 
     except errors.CertificateOperationError as e:
         logger.error("Certificate request failed: %s", e, exc_info=True)

@@ -10,7 +10,7 @@ and serialization.
 import pytest
 from datetime import datetime, timezone
 
-from ipacta.certificate.lifecycle import (
+from ipacta.certificate_lifecycle import (
     CertificateState,
     CertificateEvent,
     CertificateLifecycle,

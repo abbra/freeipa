@@ -13,9 +13,8 @@ import subprocess
 
 import pytest
 from pathlib import Path
-from cryptography import x509
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import hashes
+
+from ipacta.x509_utils import ipa_dn_to_name_der
 
 
 def _service_is_active():
@@ -81,32 +80,22 @@ def variable_context(ipacta_config):
 @pytest.fixture
 def sample_key():
     """Generate a sample RSA private key."""
-    return rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=2048,
-    )
+    import synta
+    return synta.PrivateKey.generate_rsa(2048)
 
 
 @pytest.fixture
 def sample_csr(ipacta_config, sample_key):
     """Generate a sample CSR with proper DN ordering."""
+    import synta
     realm = ipacta_config.get("global", "realm")
     domain = ipacta_config.get("global", "domain")
 
-    subject = x509.Name(
-        [
-            x509.NameAttribute(x509.oid.NameOID.ORGANIZATION_NAME, realm),
-            x509.NameAttribute(
-                x509.oid.NameOID.COMMON_NAME, f"server.{domain}"
-            ),
-        ]
-    )
-
-    return (
-        x509.CertificateSigningRequestBuilder()
-        .subject_name(subject)
-        .sign(sample_key, hashes.SHA256())
-    )
+    name_der = ipa_dn_to_name_der(f"CN=server.{domain},O={realm}")
+    builder = synta.CsrBuilder()
+    builder = builder.subject_name(name_der)
+    builder = builder.public_key(sample_key.public_key)
+    return builder.sign(sample_key, 'sha256')
 
 
 @pytest.fixture(scope="module")

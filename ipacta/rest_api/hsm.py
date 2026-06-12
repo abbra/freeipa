@@ -1,5 +1,7 @@
 # Copyright (C) 2025  FreeIPA Contributors see COPYING for license
 
+"""HSM management endpoints."""
+
 import logging
 import os
 
@@ -9,9 +11,9 @@ import ipacta.rest_api._globals as _g
 from ipacta.rest_api._globals import init_ca
 from ipacta.hsm import HSMConfig, HSMKeyBackend, list_pkcs11_slots
 from ipacta.hsm import get_hsm_info as get_hsm_device_info
-from ipacta.rest_api._helpers import (
-    error_response,
+from ipacta.rest_api_helpers import (
     require_agent_auth,
+    error_response,
     success_response,
 )
 
@@ -139,9 +141,7 @@ def delete_hsm_config():
 
         if not hsm_config_dict:
             return error_response(
-                "NotFound",
-                f"HSM configuration for CA {ca_id} not found",
-                404,
+                "NotFound", f"HSM configuration for CA {ca_id} not found", 404
             )
 
         # Delete HSM config from LDAP
@@ -150,9 +150,7 @@ def delete_hsm_config():
             return success_response(
                 {
                     "Status": "SUCCESS",
-                    "Message": (
-                        f"HSM configuration for CA {ca_id} deleted"
-                    ),
+                    "Message": f"HSM configuration for CA {ca_id} deleted",
                     "ca_id": ca_id,
                 }
             )
@@ -165,9 +163,7 @@ def delete_hsm_config():
             return success_response(
                 {
                     "Status": "SUCCESS",
-                    "Message": (
-                        f"HSM configuration for CA {ca_id} disabled"
-                    ),
+                    "Message": f"HSM configuration for CA {ca_id} disabled",
                     "ca_id": ca_id,
                 }
             )
@@ -260,9 +256,7 @@ def list_hsm_slots():
         # Validate library path exists
         if not os.path.exists(library_path):
             return error_response(
-                "NotFound",
-                f"PKCS#11 library not found: {library_path}",
-                404,
+                "NotFound", f"PKCS#11 library not found: {library_path}", 404
             )
 
         # List slots using HSM backend
@@ -280,9 +274,7 @@ def list_hsm_slots():
         except Exception as hsm_error:
             logger.error("Error listing HSM slots: %s", hsm_error)
             return error_response(
-                "HSMError",
-                f"Failed to list HSM slots: {str(hsm_error)}",
-                503,
+                "HSMError", f"Failed to list HSM slots: {str(hsm_error)}", 503
             )
 
     except Exception as e:
@@ -335,9 +327,7 @@ def get_hsm_info():
         except Exception as hsm_error:
             logger.error("Error getting HSM info: %s", hsm_error)
             return error_response(
-                "HSMError",
-                f"Failed to get HSM info: {str(hsm_error)}",
-                503,
+                "HSMError", f"Failed to get HSM info: {str(hsm_error)}", 503
             )
 
     except Exception as e:
@@ -389,9 +379,7 @@ def list_hsm_keys():
         except Exception as hsm_error:
             logger.error("Error listing HSM keys: %s", hsm_error)
             return error_response(
-                "HSMError",
-                f"Failed to list HSM keys: {str(hsm_error)}",
-                503,
+                "HSMError", f"Failed to list HSM keys: {str(hsm_error)}", 503
             )
 
     except Exception as e:
@@ -459,28 +447,28 @@ def generate_hsm_key():
             hsm_config = HSMConfig(hsm_config_dict)
             hsm_backend = HSMKeyBackend(hsm_config)
 
-            # Generate key pair
-            pub_handle, priv_handle = hsm_backend.generate_key_pair(
-                key_label, key_size, key_type
+            # Map short key_type to signing_alg for dispatch
+            _alg_map = {
+                "RSA": "SHA256withRSA",
+                "EC": "SHA256withEC",
+            }
+            signing_alg = _alg_map.get(
+                key_type.upper(), key_type
             )
 
-            # Get public key
-            public_key = hsm_backend.get_public_key(key_label)
+            hsm_backend.generate_key_pair(
+                key_label, key_size, signing_alg
+            )
 
             hsm_backend.close()
 
             return success_response(
                 {
                     "Status": "SUCCESS",
-                    "Message": (
-                        f"Key pair generated in HSM: {key_label}"
-                    ),
+                    "Message": f"Key pair generated in HSM: {key_label}",
                     "key_label": key_label,
                     "key_type": key_type,
                     "key_size": key_size,
-                    "public_key_handle": str(pub_handle),
-                    "private_key_handle": str(priv_handle),
-                    "has_public_key": public_key is not None,
                 },
                 status_code=201,
             )
@@ -549,9 +537,7 @@ def delete_hsm_key(key_label):
             if not priv_key:
                 hsm_backend.close()
                 return error_response(
-                    "KeyNotFound",
-                    f"Key not found in HSM: {key_label}",
-                    404,
+                    "KeyNotFound", f"Key not found in HSM: {key_label}", 404
                 )
 
             # Delete the key
@@ -570,9 +556,7 @@ def delete_hsm_key(key_label):
         except Exception as hsm_error:
             logger.error("Error deleting HSM key: %s", hsm_error)
             return error_response(
-                "HSMError",
-                f"Failed to delete HSM key: {str(hsm_error)}",
-                503,
+                "HSMError", f"Failed to delete HSM key: {str(hsm_error)}", 503
             )
 
     except Exception as e:

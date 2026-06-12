@@ -1,19 +1,18 @@
 # Copyright (C) 2025  FreeIPA Contributors see COPYING for license
 
+"""KRA (Key Recovery Authority) endpoints."""
+
 import base64
 import hmac
 import json
 import logging
 import secrets
 
-from flask import Blueprint, Response, request, jsonify
-
-from cryptography.hazmat.primitives import padding as sym_padding
-from cryptography.hazmat.primitives.ciphers import (
-    Cipher,
-    algorithms,
-    modes,
+from flask import (
+    Blueprint, Response, request, jsonify,
 )
+
+import synta.crypto as _scrypto
 
 import ipacta.rest_api._globals as _g
 from ipacta.rest_api._globals import init_kra
@@ -22,7 +21,7 @@ from ipacta.rest_api._utils import (
     _account_logout,
     _account_logout_v2,
 )
-from ipacta.rest_api._helpers import (
+from ipacta.rest_api_helpers import (
     require_agent_auth,
     error_response,
     success_response,
@@ -34,7 +33,7 @@ bp = Blueprint("kra", __name__)
 
 
 # ----------------------------------------------------------------------------
-# KRA (Key Recovery Authority) - Info and Status
+# KRA (Key Recovery Authority)
 # ----------------------------------------------------------------------------
 
 
@@ -96,10 +95,6 @@ def kra_status():
         return Response(
             f"status=ERROR: {e}", mimetype="text/plain", status=500
         )
-
-
-# KRA Account Management
-# ----------------------------------------------------------------------------
 
 
 @bp.route("/kra/rest/account/login", methods=["GET", "POST"])
@@ -253,15 +248,9 @@ def submit_key_request():
                             400,
                         )
 
-                    # Decrypt using AES-CBC
-                    cipher = Cipher(
-                        algorithms.AES(session_key),
-                        modes.CBC(iv),
-                    )
-                    decryptor = cipher.decryptor()
-                    plaintext_padded = (
-                        decryptor.update(wrapped_data)
-                        + decryptor.finalize()
+                    # Decrypt using AES-CBC (unpad=False → manual validation)
+                    plaintext_padded = _scrypto.aes_cbc_decrypt(
+                        session_key, iv, wrapped_data, unpad=False
                     )
 
                     # Remove and validate PKCS7 padding
@@ -273,9 +262,7 @@ def submit_key_request():
                             f"Invalid PKCS7 padding length: {padding_length}"
                         )
                     if len(plaintext_padded) < padding_length:
-                        raise ValueError(
-                            "Padding length exceeds data length"
-                        )
+                        raise ValueError("Padding length exceeds data length")
                     if not hmac.compare_digest(
                         bytes([padding_length] * padding_length),
                         plaintext_padded[-padding_length:],
@@ -286,8 +273,9 @@ def submit_key_request():
                     # Now plaintext is the actual secret - store it directly
                     # by encrypting with storage key (not transport key)
                     encrypted_for_storage = (
-                        _g.kra_backend.storage_key_manager
-                        .encrypt_for_storage(plaintext)
+                        _g.kra_backend.storage_key_manager.encrypt_for_storage(
+                            plaintext
+                        )
                     )
 
                     # Store in LDAP directly (bypass archive_secret to avoid
@@ -324,9 +312,7 @@ def submit_key_request():
                     "RequestInfo": {
                         "requestType": "keyArchivalRequest",
                         "requestStatus": "complete",
-                        "requestURL": (
-                            f"/kra/rest/agent/keyrequests/{key_id}"
-                        ),
+                        "requestURL": f"/kra/rest/agent/keyrequests/{key_id}",
                         "keyURL": f"/kra/rest/agent/keys/{key_id}",
                     }
                 }
@@ -376,9 +362,7 @@ def submit_key_request():
                         "requestURL": (
                             f"/kra/rest/agent/keyrequests/{retrieval_id}"
                         ),
-                        "keyURL": (
-                            f"/kra/rest/agent/keys/{retrieval_id}"
-                        ),
+                        "keyURL": f"/kra/rest/agent/keys/{retrieval_id}",
                     },
                     "KeyData": {
                         "wrappedPrivateData": wrapped_secret_b64,
@@ -390,9 +374,7 @@ def submit_key_request():
 
         else:
             return error_response(
-                "BadRequest",
-                f"Unsupported request type: {request_type}",
-                400,
+                "BadRequest", f"Unsupported request type: {request_type}", 400
             )
 
     except ValueError as e:
@@ -400,9 +382,7 @@ def submit_key_request():
     except Exception as e:
         logger.error("Error processing key request: %s", e, exc_info=True)
         return error_response(
-            "InternalError",
-            f"Failed to process key request: {str(e)}",
-            500,
+            "InternalError", f"Failed to process key request: {str(e)}", 500
         )
 
 
@@ -414,8 +394,8 @@ def list_key_requests():
     List key requests with optional filtering
 
     Query parameters:
-    - requestState: Filter by request state
-    - requestType: Filter by request type
+    - requestState: Filter by request state (pending, complete, rejected, etc.)
+    - requestType: Filter by request type (archival, recovery, etc.)
     - clientKeyID: Filter by client key ID
     - start: Start index for pagination (default: 0)
     - size: Maximum number of results (default: 20)
@@ -458,9 +438,7 @@ def list_key_requests():
     except Exception as e:
         logger.error("Error listing key requests: %s", e, exc_info=True)
         return error_response(
-            "InternalError",
-            f"Failed to list key requests: {str(e)}",
-            500,
+            "InternalError", f"Failed to list key requests: {str(e)}", 500
         )
 
 
@@ -505,9 +483,7 @@ def get_key_request_info(request_id):
                 {
                     "requestType": request_info.get("request_type"),
                     "requestStatus": request_info.get("status"),
-                    "requestURL": (
-                        f"/kra/rest/agent/keyrequests/{request_id}"
-                    ),
+                    "requestURL": f"/kra/rest/agent/keyrequests/{request_id}",
                     "keyURL": f"/kra/rest/agent/keys/{request_id}",
                 }
             )
@@ -527,9 +503,7 @@ def get_key_request_info(request_id):
                 {
                     "requestType": "keyArchivalRequest",
                     "requestStatus": "complete",
-                    "requestURL": (
-                        f"/kra/rest/agent/keyrequests/{request_id}"
-                    ),
+                    "requestURL": f"/kra/rest/agent/keyrequests/{request_id}",
                     "keyURL": f"/kra/rest/agent/keys/{request_id}",
                 }
             )
@@ -546,9 +520,7 @@ def get_key_request_info(request_id):
 @bp.route(
     "/kra/rest/agent/keyrequests/<request_id>/approve", methods=["POST"]
 )
-@bp.route(
-    "/kra/v2/agent/keyrequests/<request_id>/approve", methods=["POST"]
-)
+@bp.route("/kra/v2/agent/keyrequests/<request_id>/approve", methods=["POST"])
 @require_agent_auth
 def approve_key_request(request_id):
     """
@@ -577,9 +549,7 @@ def approve_key_request(request_id):
 
         if not key_record:
             return error_response(
-                "RequestNotFound",
-                f"Key request {request_id} not found",
-                404,
+                "RequestNotFound", f"Key request {request_id} not found", 404
             )
 
         # Request is already complete (auto-approved)
@@ -587,9 +557,7 @@ def approve_key_request(request_id):
             {
                 "requestType": "keyArchivalRequest",
                 "requestStatus": "complete",
-                "requestURL": (
-                    f"/kra/rest/agent/keyrequests/{request_id}"
-                ),
+                "requestURL": f"/kra/rest/agent/keyrequests/{request_id}",
                 "keyURL": f"/kra/rest/agent/keys/{request_id}",
             }
         )
@@ -597,18 +565,12 @@ def approve_key_request(request_id):
     except Exception as e:
         logger.error("Error approving key request: %s", e, exc_info=True)
         return error_response(
-            "InternalError",
-            f"Failed to approve key request: {str(e)}",
-            500,
+            "InternalError", f"Failed to approve key request: {str(e)}", 500
         )
 
 
-@bp.route(
-    "/kra/rest/agent/keyrequests/<request_id>/reject", methods=["POST"]
-)
-@bp.route(
-    "/kra/v2/agent/keyrequests/<request_id>/reject", methods=["POST"]
-)
+@bp.route("/kra/rest/agent/keyrequests/<request_id>/reject", methods=["POST"])
+@bp.route("/kra/v2/agent/keyrequests/<request_id>/reject", methods=["POST"])
 @require_agent_auth
 def reject_key_request(request_id):
     """
@@ -636,36 +598,26 @@ def reject_key_request(request_id):
 
         if not success:
             return error_response(
-                "RequestNotFound",
-                f"Key request {request_id} not found",
-                404,
+                "RequestNotFound", f"Key request {request_id} not found", 404
             )
 
         return success_response(
             {
                 "requestType": "keyArchivalRequest",
                 "requestStatus": "rejected",
-                "requestURL": (
-                    f"/kra/rest/agent/keyrequests/{request_id}"
-                ),
+                "requestURL": f"/kra/rest/agent/keyrequests/{request_id}",
             }
         )
 
     except Exception as e:
         logger.error("Error rejecting key request: %s", e, exc_info=True)
         return error_response(
-            "InternalError",
-            f"Failed to reject key request: {str(e)}",
-            500,
+            "InternalError", f"Failed to reject key request: {str(e)}", 500
         )
 
 
-@bp.route(
-    "/kra/rest/agent/keyrequests/<request_id>/cancel", methods=["POST"]
-)
-@bp.route(
-    "/kra/v2/agent/keyrequests/<request_id>/cancel", methods=["POST"]
-)
+@bp.route("/kra/rest/agent/keyrequests/<request_id>/cancel", methods=["POST"])
+@bp.route("/kra/v2/agent/keyrequests/<request_id>/cancel", methods=["POST"])
 @require_agent_auth
 def cancel_key_request(request_id):
     """
@@ -703,9 +655,7 @@ def cancel_key_request(request_id):
                 {
                     "requestType": "keyArchivalRequest",
                     "requestStatus": "cancelled",
-                    "requestURL": (
-                        f"/kra/rest/agent/keyrequests/{request_id}"
-                    ),
+                    "requestURL": f"/kra/rest/agent/keyrequests/{request_id}",
                 }
             )
         else:
@@ -716,9 +666,7 @@ def cancel_key_request(request_id):
     except Exception as e:
         logger.error("Error cancelling key request: %s", e, exc_info=True)
         return error_response(
-            "InternalError",
-            f"Failed to cancel key request: {str(e)}",
-            500,
+            "InternalError", f"Failed to cancel key request: {str(e)}", 500
         )
 
 
@@ -910,18 +858,9 @@ def retrieve_key():
             # Generate random IV
             iv = secrets.token_bytes(16)
 
-            # Add PKCS7 padding to the secret
-            padder = sym_padding.PKCS7(128).padder()
-            padded_secret = padder.update(secret) + padder.finalize()
-
-            # Encrypt with AES-CBC
-            cipher = Cipher(
-                algorithms.AES(session_key),
-                modes.CBC(iv),
-            )
-            encryptor = cipher.encryptor()
-            wrapped_secret = (
-                encryptor.update(padded_secret) + encryptor.finalize()
+            # Encrypt with AES-CBC (pad=True applies PKCS7 padding)
+            wrapped_secret = _scrypto.aes_cbc_encrypt(
+                session_key, iv, secret, pad=True
             )
 
             # Encode both IV and wrapped secret
@@ -1015,9 +954,7 @@ def list_keys():
         for key_info in keys:
             entries.append(
                 {
-                    "keyURL": (
-                        f"/kra/rest/agent/keys/{key_info['key_id']}"
-                    ),
+                    "keyURL": f"/kra/rest/agent/keys/{key_info['key_id']}",
                     "clientKeyID": key_info.get("owner"),
                     "status": key_info.get("status", "active"),
                     "algorithm": key_info.get("algorithm", "AES"),
@@ -1122,15 +1059,12 @@ def modify_key_status(key_id):
         if new_status.lower() not in valid_statuses:
             return error_response(
                 "BadRequest",
-                "Invalid status. Must be one of: "
-                f"{', '.join(valid_statuses)}",
+                f"Invalid status. Must be one of: {', '.join(valid_statuses)}",
                 400,
             )
 
         # Update status
-        success = _g.kra_backend.modify_key_status(
-            key_id, new_status.lower()
-        )
+        success = _g.kra_backend.modify_key_status(key_id, new_status.lower())
 
         if not success:
             return error_response(
@@ -1148,15 +1082,11 @@ def modify_key_status(key_id):
     except Exception as e:
         logger.error("Error modifying key status: %s", e, exc_info=True)
         return error_response(
-            "InternalError",
-            f"Failed to modify key status: {str(e)}",
-            500,
+            "InternalError", f"Failed to modify key status: {str(e)}", 500
         )
 
 
-@bp.route(
-    "/kra/rest/agent/keys/active/<client_key_id>", methods=["GET"]
-)
+@bp.route("/kra/rest/agent/keys/active/<client_key_id>", methods=["GET"])
 @bp.route("/kra/v2/agent/keys/active/<client_key_id>", methods=["GET"])
 @bp.route("/kra/agent/keys/active/<client_key_id>", methods=["GET"])
 @require_agent_auth
@@ -1183,9 +1113,7 @@ def get_active_key_info(client_key_id):
             )
 
         # List keys for this client, filtered by active status
-        keys = _g.kra_backend.list_keys(
-            owner=client_key_id, status="active"
-        )
+        keys = _g.kra_backend.list_keys(owner=client_key_id, status="active")
 
         if not keys:
             return error_response(
@@ -1199,9 +1127,7 @@ def get_active_key_info(client_key_id):
 
         return success_response(
             {
-                "keyURL": (
-                    f"/kra/rest/agent/keys/{active_key['key_id']}"
-                ),
+                "keyURL": f"/kra/rest/agent/keys/{active_key['key_id']}",
                 "clientKeyID": active_key.get("owner"),
                 "status": active_key.get("status", "active"),
                 "algorithm": active_key.get("algorithm", "AES"),
@@ -1212,9 +1138,7 @@ def get_active_key_info(client_key_id):
     except Exception as e:
         logger.error("Error getting active key info: %s", e, exc_info=True)
         return error_response(
-            "InternalError",
-            f"Failed to get active key info: {str(e)}",
-            500,
+            "InternalError", f"Failed to get active key info: {str(e)}", 500
         )
 
 
@@ -1338,7 +1262,5 @@ def kra_stats():
     except Exception as e:
         logger.error("Error getting KRA stats: %s", e, exc_info=True)
         return error_response(
-            "InternalError",
-            f"Failed to get KRA statistics: {str(e)}",
-            500,
+            "InternalError", f"Failed to get KRA statistics: {str(e)}", 500
         )

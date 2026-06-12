@@ -190,7 +190,7 @@ def create_ipa_conf(fstore, config, ca_enabled, master=None, ca_backend=None):
     :param ca_enabled: True if the topology includes a CA
     :param master: if set, the xmlrpc_uri parameter will use the provided
                    master instead of this host
-    :param ca_backend: 'ipathinca' or 'dogtag'; written only when this
+    :param ca_backend: 'ipacta' or 'dogtag'; written only when this
                        replica is itself a CA server (config.setup_ca)
     """
     # Save client file on Domain Level 1
@@ -1376,7 +1376,7 @@ def install(installer):
         # The configuration creation has to be here otherwise previous call
         # To config certmonger would try to connect to local server
         _ca_backend = (
-            'ipathinca' if getattr(options, 'use_ipathinca', False)
+            'ipacta' if getattr(options, 'use_ipacta', False)
             else 'dogtag'
         )
         create_ipa_conf(fstore, config, ca_enabled, ca_backend=_ca_backend)

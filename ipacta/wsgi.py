@@ -97,6 +97,8 @@ def create_wsgi_app():
     # Import and create Flask app
     try:
         from ipacta.rest_api import create_app
+        import ipacta.rest_api._globals as _rest_api_globals
+        from ipacta.cert_reload import get_reload_manager
 
         # Create application with configuration
         app = create_app({"config": config})
@@ -117,6 +119,24 @@ def create_wsgi_app():
             logger.info("Server https_port: %s", https_port)
             logger.info("Server workers: %s", workers)
             logger.info("Server threads: %s", threads)
+
+        # Initialize certificate reload manager for graceful certificate reload
+        # This allows sending SIGHUP to reload certificates without
+        # service restart
+        try:
+            reload_manager = get_reload_manager(_rest_api_globals.ca_backend)
+            reload_manager.setup_signal_handler()
+            logger.info(
+                "Certificate reload manager initialized - send SIGHUP "
+                "to reload certificates without service restart"
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to initialize certificate reload manager: %s", e
+            )
+            logger.warning(
+                "Certificate reload via SIGHUP will not be available"
+            )
 
         # Start resource tracking if configured under [debug] section.
         # resource_log_interval = 300   (seconds; 0 = disabled)
@@ -176,7 +196,7 @@ def main():
         help="Configuration file path",
     )
     parser.add_argument(
-        "--bind", default="127.0.0.1:8080", help="Bind address (host:port)"
+        "--bind", default="0.0.0.0:8080", help="Bind address (host:port)"
     )
     parser.add_argument(
         "--workers", type=int, default=1, help="Number of worker processes"

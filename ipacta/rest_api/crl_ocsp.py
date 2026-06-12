@@ -1,21 +1,23 @@
 # Copyright (C) 2025  FreeIPA Contributors see COPYING for license
 
+"""CRL, pruning, OCSP, and certificate chain endpoints."""
+
 import base64
 import logging
 import os
-from datetime import datetime, timezone
 from xml.sax.saxutils import escape as xml_escape
 
-from flask import Blueprint, Response, request, jsonify
+from flask import (
+    Blueprint, Response, request, jsonify,
+)
 
-from cryptography import x509
-from cryptography.hazmat.primitives import serialization
+import synta
 
 import ipacta.rest_api._globals as _g
 from ipacta.rest_api._globals import require_ca_backend, init_ca
 from ipacta.ocsp import get_ocsp_manager
 import ipacta.rate_limit as _rl
-from ipacta.rest_api._helpers import (
+from ipacta.rest_api_helpers import (
     handle_ca_errors,
     require_agent_auth,
     error_response,
@@ -40,34 +42,22 @@ def get_crl():
     """Get Certificate Revocation List
 
     Serves CRL at /ca/ee/ca/getCRL (Dogtag format).
-    Returns the cached CRL if it has not expired yet; regenerates
-    only when the CRL's nextUpdate has passed.
 
     Note: /ipa/crl/MasterCRL.bin is served by Apache directly via Alias
     directive from /var/lib/ipa/pki-ca/publish/MasterCRL.bin (not via this
     REST API).
     """
-    crl_path = os.path.join(paths.IPACTA_CERTS_DIR, "ca_crl.der")
+    # Generate fresh CRL
+    _g.ca_backend.update_crl()
 
-    regenerate = True
+    # Read CRL from file (avoid TOCTOU race with direct open)
+    crl_path = os.path.join(paths.IPACTA_CERTS_DIR, "ca_crl.der")
     try:
         with open(crl_path, "rb") as f:
             crl_data = f.read()
-        crl = x509.load_der_x509_crl(crl_data)
-        if crl.next_update_utc > datetime.now(timezone.utc):
-            regenerate = False
-    except (FileNotFoundError, ValueError):
-        crl_data = None
-
-    if regenerate:
-        _g.ca_backend.update_crl()
-        try:
-            with open(crl_path, "rb") as f:
-                crl_data = f.read()
-        except FileNotFoundError:
-            return error_response("CRLNotFound", "CRL file not found", 404)
-
-    return Response(crl_data, mimetype="application/pkix-crl")
+        return Response(crl_data, mimetype="application/pkix-crl")
+    except FileNotFoundError:
+        return error_response("CRLNotFound", "CRL file not found", 404)
 
 
 @bp.route("/ca/rest/agent/crl", methods=["POST"])
@@ -210,9 +200,7 @@ def get_crl_issuing_point_info(crl_name):
                 )
         else:
             return error_response(
-                "NotImplemented",
-                "CRL issuing point info not available",
-                501,
+                "NotImplemented", "CRL issuing point info not available", 501
             )
 
     except Exception as e:
@@ -576,16 +564,14 @@ def get_ocsp_cert():
             )
 
         cert = responder.ocsp_cert
-        cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode(
-            "ascii"
-        )
+        cert_pem = synta.Certificate.to_pem(cert).decode("ascii")
 
         return success_response(
             {
                 "ca_id": ca_id,
                 "serial_number": cert.serial_number,
-                "not_before": cert.not_valid_before_utc.isoformat(),
-                "not_after": cert.not_valid_after_utc.isoformat(),
+                "not_before": cert.not_before_utc.isoformat(),
+                "not_after": cert.not_after_utc.isoformat(),
                 "enabled": True,
                 "certificate": cert_pem,
                 "cache_timeout": responder.cache_timeout,
@@ -625,8 +611,8 @@ def renew_ocsp_cert():
         }
         if cert is not None:
             result["serial_number"] = cert.serial_number
-            result["not_before"] = cert.not_valid_before_utc.isoformat()
-            result["not_after"] = cert.not_valid_after_utc.isoformat()
+            result["not_before"] = cert.not_before_utc.isoformat()
+            result["not_after"] = cert.not_after_utc.isoformat()
 
         return success_response(result)
 
@@ -650,7 +636,7 @@ def list_ocsp_responders():
             if responder.ocsp_cert is not None:
                 cert = responder.ocsp_cert
                 entry["serial_number"] = cert.serial_number
-                entry["not_after"] = cert.not_valid_after_utc.isoformat()
+                entry["not_after"] = cert.not_after_utc.isoformat()
             responders.append(entry)
 
         return success_response(
@@ -668,6 +654,7 @@ def list_ocsp_responders():
 
 
 @bp.route("/ca/rest/certs/chain", methods=["GET"])
+@bp.route("/ca/v2/certs/chain", methods=["GET"])
 @bp.route("/ca/ee/ca/getCertChain", methods=["GET"])
 def get_cert_chain():
     """Get CA certificate chain"""

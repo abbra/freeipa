@@ -584,7 +584,7 @@ def install_step_0(standalone, replica_config, options, custodia):
 
         # Normalise CASigningAlgorithm enum to its plain string value so
         # that both the Dogtag spawn-config path (_mangle_values calls
-        # v.replace('%', '%%')) and the ipathinca path receive a str.
+        # v.replace('%', '%%')) and the ipacta path receive a str.
         if isinstance(ca_signing_algorithm, CASigningAlgorithm):
             ca_signing_algorithm = ca_signing_algorithm.value
 

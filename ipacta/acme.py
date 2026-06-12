@@ -2,7 +2,7 @@
 
 """
 ACME (Automatic Certificate Management Environment) protocol implementation
-RFC 8555 compliant ACME server using python-cryptography
+RFC 8555 compliant ACME server using synta
 """
 
 import base64
@@ -17,15 +17,13 @@ import socket
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List
 
-from cryptography import x509
-from cryptography.hazmat.primitives import serialization, hashes
-from cryptography.hazmat.primitives.asymmetric import rsa, ec, padding
-from cryptography.exceptions import InvalidSignature
+import synta
+import synta.general_name as _gn
 
 from ipacta import get_config_value
 from ipacta.ca import PythonCA, RevocationReason
 from ipacta.jwk import JWK
-from ipacta.storage.acme import ACMEStorageBackend
+from ipacta.storage_acme import ACMEStorageBackend
 
 logger = logging.getLogger(__name__)
 
@@ -113,9 +111,19 @@ def _generate_token(nbytes: int = 32) -> str:
 class JWS:
     """JSON Web Signature implementation without jose dependency"""
 
+    # Mapping from ACME JWS algorithm name to synta hash algorithm name
+    _ALG_TO_HASH = {
+        "RS256": "sha256",
+        "RS384": "sha384",
+        "RS512": "sha512",
+        "ES256": "sha256",
+        "ES384": "sha384",
+        "ES512": "sha512",
+    }
+
     @staticmethod
     def sign(payload: bytes, key, protected_header: Dict[str, Any]) -> str:
-        """Create JWS signature"""
+        """Create JWS signature using a synta PrivateKey"""
         # Encode protected header
         protected_encoded = (
             base64.urlsafe_b64encode(
@@ -133,35 +141,16 @@ class JWS:
         # Create signing input
         signing_input = f"{protected_encoded}.{payload_encoded}".encode()
 
-        # Sign based on key type and algorithm
+        # Sign based on algorithm header
         algorithm = protected_header.get("alg")
-        if isinstance(key, rsa.RSAPrivateKey):
-            if algorithm == "RS256":
-                signature = key.sign(
-                    signing_input, padding.PKCS1v15(), hashes.SHA256()
-                )
-            elif algorithm == "PS256":
-                signature = key.sign(
-                    signing_input,
-                    padding.PSS(
-                        mgf=padding.MGF1(hashes.SHA256()),
-                        salt_length=padding.PSS.MAX_LENGTH,
-                    ),
-                    hashes.SHA256(),
-                )
-            else:
-                raise ValueError(f"Unsupported RSA algorithm: {algorithm}")
-        elif isinstance(key, ec.EllipticCurvePrivateKey):
-            if algorithm == "ES256":
-                signature = key.sign(signing_input, ec.ECDSA(hashes.SHA256()))
-            elif algorithm == "ES384":
-                signature = key.sign(signing_input, ec.ECDSA(hashes.SHA384()))
-            elif algorithm == "ES512":
-                signature = key.sign(signing_input, ec.ECDSA(hashes.SHA512()))
-            else:
-                raise ValueError(f"Unsupported EC algorithm: {algorithm}")
-        else:
+        hash_algo = JWS._ALG_TO_HASH.get(algorithm)
+        if hash_algo is None:
+            raise ValueError(f"Unsupported algorithm: {algorithm}")
+
+        if not isinstance(key, synta.PrivateKey):
             raise ValueError(f"Unsupported key type: {type(key)}")
+
+        signature = key.sign(signing_input, hash_algo)
 
         # Encode signature
         signature_encoded = (
@@ -173,7 +162,11 @@ class JWS:
 
     @staticmethod
     def verify(jws_token: str, key) -> tuple[Dict[str, Any], bytes]:
-        """Verify JWS signature and return header and payload"""
+        """Verify JWS signature and return header and payload.
+
+        ``key`` must be a synta.PublicKey.
+        Raises ValueError on verification failure.
+        """
         try:
             protected_b64, payload_b64, signature_b64 = jws_token.split(".")
         except ValueError:
@@ -199,47 +192,15 @@ class JWS:
             f"{protected_b64.rstrip('=')}.{payload_b64.rstrip('=')}".encode()
         )
         algorithm = protected_header.get("alg")
+        hash_algo = JWS._ALG_TO_HASH.get(algorithm)
+        if hash_algo is None:
+            raise ValueError(f"Unsupported algorithm: {algorithm}")
 
-        try:
-            if isinstance(key, rsa.RSAPublicKey):
-                if algorithm == "RS256":
-                    key.verify(
-                        signature,
-                        signing_input,
-                        padding.PKCS1v15(),
-                        hashes.SHA256(),
-                    )
-                elif algorithm == "PS256":
-                    key.verify(
-                        signature,
-                        signing_input,
-                        padding.PSS(
-                            mgf=padding.MGF1(hashes.SHA256()),
-                            salt_length=padding.PSS.MAX_LENGTH,
-                        ),
-                        hashes.SHA256(),
-                    )
-                else:
-                    raise ValueError(f"Unsupported RSA algorithm: {algorithm}")
-            elif isinstance(key, ec.EllipticCurvePublicKey):
-                if algorithm == "ES256":
-                    key.verify(
-                        signature, signing_input, ec.ECDSA(hashes.SHA256())
-                    )
-                elif algorithm == "ES384":
-                    key.verify(
-                        signature, signing_input, ec.ECDSA(hashes.SHA384())
-                    )
-                elif algorithm == "ES512":
-                    key.verify(
-                        signature, signing_input, ec.ECDSA(hashes.SHA512())
-                    )
-                else:
-                    raise ValueError(f"Unsupported EC algorithm: {algorithm}")
-            else:
-                raise ValueError(f"Unsupported key type: {type(key)}")
-        except InvalidSignature:
-            raise ValueError("Invalid signature")
+        if not isinstance(key, synta.PublicKey):
+            raise ValueError(f"Unsupported key type: {type(key)}")
+
+        # Raises ValueError on failure
+        key.verify_signature(signature, signing_input, hash_algo)
 
         return protected_header, payload
 
@@ -511,7 +472,7 @@ class ACMEServer:
             else:
                 raise ACMEError("malformed", "Missing jwk or kid in header")
 
-            # Convert JWK to cryptography key for verification
+            # Convert JWK to synta PublicKey for verification
             crypto_key = self._jwk_to_cryptography_key(account_key)
 
             # Verify JWS signature
@@ -524,8 +485,9 @@ class ACMEServer:
         except Exception as e:
             raise ACMEError("malformed", f"JWS processing failed: {e}") from e
 
-    def _jwk_to_cryptography_key(self, jwk_dict: Dict[str, Any]):
-        """Convert JWK dictionary to cryptography key object"""
+    def _jwk_to_cryptography_key(
+            self, jwk_dict: Dict[str, Any]) -> synta.PublicKey:
+        """Convert JWK dictionary to a synta PublicKey"""
         if "kty" not in jwk_dict:
             raise ValueError("Missing required JWK field: kty")
 
@@ -535,43 +497,26 @@ class ACMEServer:
                     raise ValueError(
                         f"Missing required RSA JWK field: {field}"
                     )
-            n = self._decode_bigint(jwk_dict["n"])
-            e = self._decode_bigint(jwk_dict["e"])
-            return rsa.RSAPublicNumbers(e, n).public_key()
+            n = self._decode_b64url_bytes(jwk_dict["n"])
+            e = self._decode_b64url_bytes(jwk_dict["e"])
+            return synta.PublicKey.from_rsa_components(n, e)
         elif jwk_dict["kty"] == "EC":
             for field in ("crv", "x", "y"):
                 if field not in jwk_dict:
                     raise ValueError(f"Missing required EC JWK field: {field}")
-            x = self._decode_ec_coordinate(jwk_dict["x"])
-            y = self._decode_ec_coordinate(jwk_dict["y"])
-
+            x = self._decode_b64url_bytes(jwk_dict["x"])
+            y = self._decode_b64url_bytes(jwk_dict["y"])
             curve_name = jwk_dict["crv"]
-            if curve_name == "P-256":
-                curve = ec.SECP256R1()
-            elif curve_name == "P-384":
-                curve = ec.SECP384R1()
-            elif curve_name == "P-521":
-                curve = ec.SECP521R1()
-            else:
+            if curve_name not in ("P-256", "P-384", "P-521"):
                 raise ValueError(f"Unsupported curve: {curve_name}")
-
-            return ec.EllipticCurvePublicNumbers(x, y, curve).public_key()
+            return synta.PublicKey.from_ec_components(x, y, curve_name)
         else:
             raise ValueError(f"Unsupported key type: {jwk_dict['kty']}")
 
-    def _decode_bigint(self, value: str) -> int:
-        """Decode base64url-encoded big integer"""
-        # Add padding
-        value += "=" * (4 - len(value) % 4)
-        decoded = base64.urlsafe_b64decode(value)
-        return int.from_bytes(decoded, byteorder="big")
-
-    def _decode_ec_coordinate(self, value: str) -> int:
-        """Decode base64url-encoded EC coordinate"""
-        # Add padding
-        value += "=" * (4 - len(value) % 4)
-        decoded = base64.urlsafe_b64decode(value)
-        return int.from_bytes(decoded, byteorder="big")
+    def _decode_b64url_bytes(self, value: str) -> bytes:
+        """Decode base64url-encoded field to raw bytes"""
+        value += "=" * ((4 - len(value) % 4) % 4)
+        return base64.urlsafe_b64decode(value)
 
     def _verify_nonce(self, nonce: str) -> bool:
         """Verify and consume nonce from LDAP"""
@@ -894,7 +839,7 @@ class ACMEServer:
 
         # Parse CSR
         try:
-            csr = x509.load_der_x509_csr(csr_der)
+            csr = synta.CertificationRequest.from_der(csr_der)
         except Exception as e:
             raise ACMEError("badCSR", f"Invalid CSR: {e}") from e
 
@@ -902,7 +847,7 @@ class ACMEServer:
         self._validate_csr_identifiers(csr, order_data["identifiers"])
 
         # Submit certificate request to CA
-        csr_pem = csr.public_bytes(serialization.Encoding.PEM).decode()
+        csr_pem = synta.CertificationRequest.to_pem(csr).decode()
         request_id = self.ca.submit_certificate_request(
             csr_pem, "acmeIPAServerCert"
         )
@@ -912,9 +857,7 @@ class ACMEServer:
 
         # Get the issued certificate
         cert_record = self.ca.get_certificate(serial_number)
-        cert_pem = cert_record.certificate.public_bytes(
-            serialization.Encoding.PEM
-        ).decode()
+        cert_pem = synta.Certificate.to_pem(cert_record.certificate).decode()
 
         # Store certificate in LDAP
         self.db.store_certificate(order_id, cert_pem)
@@ -959,9 +902,7 @@ class ACMEServer:
             raise ACMEError("notFound", "Certificate not found", 404)
 
         # Include certificate chain
-        ca_cert_pem = self.ca.ca_cert.public_bytes(
-            serialization.Encoding.PEM
-        ).decode()
+        ca_cert_pem = synta.Certificate.to_pem(self.ca.ca_cert).decode()
 
         return cert_pem + ca_cert_pem
 
@@ -1094,22 +1035,16 @@ class ACMEServer:
 
     def _validate_csr_identifiers(
         self,
-        csr: x509.CertificateSigningRequest,
+        csr: synta.CertificationRequest,
         order_identifiers: List[Dict[str, str]],
     ):
         """Validate CSR contains the ordered identifiers"""
 
-        # Extract SANs from CSR
-        try:
-            san_ext = csr.extensions.get_extension_for_oid(
-                x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME
-            )
-            san_dns_names = []
-            for san in san_ext.value:
-                if isinstance(san, x509.DNSName):
-                    san_dns_names.append(san.value)
-        except x509.ExtensionNotFound:
-            san_dns_names = []
+        # Extract DNS SANs from CSR using synta
+        san_dns_names = []
+        for tag_num, content in csr.subject_alt_names():
+            if tag_num == _gn.DNS_NAME:
+                san_dns_names.append(content.decode("ascii"))
 
         # Check that all order identifiers are present
         order_dns_names = [
@@ -1146,22 +1081,25 @@ class ACMEServer:
             reason: ACME revocation reason code (RFC 5280 CRLReason).
             account_id: Authenticated account ID making the request.
                 Must own the order that issued the certificate.
-                If None the ownership check is skipped (legacy / internal).
+                If None the ownership check is skipped (legacy / internal use).
 
         Raises:
-            ACMEError("unauthorized") when account_id is provided but does
-            not own the certificate.
+            ACMEError("unauthorized") when account_id is provided but does not
+            own the certificate.
             ACMEError("badRevocationRequest") on any other error.
         """
         try:
-            cert = x509.load_der_x509_certificate(certificate_der)
+            cert = synta.Certificate.from_der(certificate_der)
             serial_number = cert.serial_number
 
-            # Ownership check: the requesting account must be the same
-            # account that originally ordered the certificate (RFC 8555 §7.6).
+            # Ownership check: the requesting account must be the same account
+            # that originally ordered the certificate (RFC 8555 §7.6).
             if account_id is not None:
                 order = self.db.find_order_for_certificate(certificate_der)
                 if order is None:
+                    # Certificate not found in ACME storage — could be a cert
+                    # issued outside ACME or already cleaned up.  Deny by
+                    # default: an ACME revoke-cert must prove ownership.
                     raise ACMEError(
                         "unauthorized",
                         "Certificate not found in ACME order store; "

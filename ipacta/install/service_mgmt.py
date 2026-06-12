@@ -14,12 +14,14 @@ import shutil
 import time
 from pathlib import Path
 
+
 from ipalib.constants import CA_TRACKING_REQS, RENEWAL_CA_NAME
 from ipalib.install.certmonger import wait_for_requests_by_postsave
 from ipaplatform.paths import paths
 from ipapython import ipautil
 
 from ipacta import get_config_value, set_global_config
+from ipacta.backend import get_python_ca_backend
 
 logger = logging.getLogger(__name__)
 
@@ -467,7 +469,10 @@ class ServiceMgmt:
         Called after certmonger's post-save restart commands have completed.
         Gates on the LDAPI socket file appearing in the filesystem: once
         present, 389-DS is accepting connections and the autobind mapping
-        is active.
+        (configured by _configure_ldap_access, which runs before this) is
+        active.  Testing authentication here would run as root (the install
+        process), which bypasses the nsLDAPIFixedAuthMap and gives a false
+        positive.
         """
         instance = get_config_value("global", "realm").replace(".", "-")
         socket_path = paths.SLAPD_INSTANCE_SOCKET_TEMPLATE % instance
@@ -490,10 +495,19 @@ class ServiceMgmt:
         logger.debug("Starting ipa-ca service")
 
         try:
+            # On replica install certmonger asynchronously fetches DS and
+            # httpd certificates from the master and then restarts each
+            # service via its post-save command.  Wait for all requests
+            # whose post-save command matches restart_dirsrv or restart_httpd
+            # to reach a stable state before gating on the DS socket;
+            # otherwise a late restart_dirsrv can fire after we see DS
+            # ready, causing ipacta to fail its LDAP connection.
             wait_for_requests_by_postsave(
                 ('restart_dirsrv', 'restart_httpd'), timeout=300
             )
 
+            # DS may still be in the middle of its own startup after the
+            # certmonger-triggered restart.  Gate on the LDAPI socket.
             self._wait_for_ds()
 
             ipautil.run(["systemctl", "start", "ipacta.service"])
@@ -525,6 +539,9 @@ class ServiceMgmt:
 
         logger.debug("Verifying CA REST API is reachable on port 8443")
 
+        # No certificate verification: this is a local connectivity probe
+        # during installation, not a CA operation.  The CA cert may not be
+        # installed at its final location yet at this point in the install.
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
@@ -574,7 +591,7 @@ class ServiceMgmt:
         logger.debug("Generating initial CRL")
 
         try:
-            from ipacta.backend import get_python_ca_backend
+            # Get CA backend instance
             backend = get_python_ca_backend()
 
             # Generate and publish CRL

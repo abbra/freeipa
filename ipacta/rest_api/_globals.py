@@ -1,16 +1,18 @@
 # Copyright (C) 2025  FreeIPA Contributors see COPYING for license
 
+"""Global state and initialization helpers for Ipacta REST API."""
+
 import logging
 import threading
 import traceback
 from functools import wraps
 
-from cryptography import x509
+import synta
 
 from ipacta.backend import get_python_ca_backend
 from ipacta.nss_utils import NSSDatabase
 from ipacta.kra import get_kra
-from ipacta.storage.kra import KRAStorageBackend
+from ipacta.storage_kra import KRAStorageBackend
 from ipaplatform.paths import paths
 
 logger = logging.getLogger(__name__)
@@ -30,6 +32,16 @@ _ca_init_lock = threading.Lock()
 _kra_init_lock = threading.Lock()
 
 
+def get_ca_backend():
+    """Return the current CA backend instance."""
+    return ca_backend
+
+
+def get_kra_backend():
+    """Return the current KRA backend instance."""
+    return kra_backend
+
+
 def require_ca_backend(f):
     """Decorator to auto-initialize backend before endpoint execution"""
 
@@ -42,7 +54,7 @@ def require_ca_backend(f):
 
 
 def init_ca():
-    """Initialize CA backend (lazy, called on first request)"""
+    """Initialize CA backend"""
     global ca_backend
     if ca_backend is not None:
         return
@@ -55,28 +67,10 @@ def init_ca():
             logger.debug(
                 "Python CA backend initialized successfully with LDAP storage"
             )
-            _setup_reload_manager(ca_backend)
         except Exception as e:
             logger.error("Failed to initialize CA backend: %s", e)
             logger.error(traceback.format_exc())
             raise
-
-
-def _setup_reload_manager(backend):
-    """Set up certificate reload manager after CA init"""
-    try:
-        from ipacta.certificate.reload_manager import get_reload_manager
-
-        reload_manager = get_reload_manager(backend)
-        reload_manager.setup_signal_handler()
-        logger.info(
-            "Certificate reload manager initialized - send SIGHUP "
-            "to reload certificates without service restart"
-        )
-    except Exception as e:
-        logger.warning(
-            "Failed to initialize certificate reload manager: %s", e
-        )
 
 
 def init_kra():
@@ -103,7 +97,7 @@ def init_kra():
             try:
                 logger.debug("Loading CA cert from %s", paths.IPA_CA_CRT)
                 with open(paths.IPA_CA_CRT, "rb") as f:
-                    ca_cert = x509.load_pem_x509_certificate(f.read())
+                    ca_cert = synta.Certificate.from_pem(f.read())
 
                 # Extract CA key from NSSDB (consistent with ca.py)
                 logger.debug(
@@ -137,3 +131,4 @@ def init_kra():
             logger.error("Failed to initialize KRA backend: %s", e)
             logger.error(traceback.format_exc())
             kra_init_error = str(e)
+            # Don't raise - KRA is optional

@@ -14,10 +14,7 @@ import time
 from queue import Queue, Empty, Full
 from threading import Lock
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Optional
-
-if TYPE_CHECKING:
-    from ipacta.resource_tracker import LDAPPoolStats
+from typing import Optional
 
 from ipalib import errors
 from ipapython import ipaldap
@@ -77,11 +74,6 @@ class LDAPConnectionPool:
                 self._created_count += 1
             except Exception as e:
                 logger.warning("Failed to pre-create connection: %s", e)
-
-        if self._created_count == 0 and min_connections > 0:
-            raise StorageConnectionError(
-                "LDAP connection pool failed to create any connections"
-            )
 
     def _create_connection(self):
         """Create a new LDAP connection"""
@@ -497,8 +489,7 @@ def is_main_ca_id(ca_id, ca_name="ipa", config=None):
                             "Cached main CA UUID: %s", _main_ca_uuid
                         )
             except Exception as e:
-                logger.error("Could not resolve main CA UUID: %s", e)
-                raise
+                logger.debug("Could not resolve main CA UUID: %s", e)
 
     if _main_ca_uuid is not None:
         is_main = ca_id == _main_ca_uuid

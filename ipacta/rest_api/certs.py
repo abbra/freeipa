@@ -1,16 +1,20 @@
 # Copyright (C) 2025  FreeIPA Contributors see COPYING for license
 
+"""Certificate request and certificate management endpoints."""
+
 import base64
 import logging
 
-from flask import Blueprint, Response, request, jsonify
+from flask import (
+    Blueprint, Response, request, jsonify,
+)
 
 import ipacta
 import ipacta.rest_api._globals as _g
 from ipacta.rest_api._globals import require_ca_backend
 from ipacta.rest_api._utils import _search_certificates
 from ipacta.exceptions import ProfileNotFound
-from ipacta.rest_api._helpers import (
+from ipacta.rest_api_helpers import (
     handle_ca_errors,
     validate_input,
     require_agent_auth,
@@ -323,7 +327,7 @@ def get_certificate_agent(serial_number):
 @handle_ca_errors
 def search_certificates_public():
     """Search certificates (public endpoint)"""
-    return _search_certificates(_g.ca_backend)
+    return _search_certificates(request, _g.ca_backend)
 
 
 @bp.route("/ca/rest/agent/certs/search", methods=["GET", "POST"])
@@ -333,7 +337,7 @@ def search_certificates_public():
 @handle_ca_errors
 def search_certificates_agent():
     """Search certificates (agent endpoint - requires auth)"""
-    return _search_certificates(_g.ca_backend)
+    return _search_certificates(request, _g.ca_backend)
 
 
 @bp.route("/ca/rest/agent/certs/<serial_number>/revoke", methods=["POST"])
@@ -376,18 +380,10 @@ def revoke_certificate(serial_number):
     )
 
 
-@bp.route(
-    "/ca/rest/agent/certs/<serial_number>/revoke-ca", methods=["POST"]
-)
-@bp.route(
-    "/ca/rest/agent/certs/<serial_number>/unrevoke", methods=["POST"]
-)
-@bp.route(
-    "/ca/v2/agent/certs/<serial_number>/revoke-ca", methods=["POST"]
-)
-@bp.route(
-    "/ca/v2/agent/certs/<serial_number>/unrevoke", methods=["POST"]
-)
+@bp.route("/ca/rest/agent/certs/<serial_number>/revoke-ca", methods=["POST"])
+@bp.route("/ca/rest/agent/certs/<serial_number>/unrevoke", methods=["POST"])
+@bp.route("/ca/v2/agent/certs/<serial_number>/revoke-ca", methods=["POST"])
+@bp.route("/ca/v2/agent/certs/<serial_number>/unrevoke", methods=["POST"])
 @require_agent_auth
 @require_ca_backend
 @validate_input(serial_number=validate_serial_number)
@@ -516,9 +512,7 @@ def get_revoked_certificates():
             )
         if limit < 1 or offset < 0:
             return error_response(
-                "BadRequest",
-                "limit must be >= 1 and offset must be >= 0",
-                400,
+                "BadRequest", "limit must be >= 1 and offset must be >= 0", 400
             )
 
         storage = _g.ca_backend.ca.storage
@@ -531,7 +525,6 @@ def get_revoked_certificates():
                 r.to_dict() if hasattr(r, "to_dict") else r
                 for r in paginated
             ]
-
             return (
                 jsonify(
                     {

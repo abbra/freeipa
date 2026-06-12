@@ -37,4 +37,4 @@ FreeIPA design documentation
    audit-ipa-api.md
    sysaccounts.md
    namespace.md
-   ipathinca.md
+   ipacta.md

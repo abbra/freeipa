@@ -3,19 +3,18 @@
 """
 Integration tests for Dogtag profile compatibility
 
-These tests verify that ipacta can correctly parse and use Dogtag .cfg
+These tests verify that Ipacta can correctly parse and use Dogtag .cfg
 profile files, including constraint validation and default application.
 """
 
 import configparser
 
 import pytest
+import synta
 from pathlib import Path
-from cryptography import x509
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import hashes
-from ipacta.profile.parser import ProfileParser
+from ipacta.profile_parser import ProfileParser
 from ipacta.profile import Profile
+from ipacta.x509_utils import ipa_dn_to_name_der
 
 
 @pytest.fixture(scope="module")
@@ -64,31 +63,12 @@ def sample_csr(ipacta_config):
     realm = ipacta_config.get("global", "realm")
     domain = ipacta_config.get("global", "domain")
 
-    # Generate key pair
-    private_key = rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=2048,
-    )
-
-    # Build CSR — in X.509, the DN string representation reverses the
-    # attribute order, so O must come first in the list so that CN
-    # appears first in the string (matching pattern 'CN=[^,]+,.+')
-    subject = x509.Name(
-        [
-            x509.NameAttribute(x509.oid.NameOID.ORGANIZATION_NAME, realm),
-            x509.NameAttribute(
-                x509.oid.NameOID.COMMON_NAME, f"server.{domain}"
-            ),
-        ]
-    )
-
-    csr = (
-        x509.CertificateSigningRequestBuilder()
-        .subject_name(subject)
-        .sign(private_key, hashes.SHA256())
-    )
-
-    return csr
+    private_key = synta.PrivateKey.generate_rsa(2048)
+    name_der = ipa_dn_to_name_der(f"CN=server.{domain},O={realm}")
+    builder = synta.CsrBuilder()
+    builder = builder.subject_name(name_der)
+    builder = builder.public_key(private_key.public_key)
+    return builder.sign(private_key, 'sha256')
 
 
 def test_parse_caIPAserviceCert(variable_context):
@@ -196,7 +176,7 @@ def test_signing_algorithm_extraction(variable_context, sample_csr):
     for policy in profile.policies:
         if hasattr(policy.default, "signing_alg"):
             # This is SigningAlgDefault
-            builder = x509.CertificateBuilder()
+            builder = synta.CertificateBuilder()
             policy.default.apply(builder, sample_csr, context)
             break
 
@@ -288,7 +268,7 @@ def test_all_included_profiles_parse(variable_context):
 
 def test_profile_manager_integration(variable_context, ipacta_config):
     """Test ProfileManager integration with Dogtag profiles"""
-    from ipacta.profile.manager import ProfileManager
+    from ipacta.profiles import ProfileManager
 
     # Create profile manager with test profiles directory
     profiles_dir = Path("/usr/share/ipa/profiles")

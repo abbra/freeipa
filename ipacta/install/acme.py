@@ -9,7 +9,7 @@ import logging
 from ipalib import errors
 from ipapython.dn import DN
 
-from ipacta.storage.acme import ACMEStorageBackend
+from ipacta.storage_acme import ACMEStorageBackend
 
 logger = logging.getLogger(__name__)
 
