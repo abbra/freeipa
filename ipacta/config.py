@@ -1,6 +1,6 @@
 # Copyright (C) 2025  FreeIPA Contributors see COPYING for license
 
-"""Unified ipacta configuration class.
+"""Unified Ipacta configuration class.
 
 ``IpactaConfig`` is used at both install time and runtime:
 
@@ -56,7 +56,7 @@ IPACTA_DEFAULTS = {
 # These are applied before reading the config file so file values override.
 WSGI_DEFAULTS = {
     "server": {
-        "host": "127.0.0.1",
+        "host": "0.0.0.0",
         "port": "8080",
         "ssl_port": "8443",
         "workers": "1",
@@ -81,7 +81,7 @@ WSGI_DEFAULTS = {
 
 
 class IpactaConfig:
-    """Unified configuration for ipacta.
+    """Unified configuration for Ipacta.
 
     Provides a single object used at both install time (via
     :meth:`from_install_params`) and runtime (via :meth:`from_file`).
@@ -382,7 +382,7 @@ class IpactaConfig:
                 OCSP_SIGNING_KEY_SIZE=self._ocsp_signing_key_size,
             ),
         )
-        config_file.chmod(0o640)
+        config_file.chmod(0o644)
 
         # Read it back so pass-through methods work
         config = RawConfigParser()

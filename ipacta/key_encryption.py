@@ -21,7 +21,7 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from synta.crypto import aes_gcm_encrypt, aes_gcm_decrypt
 
 from ipaplatform.paths import paths
 
@@ -177,8 +177,7 @@ class KeyEncryption:
             derived_key = self._derive_key(salt)
 
             # Encrypt using AES-256-GCM
-            aesgcm = AESGCM(derived_key)
-            ciphertext = aesgcm.encrypt(iv, private_key_pem, None)
+            ciphertext = aes_gcm_encrypt(derived_key, iv, private_key_pem, None)
 
             # Format: [salt][iv][ciphertext+tag]
             encrypted_data = salt + iv + ciphertext
@@ -192,7 +191,9 @@ class KeyEncryption:
             return encrypted_data
 
         except Exception as e:
-            raise KeyEncryptionError(f"Failed to encrypt private key: {e}") from e
+            raise KeyEncryptionError(
+                f"Failed to encrypt private key: {e}"
+            ) from e
 
     def decrypt_key(self, encrypted_data: bytes) -> bytes:
         """
@@ -219,11 +220,8 @@ class KeyEncryption:
             # Derive decryption key from master key + salt
             derived_key = self._derive_key(salt)
 
-            # Decrypt using AES-256-GCM
-            # This will raise an exception if the authentication tag doesn't
-            # match
-            aesgcm = AESGCM(derived_key)
-            private_key_pem = aesgcm.decrypt(iv, ciphertext, None)
+            # Decrypt using AES-256-GCM (raises ValueError if tag mismatch)
+            private_key_pem = aes_gcm_decrypt(derived_key, iv, ciphertext, None)
 
             logger.debug(
                 "Decrypted private key: %d bytes -> %d bytes",

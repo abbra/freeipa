@@ -1,12 +1,14 @@
 # Copyright (C) 2025  FreeIPA Contributors see COPYING for license
 
+"""Range management endpoints (multi-master replication)."""
+
 import logging
 
 from flask import Blueprint, request, jsonify
 
 import ipacta.rest_api._globals as _g
 from ipacta.rest_api._globals import require_ca_backend
-from ipacta.rest_api._helpers import (
+from ipacta.rest_api_helpers import (
     handle_ca_errors,
     require_agent_auth,
     error_response,
@@ -150,12 +152,10 @@ def allocate_serial_range():
 
 
 @bp.route(
-    "/ca/rest/ranges/replica/<replica_id>/<int:begin_range>",
-    methods=["PUT"],
+    "/ca/rest/ranges/replica/<replica_id>/<int:begin_range>", methods=["PUT"]
 )
 @bp.route(
-    "/ca/v2/ranges/replica/<replica_id>/<int:begin_range>",
-    methods=["PUT"],
+    "/ca/v2/ranges/replica/<replica_id>/<int:begin_range>", methods=["PUT"]
 )
 @require_agent_auth
 @require_ca_backend
@@ -214,8 +214,7 @@ def update_serial_range(replica_id, begin_range):
     methods=["DELETE"],
 )
 @bp.route(
-    "/ca/v2/ranges/replica/<replica_id>/<int:begin_range>",
-    methods=["DELETE"],
+    "/ca/v2/ranges/replica/<replica_id>/<int:begin_range>", methods=["DELETE"]
 )
 @require_agent_auth
 @require_ca_backend
@@ -294,7 +293,5 @@ def delete_all_replica_ranges(replica_id):
     except Exception as e:
         logger.error("Error deleting replica ranges: %s", e, exc_info=True)
         return error_response(
-            "InternalError",
-            f"Failed to delete replica ranges: {str(e)}",
-            500,
+            "InternalError", f"Failed to delete replica ranges: {str(e)}", 500
         )

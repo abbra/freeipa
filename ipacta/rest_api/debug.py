@@ -10,7 +10,7 @@ import logging
 
 from flask import Blueprint, jsonify, request
 
-from ipacta.rest_api._helpers import require_agent_auth
+from ipacta.rest_api_helpers import require_agent_auth
 
 logger = logging.getLogger(__name__)
 

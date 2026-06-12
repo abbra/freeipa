@@ -52,7 +52,9 @@ import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone
 
-from cryptography import x509
+import synta
+import synta.ext
+import synta.oids
 
 from ipalib import errors
 
@@ -62,8 +64,8 @@ from ipacta.ca import (
     PythonCA,
     CertificateRequest,
     CertificateRecord,
+    CertificateStatus,
     RevocationReason,
-    REVOCATION_REASON_TO_FLAG,
 )
 from ipacta.subca import SubCAManager
 from ipacta import x509_utils
@@ -162,8 +164,8 @@ class InternalCA(PythonCA):
         """
         try:
             # Parse CSR
-            csr = x509.load_pem_x509_csr(csr_pem.encode())
-            subject = str(x509_utils.cert_name_to_ipa_dn(csr.subject))
+            csr = synta.CertificationRequest.from_pem(csr_pem.encode())
+            subject = str(x509_utils.cert_name_to_ipa_dn(csr.subject_raw_der))
 
             # Create request record
             request = CertificateRequest(csr, profile)
@@ -271,6 +273,7 @@ class InternalCA(PythonCA):
                             "Using sub-CA %s to sign certificate", ca_id
                         )
                     elif subca is None:
+                        # Legitimate NotFound — already logged in get_subca
                         raise errors.NotFound(
                             reason=f"Sub-CA '{ca_id}' not found"
                         )
@@ -309,9 +312,9 @@ class InternalCA(PythonCA):
                     raise
 
                 # Build certificate
-                builder = x509.CertificateBuilder()
+                builder = synta.CertificateBuilder()
                 builder = builder.serial_number(serial_number)
-                builder = builder.issuer_name(signing_cert.subject)
+                builder = builder.issuer_name(signing_cert.subject_raw_der)
 
                 # Load profile — failure must abort signing; a missing or
                 # broken profile must not silently bypass all policy.
@@ -354,8 +357,10 @@ class InternalCA(PythonCA):
                     signing_alg = context.get("signing_algorithm", default_alg)
                 else:
                     # Legacy profile path
-                    builder = builder.subject_name(csr.subject)
-                    builder = builder.public_key(csr.public_key())
+                    builder = builder.subject_name(csr.subject_raw_der)
+                    builder = builder.public_key_der(
+                        csr.subject_public_key_info_der
+                    )
 
                     # Set validity period (1 year by default)
                     now = datetime.now(timezone.utc)
@@ -363,7 +368,7 @@ class InternalCA(PythonCA):
 
                     # Enforce parent CA validity constraint (RFC 5280):
                     # issued cert must not extend beyond signing CA's notAfter
-                    ca_not_after = signing_cert.not_valid_after_utc
+                    ca_not_after = signing_cert.not_after_utc
                     if not_after > ca_not_after:
                         logger.warning(
                             "Certificate validity (%s) would exceed CA "
@@ -373,8 +378,8 @@ class InternalCA(PythonCA):
                         )
                         not_after = ca_not_after
 
-                    builder = builder.not_valid_before(now)
-                    builder = builder.not_valid_after(not_after)
+                    builder = builder.not_valid_before_utc(now)
+                    builder = builder.not_valid_after_utc(not_after)
 
                     # Add extensions based on profile
                     builder = self._add_extensions_for_profile(
@@ -457,7 +462,8 @@ class InternalCA(PythonCA):
                 principal=principal or "System",
                 request_id=request_id,
                 serial_number="FAILED",
-                subject=str(x509_utils.cert_name_to_ipa_dn(csr.subject)),
+                subject=str(
+                    x509_utils.cert_name_to_ipa_dn(csr.subject_raw_der)),
                 profile=request.profile,
                 outcome=AuditOutcome.FAILURE,
             )
@@ -479,7 +485,7 @@ class InternalCA(PythonCA):
 
         Args:
             profile: Profile object with policy chain
-            builder: x509.CertificateBuilder
+            builder: synta.CertificateBuilder
             csr: Certificate signing request
             context: Request context dictionary
 
@@ -652,67 +658,82 @@ class InternalCA(PythonCA):
 
     def generate_crl(
         self, principal: Optional[str] = None
-    ) -> x509.CertificateRevocationList:
+    ) -> synta.CertificateList:
         """Generate Certificate Revocation List with audit logging"""
         self._ensure_ca_loaded()
 
         try:
-            # Get next CRL number from LDAP storage
+            # Advance the CRL sequence counter in storage (RFC 5280 §5.2.3).
             crl_number = self.ldap_storage.get_next_crl_number()
 
             # Read CRL timing from config
             next_update_minutes = self._get_crl_timing()[1]
 
-            builder = x509.CertificateRevocationListBuilder()
-            builder = builder.issuer_name(self.ca_cert.subject)
-
-            now = datetime.now(timezone.utc)
-            builder = builder.last_update(now)
-            builder = builder.next_update(
-                now + timedelta(minutes=next_update_minutes)
-            )
-
-            # Add CRL Number extension (RFC 5280 requirement)
-            builder = builder.add_extension(
-                x509.CRLNumber(crl_number), critical=False
-            )
-
-            # Add revoked certificates to CRL.
-            # Use get_revoked_for_crl() which fetches only serial,
-            # revocation time, and reason code — no binary certificate
-            # DER — to avoid loading all revoked cert payloads into
-            # memory at once on large deployments.
-            num_revoked = 0
-            for serial, revoked_at, reason_int in (
-                self.ldap_storage.get_revoked_for_crl()
-            ):
-                revoked_cert = x509.RevokedCertificateBuilder()
-                revoked_cert = revoked_cert.serial_number(serial)
-                revoked_cert = revoked_cert.revocation_date(revoked_at)
-
-                if reason_int:
-                    reason_flag = REVOCATION_REASON_TO_FLAG.get(
-                        RevocationReason(reason_int),
-                        x509.ReasonFlags.unspecified,
-                    )
-                    revoked_cert = revoked_cert.add_extension(
-                        x509.CRLReason(reason_flag),
-                        critical=False,
-                    )
-
-                builder = builder.add_revoked_certificate(
-                    revoked_cert.build()
-                )
-                num_revoked += 1
-
-            # Sign CRL with algorithm matching CA certificate
-            # Extract algorithm from the CA cert that will sign this CRL
-
+            # Determine signing algorithm DER from the CA cert
             signing_alg = x509_utils.get_certificate_signature_algorithm(
                 self.ca_cert
             )
             hash_alg = x509_utils.parse_signature_algorithm(signing_alg)
-            crl = builder.sign(self.ca_private_key, hash_alg)
+            alg_der = self._build_crl_sig_alg_der(
+                self.ca_private_key, hash_alg
+            )
+
+            now = datetime.now(timezone.utc)
+
+            builder = synta.CertificateListBuilder()
+            builder = builder.issuer(self.ca_cert.subject_raw_der)
+            builder = builder.signature_algorithm(alg_der)
+            builder = builder.this_update_utc(now)
+            builder = builder.next_update_utc(
+                now + timedelta(minutes=next_update_minutes)
+            )
+
+            # Get revoked certificates from LDAP
+            revoked_certs = self.ldap_storage.get_revoked_certificates()
+
+            # Add revoked certificates
+            num_revoked = 0
+            for cert_record in revoked_certs:
+                if cert_record.status == CertificateStatus.REVOKED:
+                    if cert_record.revoked_at is None:
+                        logger.warning(
+                            "Revoked certificate %s has no revocation "
+                            "date, skipping in CRL",
+                            cert_record.serial_number,
+                        )
+                        continue
+                    # revoke_utc() takes big-endian serial bytes, revocation
+                    # datetime, and integer reason code
+                    serial_bytes = cert_record.serial_number.to_bytes(
+                        max(
+                            1,
+                            (cert_record.serial_number.bit_length() + 7) // 8,
+                        ),
+                        'big',
+                    )
+                    reason_int = 0  # unspecified
+                    if cert_record.revocation_reason:
+                        reason_int = cert_record.revocation_reason.value
+
+                    builder = builder.revoke_utc(
+                        serial_bytes, cert_record.revoked_at, reason_int
+                    )
+                    num_revoked += 1
+
+            # Embed CRL Number extension (RFC 5280 §5.2.1)
+            builder = builder.add_extension(
+                str(synta.oids.CRL_NUMBER),
+                False,
+                synta.ext.crl_number(crl_number),
+            )
+
+            # Build TBS, sign it, then assemble the complete CRL
+            tbs_der = builder.build()
+            sig = self.ca_private_key.sign(tbs_der, hash_alg)
+            crl_der = synta.CertificateListBuilder.assemble(
+                tbs_der, alg_der, sig
+            )
+            crl = synta.CertificateList.from_der(crl_der)
 
             # Audit log
             audit_logger.log_crl_generation(

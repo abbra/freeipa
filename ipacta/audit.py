@@ -24,9 +24,6 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
 
-from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives.asymmetric import padding
-
 from ipaplatform.paths import paths
 import ipacta
 from ipacta import x509_utils
@@ -181,7 +178,6 @@ class AuditLogger:
 
         # Hash chain: each record includes the hash of the previous record
         self._previous_hash = ""
-        self._log_lock = threading.Lock()
 
         # Load audit signing private key from NSSDB (Dogtag-compatible)
         if enable_signing:
@@ -263,17 +259,20 @@ class AuditLogger:
             audit_alg = ipacta.get_config_value(
                 "ca", "audit_signing_algorithm", default="SHA256withRSA"
             )
+            # parse_signature_algorithm returns a string like 'sha256'
+            # (or None for ML-DSA).  synta.PrivateKey.sign() accepts the
+            # string directly; no padding object is needed.
             hash_alg = x509_utils.parse_signature_algorithm(audit_alg)
-            signature_bytes = self.signing_key.sign(
-                message_bytes, padding.PKCS1v15(), hash_alg
-            )
+            signature_bytes = self.signing_key.sign(message_bytes, hash_alg)
 
             # Base64 encode for text log format
             signature = base64.b64encode(signature_bytes).decode("ascii")
             return signature
 
         except Exception as e:
-            logger.error("Failed to sign audit message: %s", e, exc_info=True)
+            logger.error(
+                "Failed to sign audit message: %s", e, exc_info=True
+            )
             return "SIGNING_FAILED"
 
     def log_event(
@@ -296,46 +295,43 @@ class AuditLogger:
         """
         details = details or {}
 
-        with self._log_lock:
-            # Build audit record (Dogtag PKI format)
-            timestamp = datetime.now(timezone.utc).isoformat()
+        # Build audit record (Dogtag PKI format)
+        timestamp = datetime.now(timezone.utc).isoformat()
 
-            audit_record = {
-                "type": event_type,
-                "outcome": outcome,
-                "timestamp": timestamp,
-                "principal": principal or "System",
-                "source_ip": source_ip or "localhost",
-            }
+        audit_record = {
+            "type": event_type,
+            "outcome": outcome,
+            "timestamp": timestamp,
+            "principal": principal or "System",
+            "source_ip": source_ip or "localhost",
+        }
 
-            # Add details
-            audit_record.update(details)
+        # Add details
+        audit_record.update(details)
 
-            # Format as key=value pairs (Dogtag format)
-            record_parts = []
-            for key, value in audit_record.items():
-                if value is not None:
-                    # Escape special characters
-                    value_str = (
-                        str(value).replace(";", "\\;").replace("=", "\\=")
-                    )
-                    record_parts.append(f"{key}={value_str}")
+        # Format as key=value pairs (Dogtag format)
+        record_parts = []
+        for key, value in audit_record.items():
+            if value is not None:
+                # Escape special characters
+                value_str = str(value).replace(";", "\\;").replace("=", "\\=")
+                record_parts.append(f"{key}={value_str}")
 
-            record_parts.append(f"prev_hash={self._previous_hash}")
-            record_line = "[" + "; ".join(record_parts) + "]"
+        record_parts.append(f"prev_hash={self._previous_hash}")
+        record_line = "[" + "; ".join(record_parts) + "]"
 
-            # Add signature if enabled
-            if self.enable_signing:
-                signature = self._sign_message(record_line)
-                record_line += f" [signature={signature}]"
+        # Add signature if enabled
+        if self.enable_signing:
+            signature = self._sign_message(record_line)
+            record_line += f" [signature={signature}]"
 
-            # Update hash chain for next record
-            self._previous_hash = hashlib.sha256(
-                record_line.encode("utf-8")
-            ).hexdigest()
+        # Update hash chain for next record
+        self._previous_hash = hashlib.sha256(
+            record_line.encode("utf-8")
+        ).hexdigest()
 
-            # Write to audit log
-            self.logger.info(record_line)
+        # Write to audit log
+        self.logger.info(record_line)
 
     def log_action(
         self,
@@ -607,8 +603,7 @@ class AuditLogger:
 
     def verify_log_integrity(self, log_file: Optional[str] = None) -> bool:
         """
-        Verify audit log integrity using the signing certificate's
-        public key.
+        Verify audit log integrity using signatures
 
         Args:
             log_file: Log file to verify (default: current log file)
@@ -626,20 +621,6 @@ class AuditLogger:
             logger.error("Log file not found: %s", log_path)
             return False
 
-        # Load public key from the audit signing certificate in NSSDB
-        try:
-            nssdb = NSSDatabase()
-            cert = nssdb.extract_certificate(self.audit_cert_nickname)
-            public_key = cert.public_key()
-        except Exception as e:
-            logger.error("Failed to load audit signing certificate: %s", e)
-            return False
-
-        audit_alg = ipacta.get_config_value(
-            "ca", "audit_signing_algorithm", default="SHA256withRSA"
-        )
-        hash_alg = x509_utils.parse_signature_algorithm(audit_alg)
-
         try:
             with open(log_path, "r") as f:
                 for line_num, line in enumerate(f, 1):
@@ -648,26 +629,24 @@ class AuditLogger:
                     if not line:
                         continue
 
+                    # Extract message and signature
                     if "[signature=" not in line:
                         logger.warning("Line %s: No signature found", line_num)
                         continue
 
                     parts = line.rsplit(" [signature=", 1)
                     message = parts[0]
-                    signature_b64 = parts[1].rstrip("]")
+                    signature = parts[1].rstrip("]")
 
-                    try:
-                        signature_bytes = base64.b64decode(signature_b64)
-                        public_key.verify(
-                            signature_bytes,
-                            message.encode("utf-8"),
-                            padding.PKCS1v15(),
-                            hash_alg,
-                        )
-                    except InvalidSignature:
+                    # Verify signature
+                    expected_signature = self._sign_message(message)
+
+                    if not secrets.compare_digest(
+                        signature, expected_signature
+                    ):
                         logger.error(
-                            "Line %s: Signature verification failed! "
-                            "Log may be tampered.",
+                            "Line %s: Signature mismatch! Log may be "
+                            "tampered.",
                             line_num,
                         )
                         return False

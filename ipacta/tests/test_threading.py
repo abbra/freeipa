@@ -1,7 +1,7 @@
 # Copyright (C) 2025  FreeIPA Contributors see COPYING for license
 
 """
-Thread-safety and worker configuration verification tests for ipacta
+Thread-safety and worker configuration verification tests for Ipacta
 
 All tests run against a live deployed ipacta service and verify:
 

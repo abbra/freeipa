@@ -172,6 +172,7 @@ def when_ready(server):
 
     try:
         if notify_socket.startswith("@"):
+            # Abstract Linux socket namespace
             addr = "\0" + notify_socket[1:]
         else:
             addr = notify_socket

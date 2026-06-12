@@ -12,7 +12,7 @@ import hashlib
 import json
 from typing import Dict, Any
 
-from cryptography.hazmat.primitives.asymmetric import rsa, ec
+import synta
 
 
 class JWK:
@@ -20,69 +20,38 @@ class JWK:
 
     @staticmethod
     def from_cryptography_key(key) -> Dict[str, Any]:
-        """Convert cryptography key to JWK format"""
-        if isinstance(key, rsa.RSAPublicKey):
-            numbers = key.public_numbers()
+        """Convert synta key to JWK format"""
+        # Normalise: private key → its public key
+        if isinstance(key, synta.PrivateKey):
+            key = key.public_key
+
+        if not isinstance(key, synta.PublicKey):
+            raise ValueError(f"Unsupported key type: {type(key)}")
+
+        key_type = key.key_type
+        if key_type == "rsa":
             return {
                 "kty": "RSA",
-                "n": JWK._encode_bigint(numbers.n),
-                "e": JWK._encode_bigint(numbers.e),
+                "n": JWK._encode_bytes(key.modulus),
+                "e": JWK._encode_bytes(key.public_exponent),
             }
-        elif isinstance(key, rsa.RSAPrivateKey):
-            return JWK.from_cryptography_key(key.public_key())
-        elif isinstance(key, ec.EllipticCurvePublicKey):
-            if key.curve.name == "secp256r1":
-                curve = "P-256"
-            elif key.curve.name == "secp384r1":
-                curve = "P-384"
-            elif key.curve.name == "secp521r1":
-                curve = "P-521"
-            else:
-                raise ValueError(f"Unsupported curve: {key.curve.name}")
-
-            numbers = key.public_numbers()
+        elif key_type == "ec":
+            curve = key.curve_name  # Already 'P-256', 'P-384', 'P-521'
+            if curve not in ("P-256", "P-384", "P-521"):
+                raise ValueError(f"Unsupported curve: {curve}")
             return {
                 "kty": "EC",
                 "crv": curve,
-                "x": JWK._encode_ec_coordinate(numbers.x, key.curve),
-                "y": JWK._encode_ec_coordinate(numbers.y, key.curve),
+                "x": JWK._encode_bytes(key.x),
+                "y": JWK._encode_bytes(key.y),
             }
-        elif isinstance(key, ec.EllipticCurvePrivateKey):
-            return JWK.from_cryptography_key(key.public_key())
         else:
-            raise ValueError(f"Unsupported key type: {type(key)}")
+            raise ValueError(f"Unsupported key type: {key_type}")
 
     @staticmethod
-    def _encode_bigint(value: int) -> str:
-        """Encode big integer to base64url"""
-        byte_length = max(1, (value.bit_length() + 7) // 8)
-        return (
-            base64.urlsafe_b64encode(
-                value.to_bytes(byte_length, byteorder="big")
-            )
-            .decode()
-            .rstrip("=")
-        )
-
-    @staticmethod
-    def _encode_ec_coordinate(value: int, curve) -> str:
-        """Encode EC coordinate to base64url"""
-        if curve.name == "secp256r1":
-            byte_length = 32
-        elif curve.name == "secp384r1":
-            byte_length = 48
-        elif curve.name == "secp521r1":
-            byte_length = 66
-        else:
-            raise ValueError(f"Unsupported curve: {curve.name}")
-
-        return (
-            base64.urlsafe_b64encode(
-                value.to_bytes(byte_length, byteorder="big")
-            )
-            .decode()
-            .rstrip("=")
-        )
+    def _encode_bytes(value: bytes) -> str:
+        """Encode bytes to base64url (stripping trailing '=')"""
+        return base64.urlsafe_b64encode(value).decode().rstrip("=")
 
     @staticmethod
     def thumbprint(jwk_dict: Dict[str, Any]) -> str:

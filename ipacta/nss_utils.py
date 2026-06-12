@@ -1,6 +1,6 @@
 # Copyright (C) 2025  FreeIPA Contributors see COPYING for license
 """
-NSS Database Utilities for ipacta
+NSS Database Utilities for Ipacta
 
 This module provides utilities for working with NSS databases (NSSDB),
 following Dogtag's approach of storing all private keys in the NSSDB
@@ -19,12 +19,11 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from cryptography import x509
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+import synta
 
 from ipapython import ipautil
 from ipacta.exceptions import CertificateOperationError
+from ipacta.key_utils import generate_private_key
 from ipaplatform.paths import paths
 
 logger = logging.getLogger(__name__)
@@ -32,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 class NSSDatabase:
     """
-    NSS Database manager for ipacta
+    NSS Database manager for Ipacta
 
     Provides Dogtag-compatible key and certificate management using NSSDB
     as the primary storage location (no PEM key files on disk).
@@ -83,48 +82,38 @@ class NSSDatabase:
         )
 
     def generate_key_pair(
-        self, nickname: str, key_size: int = 4096
-    ) -> rsa.RSAPrivateKey:
-        """
-        Generate RSA key pair for NSSDB
+        self,
+        nickname: str,
+        key_size: int = 4096,
+        signing_alg: str = "SHA256withRSA",
+        ec_curve: str = "P-256",
+    ) -> synta.PrivateKey:
+        """Generate a key pair for NSSDB.
 
-        Hybrid approach (Option B):
-        - Generate key in memory using cryptography library
-        - Key will be imported to NSSDB later via import_key_and_cert()
-        - No PEM files created on disk
-        - Key ends up ONLY in NSSDB
-
-        This avoids certutil hanging issues while maintaining NSSDB-only
-        storage.
+        The key is generated in memory and imported to NSSDB later via
+        import_key_and_cert(). No PEM files are created on disk.
 
         Args:
-            nickname: Certificate/key nickname in NSSDB (for logging)
-            key_size: RSA key size in bits (default: 4096)
+            nickname:    Certificate/key nickname in NSSDB (for logging).
+            key_size:    Key size in bits (used for RSA; ignored for ML-DSA).
+            signing_alg: PKI signing algorithm string such as
+                         ``"SHA256withRSA"`` or ``"ML-DSA-65"``.
+            ec_curve:    EC curve name (NSS form "nistp256" or synta form
+                         "P-256"). Ignored for RSA and ML-DSA.
 
         Returns:
-            RSA private key object (in memory, will be imported to NSSDB)
-
-        Raises:
-            RuntimeError: If key generation fails
+            Private key object (in memory, will be imported to NSSDB).
         """
         logger.debug(
-            "Generating %s-bit RSA key pair for NSSDB: %s", key_size, nickname
+            "Generating %s key pair for NSSDB: %s", signing_alg, nickname
         )
-
-        # Generate RSA key pair in memory
-        private_key = rsa.generate_private_key(
-            public_exponent=65537,
-            key_size=key_size,
-        )
-
+        private_key = generate_private_key(signing_alg, key_size, ec_curve)
         logger.debug(
-            "Generated %s-bit RSA key pair (will be imported to NSSDB)",
-            key_size,
+            "Generated %s key pair (will be imported to NSSDB)", signing_alg
         )
-
         return private_key
 
-    def extract_private_key(self, nickname: str) -> rsa.RSAPrivateKey:
+    def extract_private_key(self, nickname: str) -> synta.PrivateKey:
         """
         Extract private key from NSSDB for cryptographic operations
 
@@ -136,7 +125,7 @@ class NSSDatabase:
             nickname: Certificate/key nickname in NSSDB
 
         Returns:
-            RSA private key object from cryptography library
+            synta.PrivateKey object
 
         Raises:
             RuntimeError: If key extraction fails
@@ -222,9 +211,7 @@ class NSSDatabase:
                 )
 
             # Load private key from PEM bytes (in memory only)
-            private_key = serialization.load_pem_private_key(
-                proc.stdout, password=None
-            )
+            private_key = synta.PrivateKey.from_pem(proc.stdout)
 
             logger.debug(
                 "Successfully extracted private key from NSSDB: %s", nickname
@@ -236,7 +223,7 @@ class NSSDatabase:
             Path(temp_password_file).unlink(missing_ok=True)
             Path(p12_path).unlink(missing_ok=True)
 
-    def extract_certificate(self, nickname: str) -> x509.Certificate:
+    def extract_certificate(self, nickname: str) -> synta.Certificate:
         """
         Extract certificate from NSSDB
 
@@ -278,7 +265,7 @@ class NSSDatabase:
             if isinstance(result.output, str)
             else result.output
         )
-        certificate = x509.load_pem_x509_certificate(cert_pem)
+        certificate = synta.Certificate.from_pem(cert_pem)
 
         logger.debug("Successfully extracted certificate: %s", nickname)
         return certificate
@@ -286,8 +273,8 @@ class NSSDatabase:
     def import_key_and_cert(
         self,
         nickname: str,
-        private_key: rsa.RSAPrivateKey,
-        certificate: x509.Certificate,
+        private_key: synta.PrivateKey,
+        certificate: synta.Certificate,
         trust_flags: str = "u,u,u",
     ) -> None:
         """
@@ -333,21 +320,13 @@ class NSSDatabase:
                 mode="wb", suffix=".key", delete=False
             ) as keyfile:
                 os.fchmod(keyfile.fileno(), 0o600)
-                keyfile.write(
-                    private_key.private_bytes(
-                        encoding=serialization.Encoding.PEM,
-                        format=serialization.PrivateFormat.TraditionalOpenSSL,
-                        encryption_algorithm=serialization.NoEncryption(),
-                    )
-                )
+                keyfile.write(private_key.to_pem())
                 temp_key_file = keyfile.name
 
             with tempfile.NamedTemporaryFile(
                 mode="wb", suffix=".crt", delete=False
             ) as certfile:
-                certfile.write(
-                    certificate.public_bytes(serialization.Encoding.PEM)
-                )
+                certfile.write(synta.Certificate.to_pem(certificate))
                 temp_cert_file = certfile.name
 
             # Create PKCS#12
@@ -420,7 +399,7 @@ class NSSDatabase:
     def import_certificate(
         self,
         nickname: str,
-        certificate: x509.Certificate,
+        certificate: synta.Certificate,
         trust_flags: str = "u,u,u",
     ) -> None:
         """
@@ -452,9 +431,7 @@ class NSSDatabase:
         with tempfile.NamedTemporaryFile(
             mode="wb", suffix=".crt", delete=False
         ) as cert_file:
-            cert_file.write(
-                certificate.public_bytes(serialization.Encoding.PEM)
-            )
+            cert_file.write(synta.Certificate.to_pem(certificate))
             cert_file.flush()
             temp_cert_file = cert_file.name
 

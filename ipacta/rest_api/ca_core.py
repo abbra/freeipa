@@ -1,5 +1,7 @@
 # Copyright (C) 2025  FreeIPA Contributors see COPYING for license
 
+"""CA core info, status, account, and security-domain endpoints."""
+
 import logging
 import re
 
@@ -12,7 +14,7 @@ from ipacta.rest_api._utils import (
     _account_logout,
     _account_logout_v2,
 )
-from ipacta.rest_api._helpers import (
+from ipacta.rest_api_helpers import (
     handle_ca_errors,
     require_agent_auth,
     error_response,
@@ -45,6 +47,7 @@ def pki_info():
 
 
 @bp.route("/ca/rest/info", methods=["GET"])
+@bp.route("/ca/v2/info", methods=["GET"])
 @require_ca_backend
 @handle_ca_errors
 def ca_info():
@@ -86,11 +89,10 @@ def ca_ee_status():
 
 
 # ============================================================================
-# Admin/Agent Endpoints
+# Admin/Agent Account Endpoints
 # ============================================================================
 
 
-# CA Account Management Endpoints
 @bp.route("/ca/rest/account/login", methods=["GET", "POST"])
 @require_agent_auth
 def account_login():
@@ -218,12 +220,8 @@ def get_security_domain_info():
         return error_response("ServerError", str(e), 500)
 
 
-@bp.route(
-    "/ca/rest/securityDomain/hosts/<path:host_id>", methods=["DELETE"]
-)
-@bp.route(
-    "/ca/v2/securityDomain/hosts/<path:host_id>", methods=["DELETE"]
-)
+@bp.route("/ca/rest/securityDomain/hosts/<path:host_id>", methods=["DELETE"])
+@bp.route("/ca/v2/securityDomain/hosts/<path:host_id>", methods=["DELETE"])
 @require_agent_auth
 def remove_security_domain_host(host_id):
     """

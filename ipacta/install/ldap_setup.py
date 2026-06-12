@@ -18,9 +18,9 @@ from ipalib import errors
 from ipapython import ipautil
 from ipapython.dn import DN
 
-from ipacta.profile.manager import ProfileManager
-from ipacta.storage.ca import CAStorageBackend
-from ipacta.storage.factory import get_storage_backend
+from ipacta.profiles import ProfileManager
+from ipacta.storage_ca import CAStorageBackend
+from ipacta.storage_factory import get_storage_backend
 
 logger = logging.getLogger(__name__)
 

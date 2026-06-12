@@ -17,9 +17,9 @@ import secrets
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography import x509
+import synta
+import synta.ext
+import synta.oids
 
 from ipalib import errors
 from ipacta import get_config_value
@@ -124,9 +124,7 @@ class PythonKeyEscrowBackend:
         Validity: 2 years (short-lived; certmonger renews before expiry).
         """
         # RSA-3072: meets NIST SP 800-131A Rev 2 security strength requirement
-        private_key = rsa.generate_private_key(
-            public_exponent=65537, key_size=3072
-        )
+        private_key = synta.PrivateKey.generate_rsa(3072)
 
         # Build subject DN from IPA realm config; fall back to generic value
         # when running without a fully configured IPA environment.
@@ -136,34 +134,31 @@ class PythonKeyEscrowBackend:
         except Exception:
             org = "IPA Key Escrow"
 
-        subject = issuer = x509_utils.build_x509_name(
+        name_der = x509_utils.build_x509_name(
             [
                 ("CN", "IPA KRA Transport Certificate"),
                 ("O", org),
             ]
         )
 
+        serial_number = int.from_bytes(os.urandom(20), 'big') >> 1
         now = datetime.now(timezone.utc)
         # 2-year validity: short enough to stay within NIST key-lifetime limits
         not_after = now.replace(year=now.year + 2)
 
+        san_oid = str(synta.oids.SUBJECT_ALT_NAME)
+        san_der = synta.ext.SAN().dns_name("localhost").build()
+
         cert = (
-            x509.CertificateBuilder()
-            .subject_name(subject)
-            .issuer_name(issuer)
-            .public_key(private_key.public_key())
-            .serial_number(x509.random_serial_number())
-            .not_valid_before(now)
-            .not_valid_after(not_after)
-            .add_extension(
-                x509.SubjectAlternativeName(
-                    [
-                        x509.DNSName("localhost"),
-                    ]
-                ),
-                critical=False,
-            )
-            .sign(private_key, hashes.SHA256())
+            synta.CertificateBuilder()
+            .subject_name(name_der)
+            .issuer_name(name_der)
+            .public_key(private_key.public_key)
+            .serial_number(serial_number)
+            .not_valid_before_utc(now)
+            .not_valid_after_utc(not_after)
+            .add_extension(san_oid, False, san_der)
+            .sign(private_key, 'sha256')
         )
 
         # Write private key with mode 0o600 from creation (no world-readable
@@ -175,13 +170,7 @@ class PythonKeyEscrowBackend:
         )
         try:
             with os.fdopen(key_fd, "wb") as f:
-                f.write(
-                    private_key.private_bytes(
-                        encoding=serialization.Encoding.PEM,
-                        format=serialization.PrivateFormat.PKCS8,
-                        encryption_algorithm=serialization.NoEncryption(),
-                    )
-                )
+                f.write(private_key.to_pem())
         except Exception:
             try:
                 os.unlink(self.transport_key_path)
@@ -190,7 +179,7 @@ class PythonKeyEscrowBackend:
             raise
 
         with open(self.transport_cert_path, "wb") as f:
-            f.write(cert.public_bytes(serialization.Encoding.PEM))
+            f.write(cert.to_pem())
         os.chmod(self.transport_cert_path, 0o644)
 
     def get_transport_cert(self):
@@ -365,13 +354,7 @@ class PythonKeyEscrowBackend:
 
             filepath = os.path.join(self.storage_path, filename)
 
-            try:
-                records = self._load_records(filepath)
-            except (json.JSONDecodeError, ValueError) as e:
-                logger.warning(
-                    "Skipping corrupt key escrow file %s: %s", filepath, e
-                )
-                continue
+            records = self._load_records(filepath)
 
             modified = False
             for record in records:
@@ -410,13 +393,7 @@ class PythonKeyEscrowBackend:
 
             filepath = os.path.join(self.storage_path, filename)
 
-            try:
-                records = self._load_records(filepath)
-            except (json.JSONDecodeError, ValueError) as e:
-                logger.warning(
-                    "Skipping corrupt key escrow file %s: %s", filepath, e
-                )
-                continue
+            records = self._load_records(filepath)
 
             for record in records:
                 if record["key_id"] == key_id:
