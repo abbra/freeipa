@@ -25,6 +25,14 @@ import time
 
 logger = logging.getLogger(__name__)
 
+# Raise gunicorn's per-field header limit from the default 8190 bytes.
+# Apache forwards the TLS client certificate as the SSL_CLIENT_CERT request
+# header when proxying to ipacta.  Post-quantum certificates (e.g. ML-DSA-87)
+# can exceed 10 KB in PEM form, which would cause gunicorn to reject the
+# request with 431 Request Header Fields Too Large.  Match the limit set in
+# ipa.conf (LimitRequestFieldSize 100000).
+limit_request_field_size = 100000
+
 _RATE_LIMITER_PURGE_INTERVAL = 300  # seconds
 
 
