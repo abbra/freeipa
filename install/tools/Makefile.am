@@ -8,6 +8,7 @@ dist_noinst_DATA =		\
 	ipa-ca-install.in		\
 	ipa-ccache-sweeper.in	\
 	ipa-dns-install.in		\
+	ipa-idp-install.in		\
 	ipa-kra-install.in		\
 	ipa-server-install.in	\
 	ipa-adtrust-install.in	\
@@ -47,6 +48,7 @@ nodist_sbin_SCRIPTS =		\
 	ipacta		\
 	ipa-ca-install		\
 	ipa-dns-install		\
+	ipa-idp-install		\
 	ipa-kra-install		\
 	ipa-server-install	\
 	ipa-adtrust-install	\

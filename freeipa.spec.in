@@ -1613,6 +1613,7 @@ fi
 %{_sbindir}/ipa-backup
 %{_sbindir}/ipa-restore
 %{_sbindir}/ipa-ca-install
+%{_sbindir}/ipa-idp-install
 %{_sbindir}/ipa-kra-install
 %{_sbindir}/ipa-server-install
 %{_sbindir}/ipa-replica-conncheck

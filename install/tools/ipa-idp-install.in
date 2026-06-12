@@ -1,0 +1,148 @@
+#!/usr/bin/python3
+# Copyright (C) 2026 FreeIPA Contributors, see 'COPYING' for license.
+
+from __future__ import print_function
+
+import logging
+import os
+import sys
+
+from ipalib import api, errors
+from ipalib.install import sysrestore
+from ipaplatform.paths import paths
+from ipaserver.install import ahdapainstance, service, sysupgrade
+from ipaserver.install.installutils import (
+    check_server_configuration,
+    read_password,
+    run_script,
+)
+from ipapython import ipautil, version
+from ipapython.admintool import ScriptError, admin_cleanup_global_argv
+from ipapython.config import IPAOptionParser
+from ipapython.ipa_log_manager import standard_logging_setup
+
+logger = logging.getLogger(os.path.basename(__file__))
+
+log_file_name = paths.IPASERVER_IDP_INSTALL_LOG
+
+
+def parse_options():
+    parser = IPAOptionParser(version=version.VERSION)
+    parser.add_option("-d", "--debug", dest="debug", action="store_true",
+                      default=False, help="print debugging information")
+    parser.add_option("-U", "--unattended", dest="unattended",
+                      action="store_true", default=False,
+                      help="unattended installation never prompts the user")
+    parser.add_option("-w", "--admin-password",
+                      sensitive=True, dest="admin_password",
+                      help="admin user Kerberos password")
+    parser.add_option("-P", "--principal",
+                      sensitive=True, dest="principal", default='admin',
+                      help="admin user principal (default: admin)")
+
+    options, _args = parser.parse_args()
+    safe_options = parser.get_safe_opts(options)
+    admin_cleanup_global_argv(parser, options, sys.argv)
+
+    return safe_options, options
+
+
+def main():
+    safe_options, options = parse_options()
+
+    if os.getegid() != 0:
+        raise ScriptError("Must be root to setup IDP on server")
+
+    standard_logging_setup(log_file_name, debug=options.debug, filemode='a')
+    print("\nThe log file for this installation can be found in %s"
+          % log_file_name)
+
+    logger.debug('%s was invoked with options: %s', sys.argv[0], safe_options)
+    logger.debug("missing options might be asked for interactively later\n")
+    logger.debug('IPA version %s', version.VENDOR_VERSION)
+
+    check_server_configuration()
+
+    if not os.path.isfile(paths.AHDAPACTL):
+        raise ScriptError(
+            "ahdapa is not installed. "
+            "Please install the ahdapa package and try again.")
+
+    if sysupgrade.get_upgrade_state('ahdapa', 'installed'):
+        raise ScriptError(
+            "IDP (ahdapa) is already configured on this server.")
+
+    api.bootstrap(
+        context='installer',
+        confdir=paths.ETC_IPA,
+        in_server=True,
+        debug=options.debug,
+    )
+    api.finalize()
+
+    admin_password = options.admin_password
+    if not admin_password and not options.unattended:
+        print("Configuring the IPA Identity Provider requires the Kerberos "
+              "password for user '%s'." % options.principal)
+        admin_password = read_password(
+            options.principal, confirm=False, validate=None)
+    if not admin_password:
+        raise ScriptError(
+            "admin password is required; use -w or obtain a ticket with kinit")
+
+    try:
+        ipautil.run([paths.KINIT, options.principal],
+                    stdin=admin_password + '\n')
+    except ipautil.CalledProcessError:
+        raise ScriptError(
+            "Failed to obtain Kerberos ticket for '%s'" % options.principal)
+
+    try:
+        api.Backend.ldap2.connect()
+    except errors.ACIError:
+        raise ScriptError(
+            "Outdated Kerberos credentials. "
+            "Use kdestroy and kinit to update your ticket")
+    except errors.DatabaseError:
+        raise ScriptError(
+            "Cannot connect to the LDAP database. Please check if IPA "
+            "is running")
+
+    print("=" * 78)
+    print("This program will configure ahdapa as the IPA Identity Provider.")
+    print("")
+    print("This includes:")
+    print("  * Configuring the ahdapa OIDC service")
+    print("  * Configuring gssproxy for ahdapa")
+    print("  * Configuring the Apache reverse proxy for ahdapa")
+    print("  * Creating default OIDC scopes and HBAC rules")
+    print("=" * 78)
+
+    fstore = sysrestore.FileStore(paths.SYSRESTORE)
+    ahdapa = ahdapainstance.AhdapaInstance(fstore)
+    ahdapa.create_instance(
+        api.env.realm, api.env.host, api.env.domain,
+        admin_principal=options.principal,
+        admin_password=admin_password,
+    )
+
+    service.sync_services_state(api.env.host)
+
+    print("")
+    print("=" * 78)
+    print("Setup complete")
+    print("")
+    print("The IPA Identity Provider is now running at:")
+    print("  https://%s/idp" % api.env.host)
+    print("=" * 78)
+
+    api.Backend.ldap2.disconnect()
+
+    return 0
+
+
+if __name__ == '__main__':
+    run_script(
+        main,
+        log_file_name=log_file_name,
+        operation_name='ipa-idp-install')

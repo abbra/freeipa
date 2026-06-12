@@ -393,6 +393,7 @@ class BasePathNamespace:
     IPASERVER_INSTALL_LOG = "/var/log/ipaserver-install.log"
     IPASERVER_ADTRUST_INSTALL_LOG = "/var/log/ipaserver-adtrust-install.log"
     IPASERVER_DNS_INSTALL_LOG = "/var/log/ipaserver-dns-install.log"
+    IPASERVER_IDP_INSTALL_LOG = "/var/log/ipaserver-idp-install.log"
     IPASERVER_KRA_INSTALL_LOG = "/var/log/ipaserver-kra-install.log"
     IPASERVER_UNINSTALL_LOG = "/var/log/ipaserver-uninstall.log"
     IPAUPGRADE_LOG = "/var/log/ipaupgrade.log"
