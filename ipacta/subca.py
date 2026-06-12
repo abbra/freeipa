@@ -788,15 +788,50 @@ class SubCAManager:
                     ),
                 )
 
-            if profile_id and profile_id not in (
-                "caExternalKeyCACert",
-                "caCACert",
+            # Resolve effective signing profile.
+            # Default to caExternalKeyCACert which enforces pathLen=0 and
+            # rejects RSA keys shorter than 2048 bits.
+            effective_profile_id = profile_id or "caExternalKeyCACert"
+
+            # Apply profile constraints (key size, validity cap) when the
+            # main CA has a profile manager available.
+            if (
+                self.main_ca
+                and hasattr(self.main_ca, "profile_manager")
+                and self.main_ca.profile_manager
             ):
-                logger.warning(
-                    "profile_id=%r is not a recognised external-key profile; "
-                    "ignoring (CSR will be signed directly by parent CA)",
-                    profile_id,
+                pm = self.main_ca.profile_manager
+                try:
+                    # Enforce key constraints (e.g. RSA-1024 rejection)
+                    pm.validate_profile_for_csr(effective_profile_id, parsed_csr)
+
+                    # Cap validity to the profile's maximum
+                    profile_obj = pm.get_profile(effective_profile_id)
+                    profile_max_days = profile_obj.validity_days
+                    if validity_days > profile_max_days:
+                        logger.debug(
+                            "Capping external-key sub-CA validity from "
+                            "%d to %d days (profile %s limit)",
+                            validity_days,
+                            profile_max_days,
+                            effective_profile_id,
+                        )
+                        validity_days = profile_max_days
+                except errors.ValidationError:
+                    raise
+                except Exception as e:
+                    logger.warning(
+                        "Profile %r constraint check failed (%s); "
+                        "proceeding without profile enforcement",
+                        effective_profile_id,
+                        e,
+                    )
+            else:
+                logger.debug(
+                    "No profile manager available; skipping profile "
+                    "constraint enforcement for external-key sub-CA"
                 )
+
             subca.create_from_csr(csr_pem, validity_days)
         else:
             # Normal path: generate key pair and self-sign sub-CA cert
