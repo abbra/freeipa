@@ -36,6 +36,7 @@ class ProfileManager:
         _SUBSYSTEM_PROFILE,  # caSubsystemCert - CA subsystem certs
         _OCSP_PROFILE,       # caOCSPCert - OCSP responder certificates
         _AUDIT_PROFILE,      # caSignedLogCert - Audit log signing certs
+        "caExternalKeyCACert",  # External-key sub-CA signing profile
     ]
 
     def __init__(
