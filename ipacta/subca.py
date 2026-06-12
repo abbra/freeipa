@@ -47,6 +47,12 @@ from ipacta.x509_utils import (
 logger = logging.getLogger(__name__)
 
 
+# Sentinel prefix stored in authorityKeyNickname for external-key CAs.
+# Must match AuthorityRecord.EXTERNAL_KEY_NICKNAME_PREFIX in Dogtag because
+# IPAThinCA shares the same LDAP store (ou=authorities,ou=ca,o=ipaca).
+EXTERNAL_KEY_NICKNAME_PREFIX = "#external#:"
+
+
 class SubCA:
     """
     Subordinate Certificate Authority
@@ -62,6 +68,7 @@ class SubCA:
         parent_ca: Optional["SubCA"] = None,
         ca_cert: Optional[x509.Certificate] = None,
         ca_key: Optional[rsa.RSAPrivateKey] = None,
+        external_key: bool = False,
     ):
         """
         Initialize Sub-CA
@@ -72,6 +79,10 @@ class SubCA:
             parent_ca: Parent CA (None for root CA)
             ca_cert: CA certificate (if already exists)
             ca_key: CA private key (if already exists)
+            external_key: True when the private key is held externally
+                          (e.g. in an HSM attached to a remote ACME server).
+                          External-key CAs have a signed certificate but cannot
+                          issue end-entity certificates through IPAThinCA.
         """
         self.ca_id = ca_id
         self.subject_dn = subject_dn
@@ -79,6 +90,8 @@ class SubCA:
         self.ca_cert = ca_cert
         self.ca_key = ca_key
         self.enabled = True
+        # True when the private key is external (not stored by IPAThinCA).
+        self.external_key = external_key
 
         # Storage paths
         # Store sub-CAs in certs directory with CA ID subdirectory
@@ -187,6 +200,96 @@ class SubCA:
 
         logger.debug("Sub-CA created successfully: %s", self.ca_id)
 
+        return self.ca_cert
+
+    def create_from_csr(
+        self,
+        csr_pem: str,
+        validity_days: int = 3650,
+    ) -> x509.Certificate:
+        """
+        Create sub-CA certificate from an external PKCS#10 CSR.
+
+        The private key is held by the caller (e.g. in an HSM attached to a
+        remote ACME server); IPAThinCA only signs the public-key material
+        submitted in the CSR.  Mirrors Dogtag's external-key authority path:
+        authorityKeyNickname is set to EXTERNAL_KEY_NICKNAME_PREFIX + ca_id,
+        externalKey=true, ready=false in REST responses.
+
+        Args:
+            csr_pem: PEM-encoded PKCS#10 CSR
+            validity_days: Validity period in days
+
+        Returns:
+            Signed CA certificate
+        """
+        logger.debug(f"Creating external-key sub-CA from CSR: {self.ca_id}")
+
+        # Parse and validate the CSR
+        if isinstance(csr_pem, str):
+            csr_bytes = csr_pem.encode("utf-8")
+        else:
+            csr_bytes = csr_pem
+
+        csr = x509.load_pem_x509_csr(csr_bytes)
+
+        if not csr.is_signature_valid:
+            raise errors.CertificateOperationError(
+                error="CSR signature validation failed"
+            )
+
+        # Verify parent CA is available for signing
+        if (
+            not self.parent_ca
+            or not self.parent_ca.ca_cert
+            or not self.parent_ca.ca_key
+        ):
+            raise errors.ExecutionError(
+                message="Parent CA not available for signing external CSR"
+            )
+
+        issuer_name = self.parent_ca.ca_cert.subject
+        signing_key = self.parent_ca.ca_key
+        issuer_cert = self.parent_ca.ca_cert
+
+        now = datetime.datetime.now(datetime.timezone.utc)
+        serial_number = int(uuid.uuid4().hex[:16], 16)
+
+        builder = x509.CertificateBuilder()
+        builder = builder.subject_name(csr.subject)
+        builder = builder.issuer_name(issuer_name)
+        builder = builder.public_key(csr.public_key())
+        builder = builder.serial_number(serial_number)
+        builder = builder.not_valid_before(now)
+        builder = builder.not_valid_after(
+            now + datetime.timedelta(days=validity_days)
+        )
+
+        # pathLen=0: external sub-CA cannot issue further sub-CAs
+        builder = builder.add_extension(
+            x509.BasicConstraints(ca=True, path_length=0),
+            critical=True,
+        )
+
+        builder = builder.add_extension(
+            get_ca_key_usage_extension(), critical=True
+        )
+
+        ski = x509.SubjectKeyIdentifier.from_public_key(csr.public_key())
+        builder = builder.add_extension(ski, critical=False)
+
+        aki = x509.AuthorityKeyIdentifier.from_issuer_public_key(
+            issuer_cert.public_key()
+        )
+        builder = builder.add_extension(aki, critical=False)
+
+        self.ca_cert = builder.sign(signing_key, hashes.SHA256())
+        self.ca_key = None  # private key is held externally
+        self.external_key = True
+
+        logger.debug(
+            f"External-key sub-CA {self.ca_id} certificate signed successfully"
+        )
         return self.ca_cert
 
     def _save_to_nssdb(self):
@@ -338,6 +441,11 @@ class SubCA:
             "subject_dn": self.subject_dn,
             "parent_ca_id": self.parent_ca.ca_id if self.parent_ca else None,
             "enabled": self.enabled,
+            # externalKey / ready mirror Dogtag REST API semantics:
+            # externalKey=True  → private key held outside IPAThinCA (HSM etc.)
+            # ready=False       → external-key CA cannot sign via IPAThinCA
+            "external_key": self.external_key,
+            "ready": not self.external_key,
             "serial_number": (
                 str(self.ca_cert.serial_number) if self.ca_cert else None
             ),
@@ -587,16 +695,28 @@ class SubCAManager:
         parent_ca_id: Optional[str] = None,
         key_size: int = 2048,
         validity_days: int = 3650,
+        csr_pem: Optional[str] = None,
+        profile_id: Optional[str] = None,
     ) -> SubCA:
         """
         Create new sub-CA
+
+        When *csr_pem* is supplied the sub-CA is created in external-key mode:
+        the PKCS#10 CSR is signed by the parent CA but the private key is NOT
+        generated or stored by IPAThinCA.  The returned SubCA has
+        ``external_key=True`` and ``ready=False``.
 
         Args:
             ca_id: Unique identifier for the CA
             subject_dn: Subject DN for CA certificate
             parent_ca_id: Parent CA identifier (None for root)
-            key_size: RSA key size
+            key_size: RSA key size (ignored when csr_pem is provided)
             validity_days: Validity period in days
+            csr_pem: PEM-encoded PKCS#10 CSR for external-key creation.
+                     When present a new key pair is NOT generated.
+            profile_id: Signing profile identifier (reserved for future use;
+                        accepted for Dogtag API compatibility but currently
+                        ignored — the CSR is signed directly by the parent CA)
 
         Returns:
             SubCA instance
@@ -639,24 +759,63 @@ class SubCAManager:
         # Create sub-CA
         subca = SubCA(ca_id, subject_dn, parent_ca)
 
-        # Determine path length (parent's path_length - 1)
-        path_length = 0
-        if parent_ca and parent_ca.ca_cert:
-            # Extract path length from parent
-            try:
-                bc_ext = parent_ca.ca_cert.extensions.get_extension_for_oid(
-                    ExtensionOID.BASIC_CONSTRAINTS
-                )
-                parent_path_length = bc_ext.value.path_length
-                if parent_path_length is not None:
-                    path_length = max(0, parent_path_length - 1)
-                else:
-                    path_length = None  # Unlimited
-            except x509.ExtensionNotFound:
-                path_length = 0
+        if csr_pem is not None:
+            # External-key path: sign the caller-supplied CSR; no key generated
 
-        # Create certificate and key
-        subca.create(key_size, validity_days, path_length)
+            # Validate that the CSR subject matches the requested DN.
+            # Use case-insensitive RFC 4514 string comparison (same approach
+            # as Dogtag CAEngine.java X500Name string comparison).
+            csr_bytes = (
+                csr_pem.encode("utf-8")
+                if isinstance(csr_pem, str)
+                else csr_pem
+            )
+            parsed_csr = x509.load_pem_x509_csr(csr_bytes)
+            csr_subject_str = parsed_csr.subject.rfc4514_string()
+            # Normalise the requested DN for comparison via cryptography Name
+            try:
+                req_x509_name = ipa_dn_to_x509_name(subject_dn)
+                req_subject_str = req_x509_name.rfc4514_string()
+            except Exception:
+                req_subject_str = subject_dn
+
+            if csr_subject_str.lower() != req_subject_str.lower():
+                raise errors.ValidationError(
+                    name="csrData",
+                    error=(
+                        f"CSR subject DN '{csr_subject_str}' does not match "
+                        f"requested DN '{req_subject_str}'"
+                    ),
+                )
+
+            if profile_id and profile_id not in (
+                "caExternalKeyCACert",
+                "caCACert",
+            ):
+                logger.warning(
+                    "profile_id=%r is not a recognised external-key profile; "
+                    "ignoring (CSR will be signed directly by parent CA)",
+                    profile_id,
+                )
+            subca.create_from_csr(csr_pem, validity_days)
+        else:
+            # Normal path: generate key pair and self-sign sub-CA cert
+            # Determine path length (parent's path_length - 1)
+            path_length = 0
+            if parent_ca and parent_ca.ca_cert:
+                try:
+                    bc_ext = parent_ca.ca_cert.extensions.get_extension_for_oid(
+                        ExtensionOID.BASIC_CONSTRAINTS
+                    )
+                    parent_path_length = bc_ext.value.path_length
+                    if parent_path_length is not None:
+                        path_length = max(0, parent_path_length - 1)
+                    else:
+                        path_length = None  # Unlimited
+                except x509.ExtensionNotFound:
+                    path_length = 0
+
+            subca.create(key_size, validity_days, path_length)
 
         # Store in LDAP
         self._store_subca_in_ldap(subca)
@@ -886,13 +1045,25 @@ class SubCAManager:
             subca.ca_cert.serial_number,
         )
 
+        # For external-key CAs, use the sentinel prefix in authorityKeyNickname
+        # so that Dogtag (sharing the same LDAP store) recognises the CA as
+        # external-key and IPAThinCA can detect it on reload.
+        # Sentinel must match AuthorityRecord.EXTERNAL_KEY_NICKNAME_PREFIX.
+        if subca.external_key:
+            key_nickname = (
+                f"{EXTERNAL_KEY_NICKNAME_PREFIX}caSigningCert cert-pki-ca "
+                f"{subca.ca_id}"
+            )
+        else:
+            key_nickname = f"caSigningCert cert-pki-ca {subca.ca_id}"
+
         # Use storage backend to store authority metadata
         authority_data = {
             "authority_id": subca.ca_id,
             "subject_dn": subject_dn_str,
             "parent_dn": issuer_dn_str,
             "parent_id": parent_id,
-            "key_nickname": f"caSigningCert cert-pki-ca {subca.ca_id}",
+            "key_nickname": key_nickname,
             "enabled": subca.enabled,
             "serial_number": subca.ca_cert.serial_number,
             "description": f"Sub-CA {subca.ca_id}",
@@ -955,14 +1126,25 @@ class SubCAManager:
             # Get subject DN from authority data
             subject_dn = authority_data["subject_dn"]
 
-            # Load private key from NSSDB
-            ca_key = self._load_subca_key_from_nssdb(ca_id)
+            # Detect external-key CA from the sentinel in authorityKeyNickname
+            key_nickname = authority_data.get("key_nickname", "")
+            external_key = key_nickname.startswith(EXTERNAL_KEY_NICKNAME_PREFIX)
 
-            if not ca_key:
-                logger.warning(
-                    "Sub-CA %s loaded without private key (read-only mode)",
-                    ca_id,
+            # Load private key only for local-key CAs.
+            # External-key CAs have no private key stored by IPAThinCA.
+            if external_key:
+                ca_key = None
+                logger.debug(
+                    f"Sub-CA {ca_id} is external-key; skipping private key load"
                 )
+            else:
+                ca_key = self._load_subca_key_from_nssdb(ca_id)
+
+                if not ca_key:
+                    logger.warning(
+                        "Sub-CA %s loaded without private key (read-only mode)",
+                        ca_id,
+                    )
 
             # Determine parent CA from parent_id
             parent_ca = None
@@ -972,13 +1154,21 @@ class SubCAManager:
 
             # Create SubCA instance
             subca = SubCA(
-                ca_id, subject_dn, parent_ca, ca_cert=ca_cert, ca_key=ca_key
+                ca_id,
+                subject_dn,
+                parent_ca,
+                ca_cert=ca_cert,
+                ca_key=ca_key,
+                external_key=external_key,
             )
 
             # Set enabled status from authority data
             subca.enabled = authority_data.get("enabled", True)
 
-            logger.debug("Loaded sub-CA %s from Dogtag LDAP schema", ca_id)
+            logger.debug(
+                f"Loaded sub-CA {ca_id} from Dogtag LDAP schema "
+                f"(external_key={external_key})"
+            )
             return subca
 
         except errors.NotFound:
