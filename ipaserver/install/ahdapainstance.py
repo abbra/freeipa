@@ -2,11 +2,14 @@
 
 from __future__ import absolute_import
 
+import contextlib
+from configparser import RawConfigParser
 import logging
 import os
 import pwd
 
 from ipalib import api
+from ipalib.kinit import kinit_password
 from ipaplatform import services
 from ipaplatform.paths import paths
 from ipaserver.install.service import SimpleServiceInstance
@@ -18,6 +21,8 @@ logger = logging.getLogger(__name__)
 
 AHDAPA_USER = 'ahdapa'
 IDP_CLIENT_ID = 'ipa-webui'
+IDP_OTPD_CLIENT_ID = 'ipa-otpd'
+IDP_HBAC_RULE_NAME = 'FreeIPA Web UI access'
 
 
 def _get_ahdapa_user():
@@ -37,12 +42,17 @@ class AhdapaInstance(SimpleServiceInstance):
         self.fqdn = None
         self.realm = None
         self.domain = None
+        self.admin_principal = None
+        self.admin_password = None
 
     def create_instance(self, realm, host_name, domain,
-                        ldap_suffix=None):
+                        ldap_suffix=None,
+                        admin_principal=None, admin_password=None):
         self.fqdn = host_name
         self.realm = realm
         self.domain = domain
+        self.admin_principal = admin_principal
+        self.admin_password = admin_password
 
         self.step("creating ahdapa container",
                   self._create_container)
@@ -54,6 +64,8 @@ class AhdapaInstance(SimpleServiceInstance):
                   self._configure_gssproxy)
         self.step("configuring httpd proxy for ahdapa",
                   self._configure_httpd_proxy)
+        self.step("configuring ahdapa issuer URL in default.conf",
+                  self._configure_default_conf)
 
         super(AhdapaInstance, self).create_instance(
             gensvc_name='IDP',
@@ -61,6 +73,8 @@ class AhdapaInstance(SimpleServiceInstance):
             ldap_suffix=ldap_suffix or ipautil.realm_to_suffix(self.realm),
             realm=self.realm
         )
+        ipautil.wait_for_open_socket(paths.AHDAPA_SOCKET, timeout=60)
+        services.knownservices.httpd.reload_or_restart()
         self.print_msg("Configuring ahdapa OIDC scope and HBAC rule")
         self._configure_hbac()
         sysupgrade.set_upgrade_state('ahdapa', 'installed', True)
@@ -79,11 +93,15 @@ class AhdapaInstance(SimpleServiceInstance):
     def _write_secure(self, path, content, ahdapa_pw):
         fd = os.open(path,
                      os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        os.fchown(fd, ahdapa_pw.pw_uid, ahdapa_pw.pw_gid)
-        with os.fdopen(fd, 'w') as f:
-            f.write(content)
-            f.flush()
-            os.fsync(f.fileno())
+        try:
+            os.fchown(fd, ahdapa_pw.pw_uid, ahdapa_pw.pw_gid)
+            with os.fdopen(fd, 'w') as f:
+                f.write(content)
+                f.flush()
+                os.fsync(f.fileno())
+        except BaseException:
+            os.close(fd)
+            raise
 
     def _configure_ahdapa(self):
         ahdapa_pw = _get_ahdapa_user()
@@ -100,6 +118,7 @@ class AhdapaInstance(SimpleServiceInstance):
             LDAPI_SOCKET=ldapi_socket,
             HTTP_KEYTAB=paths.HTTP_KEYTAB,
             IDP_CLIENT_ID=IDP_CLIENT_ID,
+            IDP_OTPD_CLIENT_ID=IDP_OTPD_CLIENT_ID,
         )
 
         os.makedirs(paths.AHDAPA_CONF_DIR, mode=0o755, exist_ok=True)
@@ -160,6 +179,46 @@ class AhdapaInstance(SimpleServiceInstance):
             ipautil.flush_sync(f)
         os.chmod(paths.HTTPD_IPA_IDP_PROXY_CONF, 0o644)
 
+    def _configure_default_conf(self):
+        # ahdapa_issuer_url reaches ipa-otpd as an environment variable
+        # via the systemd EnvironmentFile=/etc/ipa/default.conf directive;
+        # must match ENV_AHDAPA_ISSUER_URL in oauth2.c
+        issuer_url = 'https://{}/idp'.format(self.fqdn)
+        parser = RawConfigParser()
+        files_read = parser.read(paths.IPA_DEFAULT_CONF)
+        if not files_read:
+            raise RuntimeError(
+                "Could not read {}; refusing to overwrite".format(
+                    paths.IPA_DEFAULT_CONF))
+        if not parser.has_section('global'):
+            raise RuntimeError(
+                "{} is missing the [global] section; cannot configure "
+                "ahdapa_issuer_url".format(paths.IPA_DEFAULT_CONF))
+        if self.fstore:
+            self.fstore.backup_file(paths.IPA_DEFAULT_CONF)
+        parser.set('global', 'ahdapa_issuer_url', issuer_url)
+        with open(paths.IPA_DEFAULT_CONF, 'w') as fp:
+            parser.write(fp)
+            ipautil.flush_sync(fp)
+        logger.debug('Set ahdapa_issuer_url=%s in %s',
+                      issuer_url, paths.IPA_DEFAULT_CONF)
+
+    def _unconfigure_default_conf(self):
+        parser = RawConfigParser()
+        files_read = parser.read(paths.IPA_DEFAULT_CONF)
+        if not files_read:
+            logger.warning('Could not read %s; skipping ahdapa_issuer_url '
+                           'removal', paths.IPA_DEFAULT_CONF)
+            return
+        if (parser.has_section('global')
+                and parser.has_option('global', 'ahdapa_issuer_url')):
+            parser.remove_option('global', 'ahdapa_issuer_url')
+            with open(paths.IPA_DEFAULT_CONF, 'w') as fp:
+                parser.write(fp)
+                ipautil.flush_sync(fp)
+            logger.debug('Removed ahdapa_issuer_url from %s',
+                          paths.IPA_DEFAULT_CONF)
+
     def _ahdapactl(self, *args):
         base_url = 'https://{}/idp'.format(self.fqdn)
         cmd = [
@@ -171,35 +230,46 @@ class AhdapaInstance(SimpleServiceInstance):
         return ipautil.run(cmd, capture_output=True)
 
     def _configure_hbac(self):
-        # Create krb5:ccache scope if it does not already exist
-        # (may have been replicated from another node via gossip)
-        result = self._ahdapactl('scopes', 'list')
-        if 'krb5:ccache' not in result.output:
-            logger.debug('Creating krb5:ccache scope')
-            self._ahdapactl(
-                'scopes', 'update', 'krb5:ccache',
-                '--description', 'Kerberos credential exchange')
-        else:
-            logger.debug('krb5:ccache scope already exists')
+        need_kinit = (self.admin_password is not None
+                      and self.admin_principal is not None)
+        ctx = ipautil.private_ccache() if need_kinit else \
+            contextlib.nullcontext()
 
-        # Create HBAC rule for the Web UI client if not present
-        result = self._ahdapactl('hbac', 'list')
-        if IDP_CLIENT_ID not in result.output:
-            logger.debug('Creating HBAC rule for %s', IDP_CLIENT_ID)
-            self._ahdapactl(
-                'hbac', 'create',
-                '--name', 'FreeIPA Web UI access',
-                '--description',
-                'Allow all users to obtain Kerberos credentials '
-                'via the FreeIPA Web UI',
-                '--user-groups', 'ipausers',
-                '--clients', IDP_CLIENT_ID,
-                '--scopes', 'openid,profile,krb5:ccache')
-        else:
-            logger.debug('HBAC rule for %s already exists', IDP_CLIENT_ID)
+        with ctx as ccache:
+            if need_kinit:
+                kinit_password(self.admin_principal, self.admin_password,
+                               ccache_name=ccache)
+
+            # Create krb5:ccache scope if it does not already exist
+            # (may have been replicated from another node via gossip)
+            result = self._ahdapactl('scopes', 'list')
+            if 'krb5:ccache' not in result.output:
+                logger.debug('Creating krb5:ccache scope')
+                self._ahdapactl(
+                    'scopes', 'update', 'krb5:ccache',
+                    '--description', 'Kerberos credential exchange')
+            else:
+                logger.debug('krb5:ccache scope already exists')
+
+            # Create HBAC rule for the Web UI client if not present
+            result = self._ahdapactl('hbac', 'list')
+            if IDP_CLIENT_ID not in result.output:
+                logger.debug('Creating HBAC rule for %s', IDP_CLIENT_ID)
+                self._ahdapactl(
+                    'hbac', 'create',
+                    '--name', IDP_HBAC_RULE_NAME,
+                    '--description',
+                    'Allow all users to obtain Kerberos credentials '
+                    'via the FreeIPA Web UI',
+                    '--user-groups', 'ipausers',
+                    '--clients', IDP_CLIENT_ID,
+                    '--scopes', 'openid,profile,krb5:ccache')
+            else:
+                logger.debug('HBAC rule for %s already exists', IDP_CLIENT_ID)
 
     def uninstall(self):
         super(AhdapaInstance, self).uninstall()
+        self._unconfigure_default_conf()
 
         for filepath in (paths.HTTPD_IPA_IDP_PROXY_CONF,
                          paths.AHDAPA_GSSPROXY_CONF,
@@ -237,5 +307,6 @@ class AhdapaInstance(SimpleServiceInstance):
             self._configure_ahdapa()
             self._configure_gssproxy()
             self._configure_httpd_proxy()
+            self._configure_default_conf()
             logger.info("Restarting ahdapa")
             self.restart()

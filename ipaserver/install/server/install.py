@@ -1040,12 +1040,6 @@ def install(installer):
     service.print_msg("Restarting the KDC")
     krb.restart()
 
-    if not options.no_idp:
-        ahdapa = ahdapainstance.AhdapaInstance(fstore)
-        ahdapa.create_instance(
-            realm_name, host_name, domain_name,
-            ldap_suffix=ipautil.realm_to_suffix(realm_name))
-
     if options.setup_kra:
         kra.install(api, None, options, custodia=custodia)
 
@@ -1062,6 +1056,15 @@ def install(installer):
 
     # Set the admin user kerberos password
     ds.change_admin_password(admin_password)
+
+    # Set up the OAuth2 IdP endpoint
+    if not options.no_idp:
+        ahdapa = ahdapainstance.AhdapaInstance(fstore)
+        ahdapa.create_instance(
+            realm_name, host_name, domain_name,
+            ldap_suffix=ipautil.realm_to_suffix(realm_name),
+            admin_principal='admin',
+            admin_password=admin_password)
 
     # Call client install script
     service.print_msg("Configuring client side components")

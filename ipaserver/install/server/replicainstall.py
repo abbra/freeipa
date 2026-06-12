@@ -1428,7 +1428,9 @@ def install(installer):
         ahdapa = ahdapainstance.AhdapaInstance(fstore)
         ahdapa.create_instance(
             config.realm_name, config.host_name, config.domain_name,
-            ldap_suffix=ipautil.realm_to_suffix(config.realm_name))
+            ldap_suffix=ipautil.realm_to_suffix(config.realm_name),
+            admin_principal=options.principal or 'admin',
+            admin_password=options.admin_password)
 
     if options.setup_kra and kra_enabled:
         # A KRA peer always provides a CA, too.
