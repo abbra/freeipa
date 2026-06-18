@@ -6,7 +6,7 @@ issuer       = "https://$FQDN/idp"
 realm        = "$REALM"
 display_name = "$REALM Identity"
 listen       = "unix:$AHDAPA_SOCKET"
-auth_rate_limit = 20
+auth_rate_limit = 200
 
 [db]
 url             = "sqlite://$AHDAPA_STATE_DIR/ahdapa.db"
@@ -20,6 +20,8 @@ ccache               = "FILE:$AHDAPA_CCACHE"
 
 [ipa]
 uri            = "$LDAPI_SOCKET"
+ipa_url        = "https://$FQDN/ipa"
+tls_ca_cert    = "/etc/ipa/ca.crt"
 cache_ttl_secs = 60
 
 [clients]
