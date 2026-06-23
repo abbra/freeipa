@@ -39,6 +39,8 @@
 #include "internal.h"
 
 #define OIDC_CHILD_PATH "/usr/libexec/sssd/oidc_child"
+#define ENV_AHDAPA_ISSUER_URL "ahdapa_issuer_url"
+#define AHDAPA_CLIENT_ID "ipa-otpd"
 
 struct child_ctx {
     int read_from_child;
@@ -49,6 +51,7 @@ struct child_ctx {
     struct otpd_queue_item *item;
     struct otpd_queue_item *saved_item;
     enum oauth2_state oauth2_state;
+    krb5_boolean use_ahdapa;
 };
 
 static int set_fd_nonblocking(int fd)
@@ -107,7 +110,8 @@ static void oauth2_on_child_writable(verto_ctx *vctx, verto_ev *ev)
     }
 
     if (child_ctx->oauth2_state == OAUTH2_GET_DEVICE_CODE) {
-        if (child_ctx->item->idp.ipaidpClientSecret != NULL) {
+        if (!child_ctx->use_ahdapa
+                && child_ctx->item->idp.ipaidpClientSecret != NULL) {
             io = write(verto_get_fd(ev), child_ctx->item->idp.ipaidpClientSecret,
                        strlen(child_ctx->item->idp.ipaidpClientSecret));
         } else {
@@ -115,7 +119,8 @@ static void oauth2_on_child_writable(verto_ctx *vctx, verto_ev *ev)
         }
     } else {
         int idx = 0;
-        if (child_ctx->item->idp.ipaidpClientSecret != NULL) {
+        if (!child_ctx->use_ahdapa
+                && child_ctx->item->idp.ipaidpClientSecret != NULL) {
             iov[idx].iov_base = child_ctx->item->idp.ipaidpClientSecret;
             iov[idx].iov_len = strlen(child_ctx->item->idp.ipaidpClientSecret);
 	    idx++;
@@ -252,15 +257,33 @@ static int check_access_token_reply(struct child_ctx *child_ctx,
                                     const char *buf, size_t len)
 {
     int ret;
+    const char *expected;
+    size_t expected_len;
 
-    if (child_ctx->item->user.ipaidpSub == NULL) {
-        otpd_log_req(child_ctx->item->req,
-                     "Missing ipaidpSub for access token verification");
-        return EPERM;
+    if (child_ctx->use_ahdapa) {
+        /* Ahdapa returns uid@REALM as sub, compare against RADIUS User-Name
+         * (the Kerberos principal) */
+        const krb5_data *princ;
+        princ = krad_packet_get_attr(child_ctx->item->req,
+                                     krad_attr_name2num("User-Name"), 0);
+        if (princ == NULL || princ->data == NULL || princ->length == 0) {
+            otpd_log_req(child_ctx->item->req,
+                         "Missing or empty User-Name in RADIUS request");
+            return EPERM;
+        }
+        expected = princ->data;
+        expected_len = princ->length;
+    } else {
+        if (child_ctx->item->user.ipaidpSub == NULL) {
+            otpd_log_req(child_ctx->item->req,
+                         "Missing ipaidpSub for access token verification");
+            return EPERM;
+        }
+        expected = child_ctx->item->user.ipaidpSub;
+        expected_len = strlen(expected);
     }
 
-    if (strlen(child_ctx->item->user.ipaidpSub) != len
-            || memcmp(child_ctx->item->user.ipaidpSub, buf, len) != 0) {
+    if (expected_len != len || memcmp(expected, buf, len) != 0) {
         return EPERM;
     }
 
@@ -436,8 +459,13 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
     saved_item = NULL; /* ownership transferred to child_ctx */
     child_ctx->oauth2_state = oauth2_state;
 
-    otpd_log_req((*item)->req, "oauth2 start: %s",
-                               oauth2_state_to_str(oauth2_state));
+    const char *ahdapa_issuer = getenv(ENV_AHDAPA_ISSUER_URL);
+    child_ctx->use_ahdapa = (ahdapa_issuer != NULL && *ahdapa_issuer != '\0');
+
+    otpd_log_req((*item)->req, "oauth2 start: %s%s",
+                               oauth2_state_to_str(oauth2_state),
+                               child_ctx->use_ahdapa
+                                   ? " (via Ahdapa)" : "");
 
     args[args_idx++] = OIDC_CHILD_PATH;
 
@@ -447,41 +475,56 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
         args[args_idx++] = "--get-access-token";
     }
 
-    if ((*item)->idp.ipaidpIssuerURL != NULL) {
+    if (child_ctx->use_ahdapa) {
+        /* ahdapa_issuer_url is written to /etc/ipa/default.conf by
+         * ahdapainstance.py and reaches ipa-otpd as an environment
+         * variable via the systemd EnvironmentFile directive */
         args[args_idx++] = "--issuer-url";
-        args[args_idx++] = (*item)->idp.ipaidpIssuerURL;
+        args[args_idx++] = (char *) ahdapa_issuer;
+
+        /* must match IDP_OTPD_CLIENT_ID in ahdapainstance.py and
+         * $IDP_OTPD_CLIENT_ID in ahdapa-clients.toml.template */
+        args[args_idx++] = "--client-id";
+        args[args_idx++] = AHDAPA_CLIENT_ID;
+
+        args[args_idx++] = "--scope";
+        args[args_idx++] = "openid";
     } else {
-        args[args_idx++] = "--device-auth-endpoint";
-        args[args_idx++] = (*item)->idp.ipaidpDevAuthEndpoint;
+        if ((*item)->idp.ipaidpIssuerURL != NULL) {
+            args[args_idx++] = "--issuer-url";
+            args[args_idx++] = (*item)->idp.ipaidpIssuerURL;
+        } else {
+            args[args_idx++] = "--device-auth-endpoint";
+            args[args_idx++] = (*item)->idp.ipaidpDevAuthEndpoint;
 
-        args[args_idx++] = "--token-endpoint";
-        args[args_idx++] = (*item)->idp.ipaidpTokenEndpoint;
+            args[args_idx++] = "--token-endpoint";
+            args[args_idx++] = (*item)->idp.ipaidpTokenEndpoint;
 
-        args[args_idx++] = "--userinfo-endpoint";
-        args[args_idx++] = (*item)->idp.ipaidpUserInfoEndpoint;
+            args[args_idx++] = "--userinfo-endpoint";
+            args[args_idx++] = (*item)->idp.ipaidpUserInfoEndpoint;
 
-        if ((*item)->idp.ipaidpKeysEndpoint) {
-            args[args_idx++] = "--jwks-uri";
-            args[args_idx++] = (*item)->idp.ipaidpKeysEndpoint;
+            if ((*item)->idp.ipaidpKeysEndpoint) {
+                args[args_idx++] = "--jwks-uri";
+                args[args_idx++] = (*item)->idp.ipaidpKeysEndpoint;
+            }
         }
 
-    }
+        args[args_idx++] = "--client-id";
+        args[args_idx++] = (*item)->idp.ipaidpClientID;
 
-    args[args_idx++] = "--client-id";
-    args[args_idx++] = (*item)->idp.ipaidpClientID;
+        if ((*item)->idp.ipaidpClientSecret) {
+            args[args_idx++] = "--client-secret-stdin";
+        }
 
-    if ((*item)->idp.ipaidpClientSecret) {
-        args[args_idx++] = "--client-secret-stdin";
-    }
+        if ((*item)->idp.ipaidpScope) {
+            args[args_idx++] = "--scope";
+            args[args_idx++] = (*item)->idp.ipaidpScope;
+        }
 
-    if ((*item)->idp.ipaidpScope) {
-        args[args_idx++] = "--scope";
-        args[args_idx++] = (*item)->idp.ipaidpScope;
-    }
-
-    if ((*item)->idp.ipaidpSub) {
-        args[args_idx++] = "--user-identifier-attribute";
-        args[args_idx++] = (*item)->idp.ipaidpSub;
+        if ((*item)->idp.ipaidpSub) {
+            args[args_idx++] = "--user-identifier-attribute";
+            args[args_idx++] = (*item)->idp.ipaidpSub;
+        }
     }
 
     if ((*item)->idp.ipaidpDebugLevelStr != NULL) {
@@ -583,6 +626,8 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
         if (child_ctx->child_ev == NULL) {
             ret = ENOMEM;
             otpd_log_err(ret, "Unable to initialize oauth2 child event");
+            /* write_ev and read_ev own the fds (IO_CLOSE_FD), verto_del
+             * closes them; child_ctx is freed below in done: */
             verto_del(child_ctx->read_ev);
             verto_del(child_ctx->write_ev);
             kill(child_pid, SIGKILL);
