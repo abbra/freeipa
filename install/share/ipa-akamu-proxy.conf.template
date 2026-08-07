@@ -1,0 +1,49 @@
+# Akamu reverse proxy — managed by FreeIPA installer.
+# This file may be overwritten on upgrades.
+#
+# NOTE: intentionally proxies /akamu, not /acme — Apache already routes
+# /acme to Dogtag's built-in ACME responder (pki-acme, ipa-pki-proxy.conf).
+# Akamu's own upstream demo config assumes it owns /acme; every occurrence
+# has been deliberately changed to /akamu here.
+#
+# The placeholder hostname after "|" is mod_proxy's worker-pool key, not a
+# real destination -- the actual socket comes from the unix: prefix. It must
+# be unique across every Unix-socket-backed ProxyPass FreeIPA configures
+# (compare ipa-idp-proxy.conf.template): mod_proxy has a long-standing
+# worker-sharing bug where two UDS workers with the same logical URL can
+# have their pooled connections cross-contaminated, silently routing a
+# request to the wrong backend socket.
+
+RedirectMatch permanent ^/akamu$$ /akamu/
+
+<Location "/akamu/">
+    # Akamu handles its own Kerberos SPNEGO authentication.
+    AuthType None
+    Require all granted
+
+    # ProxyPass/ProxyPassReverse/ProxyPassReverseCookiePath must live inside
+    # this Location, not at top level: mod_proxy's Set-Cookie Path rewriting
+    # is a global, load-order-dependent match on the *internal* path alone
+    # ("/" here) -- it is not scoped to which ProxyPass/backend actually
+    # served the response. Since ahdapa's and akamu's proxy confs both
+    # rewrite from "/", declaring these at top level lets whichever conf
+    # file loads first (alphabetically) silently steal the other's cookie
+    # rewrite, breaking session cookies for one of the two services.
+    # Verified empirically against httpd 2.4.68/mod_proxy.
+    ProxyPass        unix:$AKAMU_SOCKET|http://akamu-local/  nocanon
+    ProxyPassReverse http://akamu-local/
+    ProxyPassReverseCookiePath / /akamu/
+    ProxyPreserveHost On
+
+    SSLOptions +StdEnvVars +ExportCertData +StrictRequire
+    SSLVerifyClient none
+
+    RequestHeader set X-Forwarded-Proto "https"
+
+    Header always set    X-Content-Type-Options "nosniff"
+    Header always append X-Frame-Options "DENY"
+    Header always append Content-Security-Policy "frame-ancestors 'none'"
+</Location>
+
+RewriteCond %{SERVER_PORT} !^443$$
+RewriteRule ^/akamu/(.*)     https://%{HTTP_HOST}/akamu/$$1 [L,R=307,NC]
