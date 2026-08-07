@@ -447,6 +447,7 @@ def create_keytab(path, principal):
     finally:
         os.umask(old_umask)
 
+
 def copy_file_secure(source, target, mode, uid=0, gid=0):
     """Copy a file creating the target with explicit permissions.
 
