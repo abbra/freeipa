@@ -41,8 +41,8 @@ from ipalib.facts import IPA_MODULES
 from ipaserver.install import (
     adtrust, adtrustinstance, bindinstance, ca, dns, dsinstance,
     httpinstance, installutils, kra, krbinstance,
-    otpdinstance, custodiainstance, ahdapainstance, replication, service,
-    sysupgrade, cainstance)
+    otpdinstance, custodiainstance, ahdapainstance, akamuinstance,
+    replication, service, sysupgrade, cainstance)
 from ipaserver.install.installutils import (
     BadHostError, get_server_ip_address,
     load_pkcs12, read_password, verify_fqdn, update_hosts_file,
@@ -1019,6 +1019,12 @@ def install(installer):
     service.print_msg("Restarting the KDC")
     krb.restart()
 
+    if setup_ca and not options.no_akamu:
+        akamu = akamuinstance.AkamuInstance(fstore)
+        akamu.configure_instance(
+            realm_name, host_name, domain_name,
+            ldap_suffix=ipautil.realm_to_suffix(realm_name))
+
     if options.setup_kra:
         kra.install(api, None, options, custodia=custodia)
 
@@ -1291,6 +1297,7 @@ def uninstall(installer):
     # otherwise, see https://codeberg.org/freeipa/freeipa/issues/7474 .
     custodiainstance.CustodiaInstance(realm='REALM.INVALID').uninstall()
     ahdapainstance.AhdapaInstance(fstore).uninstall()
+    akamuinstance.AkamuInstance(fstore).uninstall()
     otpdinstance.OtpdInstance().uninstall()
     tasks.restore_hostname(fstore, sstore)
     tasks.restore_pkcs11_modules(fstore)

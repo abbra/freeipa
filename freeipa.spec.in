@@ -507,6 +507,13 @@ Requires: pki-ca >= %{pki_version}
 Requires: pki-kra >= %{pki_version}
 # pki-acme package was split out in pki-10.10.0
 Requires: (pki-acme >= %{pki_version} if pki-ca >= 10.10.0)
+# akamu package is only meaningful when pki-ca is present. akamu-client
+# provides akamu-cli, the ACME protocol client used for Kerberos-authenticated
+# certificate enrollment; akamu-webui provides the static assets akamu itself
+# serves at /akamu/ui/ once [server.webui].static_dir points at them.
+Requires: (akamu if pki-ca >= 10.10.0)
+Requires: (akamu-client if pki-ca >= 10.10.0)
+Requires: (akamu-webui if pki-ca >= 10.10.0)
 Requires: policycoreutils >= 2.1.12-5
 Requires: tar
 Requires(pre): certmonger >= %{certmonger_version}
@@ -1721,6 +1728,7 @@ fi
 %attr(755,root,root) %{_libexecdir}/ipa/custodia/ipa-custodia-pki-tomcat
 %attr(755,root,root) %{_libexecdir}/ipa/custodia/ipa-custodia-pki-tomcat-wrapped
 %attr(755,root,root) %{_libexecdir}/ipa/custodia/ipa-custodia-ra-agent
+%attr(755,root,root) %{_libexecdir}/ipa/custodia/ipa-custodia-akamu-ra-agent
 %dir %{_libexecdir}/ipa/oddjob
 %attr(0755,root,root) %{_libexecdir}/ipa/oddjob/org.freeipa.server.conncheck
 %attr(0755,root,root) %{_libexecdir}/ipa/oddjob/org.freeipa.server.trust-enable-agent

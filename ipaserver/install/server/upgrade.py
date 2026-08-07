@@ -50,6 +50,7 @@ from ipaserver.install import krainstance
 from ipaserver.install import certs
 from ipaserver.install import otpdinstance
 from ipaserver.install import ahdapainstance
+from ipaserver.install import akamuinstance
 from ipaserver.install import schemaupdate
 from ipaserver.install import custodiainstance
 from ipaserver.install import sysupgrade
@@ -1959,6 +1960,17 @@ def upgrade_configuration():
         ca.setup_lightweight_ca_key_retrieval()
         cainstance.ensure_ipa_authority_entry()
         ca.setup_acme()
+
+        akamu = akamuinstance.AkamuInstance()
+        akamu_custodia = None
+        if not ca.is_renewal_master():
+            akamu_peer = cainstance.get_ca_renewal_master_fqdn()
+            if akamu_peer:
+                akamu_custodia = custodiainstance.CustodiaInstance(
+                    host_name=api.env.host, realm=api.env.realm,
+                    custodia_peer=akamu_peer)
+        akamu.upgrade_instance(ca=ca, custodia=akamu_custodia)
+
         ca_update_acme_configuration(ca, fqdn)
         ca_initialize_hsm_state(ca)
         add_agent_to_security_domain_admins()
