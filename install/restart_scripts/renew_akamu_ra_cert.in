@@ -1,0 +1,72 @@
+#!/usr/bin/python3
+#
+# Copyright (C) 2026  FreeIPA Contributors, see 'COPYING' for license
+#
+
+import sys
+import os
+import syslog
+import tempfile
+import shutil
+import traceback
+
+from ipalib.install.kinit import kinit_keytab
+from ipalib import api, x509
+from ipaserver.install import certs, cainstance
+from ipaplatform.paths import paths
+
+
+def _main():
+    api.bootstrap(
+        in_server=True, context='restart', confdir=paths.ETC_IPA, log=None
+    )
+    api.finalize()
+
+    tmpdir = tempfile.mkdtemp(prefix="tmp-")
+    try:
+        principal = str('host/%s@%s' % (api.env.host, api.env.realm))
+        ccache_filename = os.path.join(tmpdir, 'ccache')
+        kinit_keytab(principal, paths.KRB5_KEYTAB, ccache_filename)
+        os.environ['KRB5CCNAME'] = ccache_filename
+
+        api.Backend.ldap2.connect()
+
+        ca = cainstance.CAInstance(host_name=api.env.host)
+        ra_certpath = paths.AKAMU_RA_AGENT_PEM
+        if ca.is_renewal_master():
+            # Fetch the new certificate
+            try:
+                cert = x509.load_certificate_from_file(ra_certpath)
+            except IOError as e:
+                syslog.syslog(
+                    syslog.LOG_ERR, "Can't open '{certpath}': {err}"
+                    .format(certpath=ra_certpath, err=e)
+                )
+                sys.exit(1)
+            except (TypeError, ValueError):
+                syslog.syslog(
+                    syslog.LOG_ERR, "'{certpath}' is not a valid certificate "
+                    "file".format(certpath=ra_certpath)
+                )
+                sys.exit(1)
+
+            # Load it into dogtag
+            cainstance.update_people_entry(cert)
+    finally:
+        if api.Backend.ldap2.isconnected():
+            api.Backend.ldap2.disconnect()
+        shutil.rmtree(tmpdir)
+
+
+def main():
+    try:
+        _main()
+    finally:
+        # lock acquired in renew_akamu_ra_cert_pre
+        certs.renewal_lock.release('renew_akamu_ra_cert')
+
+
+try:
+    main()
+except Exception:
+    syslog.syslog(syslog.LOG_ERR, traceback.format_exc())
