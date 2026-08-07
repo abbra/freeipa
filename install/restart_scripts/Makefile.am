@@ -9,6 +9,8 @@ app_DATA =                              \
 	renew_ra_cert			\
 	stop_pkicad			\
 	renew_ra_cert_pre		\
+	renew_akamu_ra_cert		\
+	renew_akamu_ra_cert_pre	\
 	$(NULL)
 
 EXTRA_DIST =                            \
@@ -19,6 +21,8 @@ EXTRA_DIST =                            \
 	renew_ra_cert.in			\
 	stop_pkicad.in			\
 	renew_ra_cert_pre.in		\
+	renew_akamu_ra_cert.in		\
+	renew_akamu_ra_cert_pre.in	\
 	$(NULL)
 
 PYTHON_SHEBANG = $(app_DATA)
