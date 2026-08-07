@@ -41,7 +41,7 @@ from ipaclient.install.client import configure_krb5_conf, purge_host_keytab
 from ipaserver.install import (
     adtrust, bindinstance, ca, cainstance, dns, dsinstance, httpinstance,
     installutils, kra, krainstance, krbinstance, otpdinstance,
-    custodiainstance, ahdapainstance, service,)
+    custodiainstance, ahdapainstance, akamuinstance, service,)
 from ipaserver.install import certs
 from ipaserver.install.installutils import (
     ReplicaConfig, load_pkcs12, validate_mask)
@@ -1440,6 +1440,15 @@ def install(installer):
         # Always call ca.install() if there is a CA in the topology
         # to ensure the RA agent is present.
         ca.install(False, config, options, custodia=custodia)
+
+    if ca_enabled and options.setup_ca and not options.no_akamu:
+        # Unlike Ahdapa, Akamu's service step must come after ca.install()
+        # above: its RA agent PEM files are only materialized there (either
+        # freshly requested or imported via Custodia on promotion).
+        akamu = akamuinstance.AkamuInstance(fstore)
+        akamu.configure_instance(
+            config.realm_name, config.host_name, config.domain_name,
+            ldap_suffix=ipautil.realm_to_suffix(config.realm_name))
 
     # configure PKINIT now that all required services are in place
     krb.enable_ssl()
