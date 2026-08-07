@@ -380,7 +380,7 @@ class CAInstance(DogtagInstance):
                            pki_config_override=None,
                            random_serial_numbers=False,
                            token_name=None, token_library_path=None,
-                           token_password=None):
+                           token_password=None, setup_akamu=True):
         """Create a CA instance.
 
            To create a clone, pass in pkcs12_info.
@@ -525,6 +525,13 @@ class CAInstance(DogtagInstance):
                     self.step("publishing the CA certificate",
                               self.__export_ca_chain)
                     self.step("adding RA agent as a trusted user", self.__create_ca_agent)
+                if setup_akamu and not os.path.exists(paths.AKAMU_RA_AGENT_PEM):
+                    if not self.clone:
+                        self.step("requesting Akamu RA certificate from CA",
+                                  self.__request_akamu_ra_certificate)
+                    elif promote:
+                        self.step("Importing Akamu RA key",
+                                  self.__import_akamu_ra_key)
                 self.step("configure certificate renewals", self.configure_renewal)
                 self.step("Configure HTTP to proxy connections",
                           self.http_proxy)
@@ -993,6 +1000,19 @@ class CAInstance(DogtagInstance):
 
     def __import_ra_key(self):
         import_ra_key(self._custodia)
+
+    def __request_akamu_ra_certificate(self):
+        # deferred import: akamuinstance imports cainstance for
+        # update_people_entry(), so the reverse import must not be at
+        # module scope to avoid a circular import.
+        # pylint: disable-next=cyclic-import
+        from ipaserver.install import akamuinstance
+        akamuinstance.request_ra_certificate(self)
+
+    def __import_akamu_ra_key(self):
+        # pylint: disable-next=cyclic-import
+        from ipaserver.install import akamuinstance
+        akamuinstance.import_ra_key(self._custodia)
 
     @staticmethod
     def _set_ra_cert_perms():
@@ -2655,6 +2675,23 @@ def import_ra_key(custodia):
     custodia.import_ra_key()
     CAInstance._set_ra_cert_perms()
     CAInstance.configure_agent_renewal()
+
+
+def get_ca_renewal_master_fqdn():
+    """Return the fqdn of the current CA renewal master, or None if no
+    CA-enabled host is marked as the renewal master (e.g. topology not
+    fully configured yet)."""
+    base_dn = DN(api.env.container_masters, api.env.basedn)
+    renewal_filter = '(&(cn=CA)(ipaConfigString=caRenewalMaster))'
+    try:
+        entries = api.Backend.ldap2.get_entries(
+            base_dn=base_dn, filter=renewal_filter, attrs_list=[])
+    except errors.NotFound:
+        return None
+    if not entries:
+        return None
+    # entry DN shape: cn=CA,cn=<fqdn>,cn=masters,$SUFFIX
+    return entries[0].dn[1].value
 
 
 def check_ipa_ca_san(cert):
