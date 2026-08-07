@@ -34,6 +34,8 @@ dist_app_DATA =				\
 	ahdapa.toml.template		\
 	ahdapa-clients.toml.template	\
 	ahdapa-gssproxy.conf.template	\
+	akamu.toml.template		\
+	akamu-gssproxy.conf.template	\
 	custodia.conf.template		\
 	default-aci.ldif		\
 	default-hbac.ldif		\
@@ -99,6 +101,7 @@ dist_app_DATA =				\
 	ipakrb5.aug			\
 	ipa.conf.template		\
 	ipa-idp-proxy.conf.template	\
+	ipa-akamu-proxy.conf.template	\
 	ipa-kdc-proxy.conf.template	\
 	ipa-pki-proxy.conf.template	\
 	ipa-rewrite.conf.template	\

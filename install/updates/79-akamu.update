@@ -1,0 +1,27 @@
+dn: cn=akamu,cn=ipa,cn=etc,$SUFFIX
+default: objectClass: top
+default: objectClass: nsContainer
+default: cn: akamu
+
+# Role for the akamu ACME server's HTTP service principal to read
+# certificate profile metadata over LDAP. Role membership (which HTTP
+# principal is added) is granted from Python in akamuinstance.py, not
+# here, so hosts without akamu are unaffected.
+dn: cn=Akamu Services,cn=roles,cn=accounts,$SUFFIX
+default: objectClass: top
+default: objectClass: groupofnames
+default: objectClass: nestedgroup
+default: cn: Akamu Services
+default: description: HTTP service principals running the akamu ACME server
+
+dn: cn=Akamu IPA CA Read,cn=privileges,cn=pbac,$SUFFIX
+default: objectClass: top
+default: objectClass: groupofnames
+default: objectClass: nestedgroup
+default: cn: Akamu IPA CA Read
+default: description: Read certificate profile metadata for akamu
+default: member: cn=Akamu Services,cn=roles,cn=accounts,$SUFFIX
+
+# Grant the new privilege the existing System permission it needs
+dn: cn=System: Read Certificate Profiles,cn=permissions,cn=pbac,$SUFFIX
+add: member: cn=Akamu IPA CA Read,cn=privileges,cn=pbac,$SUFFIX

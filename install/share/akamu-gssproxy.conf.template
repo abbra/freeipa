@@ -1,0 +1,15 @@
+# gssproxy service entry for akamu — managed by FreeIPA installer.
+# This file may be overwritten on upgrades.
+#
+# Deliberately trimmed relative to akamu's own upstream demo gssproxy
+# config: allow_protocol_transition/allow_constrained_delegation/
+# client_keytab are only needed for the [profiles.providers.ipa] LDAP
+# profile source (S4U2Self/S4U2Proxy to bind to o=ipaca), which this
+# integration does not enable. Only SPNEGO acceptance is required for
+# /akamu/eab and admin GSSAPI.
+
+[service/akamu]
+  mechs = krb5
+  cred_store = keytab:$HTTP_KEYTAB
+  cred_usage = accept
+  euid = $AKAMU_USER

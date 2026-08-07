@@ -1,0 +1,49 @@
+# Akamu configuration — managed by FreeIPA installer.
+# This file may be overwritten on upgrades.
+#
+# Akamu acts as an ACME Registration Authority in front of the existing
+# Dogtag CA: it validates ACME challenges itself, then delegates signing
+# to Dogtag via its REST enrollment API using the dedicated akamu-ra
+# agent identity. This does not introduce a second root of trust.
+#
+# Exposed at https://$FQDN/akamu (not /acme — that path is FreeIPA's
+# built-in Dogtag ACME responder, pki-acme).
+
+listen_addr = "unix:$AKAMU_SOCKET"
+base_url    = "https://$FQDN/akamu"
+
+[database]
+url = "sqlite://$AKAMU_STATE_DIR/akamu.db"
+
+[[ca]]
+id         = "ipa"
+is_default = true
+cert_file  = "$IPA_CA_CRT"
+hash_alg   = "sha256"
+crl_url    = "https://$FQDN:8443/ca/ee/ca/getCRL?op=getCRL&crlIssuingPoint=MasterCRL"
+ocsp_url   = "https://$FQDN:8443/ca/ocsp"
+
+[ca.signer]
+type         = "dogtag"
+url          = "https://$FQDN:8443"
+ra_cert_file = "$AKAMU_RA_AGENT_PEM"
+ra_key_file  = "$AKAMU_RA_AGENT_KEY"
+ca_cert_file = "$IPA_CA_CRT"
+profile_id   = "acmeIPAServerCert"
+timeout_secs = 30
+
+[server]
+validate_dnssec   = true
+eab_master_secret = "$EAB_MASTER_SECRET"
+
+[server.gssapi]
+gssproxy = true
+
+[server.webui]
+static_dir = "$AKAMU_WEBUI_DIR"
+
+[admin]
+bootstrap_operator_gssapi_principal = "admin@$REALM"
+
+[admin.gssapi]
+gssproxy = true
