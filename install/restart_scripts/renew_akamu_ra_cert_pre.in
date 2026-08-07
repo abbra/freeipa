@@ -1,0 +1,19 @@
+#!/usr/bin/python3
+#
+# Copyright (C) 2026  FreeIPA Contributors see COPYING for license
+#
+
+import syslog
+import traceback
+
+from ipaserver.install import certs
+
+
+def main():
+    certs.renewal_lock.acquire('renew_akamu_ra_cert')
+
+
+try:
+    main()
+except Exception:
+    syslog.syslog(syslog.LOG_ERR, traceback.format_exc())
