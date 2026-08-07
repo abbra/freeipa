@@ -381,6 +381,12 @@ class ServerInstallInterface(ServerCertificateInstallInterface,
     )
     no_idp = enroll_only(no_idp)
 
+    no_akamu = knob(
+        None,
+        description="Do not configure the integrated ACME RA (akamu)",
+    )
+    no_akamu = enroll_only(no_akamu)
+
     dirsrv_config_file = knob(
         str, None,
         description="The path to LDIF file that will be used to modify "

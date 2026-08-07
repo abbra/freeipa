@@ -641,6 +641,7 @@ def install_step_0(standalone, replica_config, options, custodia):
         token_name=token_name,
         token_library_path=options.token_library_path,
         token_password=options.token_password,
+        setup_akamu=not options.no_akamu,
     )
 
 
