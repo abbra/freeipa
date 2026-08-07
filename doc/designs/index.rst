@@ -37,3 +37,5 @@ FreeIPA design documentation
    audit-ipa-api.md
    sysaccounts.md
    namespace.md
+   webui-oauth2-login.md
+   akamu-acme-integration.md
