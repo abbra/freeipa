@@ -41,6 +41,7 @@ SERVICES = [
     service_definition('ahdapa', 42, 'IDP'),
     service_definition('pki-tomcatd', 50, 'CA'),
     service_definition('pki-tomcatd', 51, 'KRA'),
+    service_definition('akamu', 55, 'AKAMU'),
     service_definition('smb', 60, 'ADTRUST'),
     service_definition('winbind', 70, 'EXTID'),
     service_definition('ipa-otpd', 80, 'OTPD'),
