@@ -198,6 +198,10 @@ class CustodiaInstance(SimpleServiceInstance):
         # with this nickname)
         cli.fetch_key('ra/ipaCert')
 
+    def import_akamu_ra_key(self):
+        cli = self._get_custodia_client()
+        cli.fetch_key('akamu-ra/akamu')
+
     def import_dm_password(self):
         cli = self._get_custodia_client()
         cli.fetch_key('dm/DMHash')

@@ -1,0 +1,8 @@
+#!/usr/bin/python3
+#
+# Copyright (C) 2026  IPA Project Contributors, see COPYING for license
+#
+
+from ipaserver.secrets.handlers.pemfile import main, akamu_ra_agent_parser
+
+main(akamu_ra_agent_parser())

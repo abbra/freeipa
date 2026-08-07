@@ -6,6 +6,7 @@ nodist_app_SCRIPTS =					\
 	ipa-custodia-pki-tomcat				\
 	ipa-custodia-pki-tomcat-wrapped		\
 	ipa-custodia-ra-agent				\
+	ipa-custodia-akamu-ra-agent			\
 	$(NULL)
 
 dist_noinst_DATA = 						\
@@ -13,6 +14,7 @@ dist_noinst_DATA = 						\
 	ipa-custodia-pki-tomcat.in			\
 	ipa-custodia-pki-tomcat-wrapped.in	\
 	ipa-custodia-ra-agent.in			\
+	ipa-custodia-akamu-ra-agent.in		\
 	$(NULL)
 
 PYTHON_SHEBANG = $(nodist_app_SCRIPTS)

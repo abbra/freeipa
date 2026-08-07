@@ -177,6 +177,12 @@ NAME_DB_MAP = {
         'command': 'ipa-custodia-ra-agent',
         'runas': None,  # import needs root permission to write to directory
     },
+    'akamu-ra': {
+        'type': 'PEM',
+        'handler': PEMFileHandler,
+        'command': 'ipa-custodia-akamu-ra-agent',
+        'runas': None,  # import needs root permission to write to directory
+    },
     'dm': {
         'type': 'DMLDAP',
         'handler': DMLDAP,
