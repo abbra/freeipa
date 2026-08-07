@@ -39,3 +39,5 @@ FreeIPA design documentation
    sysaccounts.md
    namespace.md
    pw-expiration.md
+   webui-oauth2-login.md
+   akamu-acme-integration.md
