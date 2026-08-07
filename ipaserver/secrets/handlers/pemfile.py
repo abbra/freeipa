@@ -126,6 +126,17 @@ def ra_agent_parser():
     return parser
 
 
+def akamu_ra_agent_parser():
+    parser = common.mkparser(
+        description='ipa-custodia Akamu RA agent cert handler'
+    )
+    parser.set_defaults(
+        certfile=paths.AKAMU_RA_AGENT_PEM,
+        keyfile=paths.AKAMU_RA_AGENT_KEY
+    )
+    return parser
+
+
 def main(parser=None):
     if parser is None:
         parser = default_parser()
