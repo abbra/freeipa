@@ -119,6 +119,7 @@ class Backup(admintool.AdminTool):
             paths.VAR_LIB_IPA,
             paths.VAR_RUN_DIRSRV_DIR,
             paths.DIRSRV_LOCK_DIR,
+            paths.AHDAPA_STATE_DIR,
     )
 
     files = (
@@ -195,6 +196,10 @@ class Backup(admintool.AdminTool):
         paths.IPA_CUSTODIA_KEYS,
         paths.IPA_CUSTODIA_CONF,
         paths.GSSPROXY_CONF,
+        paths.AHDAPA_CONF,
+        paths.AHDAPA_CLIENTS_CONF,
+        paths.AHDAPA_GSSPROXY_CONF,
+        paths.HTTPD_IPA_IDP_PROXY_CONF,
         paths.HOSTS,
         paths.SYSTEMD_PKI_TOMCAT_IPA_CONF,
         paths.NETWORK_MANAGER_IPA_CONF,
