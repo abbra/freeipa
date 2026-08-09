@@ -692,8 +692,15 @@ restored on uninstall:
 - `/etc/ahdapa/clients.toml`
 - `/etc/ahdapa/ahdapa.toml`
 
-The ahdapa database (`/var/lib/ahdapa/ahdapa.db`) should be included in
-IPA backup (`ipa-backup`) when Ahdapa is deployed.
+Separately, `ipa-backup`/`ipa-restore` (disaster recovery, not the
+`fstore` uninstall path above) cover the same four config files
+individually in `ipa_backup.py`'s `files`, plus `AHDAPA_STATE_DIR`
+(`/var/lib/ahdapa`) as a whole directory in `dirs` -- this carries the
+CRDT-backed database (OAuth2 client registrations, HBAC rules, sessions,
+audit state) and anything else ahdapa persists there. `ipa_restore.py`
+needs no ahdapa-specific code: it extracts the archive generically and
+already restarts gssproxy and `ipactl`-managed services (which include
+`ahdapa`, registered in `ipaserver/masters.py`) after restore.
 
 ## Feature Management
 
