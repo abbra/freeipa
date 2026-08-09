@@ -32,6 +32,7 @@ import itertools
 from ipaclient.install.client import update_ipa_nssdb
 from ipalib import api, errors
 from ipalib.constants import FQDN
+from ipalib.install import certmonger
 from ipapython import version, ipautil, config
 from ipapython.ipautil import run, user_input
 from ipapython import admintool, certdb
@@ -161,6 +162,10 @@ class Restore(admintool.AdminTool):
     # files from backup are copied
     DIRS_TO_BE_REMOVED = [
         paths.DNSSEC_TOKENS_DIR,
+        # a SQLite -wal/-shm left by the new install would be replayed
+        # onto the restored database
+        paths.AHDAPA_STATE_DIR,
+        paths.AKAMU_STATE_DIR,
     ]
 
     FILES_TO_BE_REMOVED = []
@@ -929,6 +934,15 @@ class Restore(admintool.AdminTool):
             pass
 
         krbinstance.KrbInstance().stop_tracking_certs()
+
+        # The backup brings back its own request for this file: a second
+        # one makes both uninstall and reinstall fail on a duplicate.
+        try:
+            certmonger.stop_tracking(certfile=paths.AKAMU_RA_AGENT_PEM)
+        except RuntimeError as e:
+            logger.error(
+                "certmonger failed to stop tracking the Akamu RA "
+                "certificate: %s", e)
 
         for basename in certdb.NSS_FILES:
             filename = os.path.join(paths.IPA_NSSDB_DIR, basename)
