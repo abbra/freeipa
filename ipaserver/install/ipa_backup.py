@@ -120,6 +120,7 @@ class Backup(admintool.AdminTool):
             paths.VAR_RUN_DIRSRV_DIR,
             paths.DIRSRV_LOCK_DIR,
             paths.AHDAPA_STATE_DIR,
+            paths.AKAMU_STATE_DIR,
     )
 
     files = (
@@ -200,6 +201,9 @@ class Backup(admintool.AdminTool):
         paths.AHDAPA_CLIENTS_CONF,
         paths.AHDAPA_GSSPROXY_CONF,
         paths.HTTPD_IPA_IDP_PROXY_CONF,
+        paths.AKAMU_CONF,
+        paths.AKAMU_GSSPROXY_CONF,
+        paths.HTTPD_IPA_AKAMU_PROXY_CONF,
         paths.HOSTS,
         paths.SYSTEMD_PKI_TOMCAT_IPA_CONF,
         paths.NETWORK_MANAGER_IPA_CONF,
