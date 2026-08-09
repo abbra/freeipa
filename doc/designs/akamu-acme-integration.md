@@ -316,11 +316,35 @@ installed whenever `pki-ca` is present.
 
 ### Backup and Restore
 
-The same four config files Ahdapa's `fstore`-based backup/restore covers
-(`AkapaInstance.uninstall()` pattern) apply here: `akamu.toml`,
-`akamu-gssproxy.conf`, `ipa-akamu-proxy.conf`, plus the two new RA agent PEM
-files (which, like `ra-agent.pem`/`.key`, are regenerated rather than
-restored on reinstall).
+Two unrelated mechanisms both need to know about Akamu's files, and each
+already does:
+
+- **Uninstall-time restore** (`fstore`/sysrestore): `AkamuInstance.uninstall()`
+  backs up `paths.AKAMU_CONF` (`/etc/akamu/config.toml`),
+  `paths.AKAMU_GSSPROXY_CONF` (`/etc/gssproxy/20-akamu.conf`) and
+  `paths.HTTPD_IPA_AKAMU_PROXY_CONF` in `self.fstore` as each is written,
+  then restores (or removes, if none existed) whatever was there before
+  install -- the same pattern `AhdapaInstance.uninstall()` uses. It also
+  stops certmonger tracking of and then deletes `AKAMU_RA_AGENT_PEM`/`_KEY`
+  outright: like `ra-agent.pem`/`.key` they are never fstore-backed, and
+  are regenerated rather than restored on reinstall. Finally it clears the
+  `sysupgrade` `akamu/installed` state. `server/install.py:1300` calls it
+  next to `AhdapaInstance.uninstall()`.
+- **`ipa-backup`/`ipa-restore`** (disaster recovery): `AKAMU_STATE_DIR`
+  (`/var/lib/akamu`) is backed up as a whole directory in `ipa_backup.py:123`'s
+  `dirs`, covering the Akamu SQLite database (`akamu.db`), the persisted
+  `eab_master_secret`, and the RA agent PEM/key together -- these must stay
+  consistent with each other and with the LDAP `uid=akamu-ra` entry restored
+  in the same snapshot, so a directory-level backup takes them as one unit
+  rather than special-casing the RA agent cert like `ra-agent.pem`/`.key`
+  (which piggyback on `VAR_LIB_IPA` already being backed up whole).
+  `AKAMU_CONF`, `AKAMU_GSSPROXY_CONF` and `HTTPD_IPA_AKAMU_PROXY_CONF` are
+  listed individually in `files` (`ipa_backup.py:204-206`), matching every
+  other single-purpose config file
+  in that list. `ipa_restore.py` needs no Akamu-specific code: it extracts
+  the archive generically and already restarts gssproxy and `ipactl`-managed
+  services (which include `akamu`, registered in `ipaserver/masters.py`)
+  after restore.
 
 ### CLI flag
 
