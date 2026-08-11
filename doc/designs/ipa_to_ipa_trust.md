@@ -240,6 +240,21 @@ provider's own inter-node gossip protocol already uses in production (a useful,
 independently-reviewed precedent to build on), adapted so the signature
 algorithm is a runtime choice rather than fixed to one algorithm:
 
+```mermaid
+flowchart TB
+    Payload["payload:<br/>realm, server, trust_secret,<br/>kdc_ca_certs, realm_ca_certs?"]
+    AEAD["encryptedContentInfo =<br/>AES-256-GCM(CEK, nonce, payload)"]
+    KEM["KEMRecipientInfo (RFC 9629):<br/>ML-KEM-encapsulate to requester's public key<br/>&rarr; kemct, shared_secret<br/>kek = HKDF-SHA256(shared_secret)<br/>encryptedKey = AES-256-KeyWrap(kek, CEK)"]
+    Enveloped["EnvelopedData (RFC 5652):<br/>recipientInfos = [ KEMRecipientInfo ]<br/>encryptedContentInfo"]
+    Signed["SignedData (RFC 5652):<br/>eContent = EnvelopedData DER<br/>certificates = [ sender's self-signed cert ]<br/>signerInfos = [ Sign(sha256(eContent)) ]<br/>signatureAlgorithm = RSA | EC | ML-DSA"]
+
+    Payload --> AEAD --> Enveloped
+    KEM --> Enveloped
+    Enveloped --> Signed
+```
+
+Precisely, in ASN.1 terms:
+
 ```
 OUTER: SignedData {
   eContentType = id-envelopedData
@@ -295,6 +310,38 @@ The end-to-end exchange has three steps:
    imports B's CA chain, and configures A's own half of the trust using the
    retrieved secret.
 
+```mermaid
+sequenceDiagram
+    actor AdminA as Admin A
+    participant ServerA as IPA Server A
+    actor AdminB as Admin B
+    participant ServerB as IPA Server B
+
+    AdminA->>ServerA: trust-bootstrap-init
+    ServerA-->>AdminA: ML-KEM public + private key<br/>(private key kept locally only)
+    AdminA-->>AdminB: hand off public key (out of band)
+
+    AdminB->>ServerB: trust-bootstrap-prepare(A's public key)
+    activate ServerB
+    Note over ServerB: gather realm, server, KDC/realm CA chain(s)<br/>generate random shared secret<br/>seal payload to A's public key (CMS/ML-KEM)<br/>store sealed blob keyed by one-time token<br/>trust_add --trust-secret (local only:<br/>configures B's own trust half)
+    deactivate ServerB
+    ServerB-->>AdminB: one-time token + B's hostname
+    AdminB-->>AdminA: hand off token + hostname (out of band)
+
+    AdminA->>ServerA: trust-bootstrap-retrieve(token, B's hostname, private key)
+    activate ServerA
+    ServerA->>ServerB: GET /ipa/session/trust_bootstrap_fetch?token=...<br/>(anonymous, unauthenticated -- token is the only credential)
+    ServerB-->>ServerA: sealed CMS blob (single-use, deleted on B after this)
+    Note over ServerA: open_and_verify with ML-KEM private key<br/>import KDC/realm CA chain(s)<br/>trust_add --trust-secret (local only:<br/>configures A's own trust half)
+    deactivate ServerA
+    ServerA-->>AdminA: trust established,<br/>run ipa-certupdate everywhere
+```
+
+Neither `ServerA` nor `ServerB` ever authenticates to the other realm in this
+exchange — the only cross-realm network call is the anonymous, token-gated
+fetch, and the only cross-admin interactions are the two out-of-band hand-offs
+shown with dashed arrows.
+
 Trust is established today using a shared secret exactly the way
 [one-way trust with shared secret](adtrust/oneway-trust-with-shared-secret.md)
 already works for Active Directory: each side writes its own local half of
@@ -347,6 +394,17 @@ configured at all (self-signed KDC certificate, or PKINIT not enabled), the
 command fails outright rather than silently sending an empty or misleading
 chain — run it from a PKINIT-enabled server instead.
 
+```mermaid
+flowchart TD
+    Start(["trust-bootstrap-prepare"]) --> ReadKDC["Read KDC PKINIT chain<br/>from paths.CACERT_PEM"]
+    ReadKDC --> KdcEmpty{"Missing or empty?"}
+    KdcEmpty -- Yes --> Fail(["Fail: run from a<br/>PKINIT-enabled server instead"])
+    KdcEmpty -- No --> ReadRealm["Read general realm CA chain<br/>via certstore.get_ca_certs()"]
+    ReadRealm --> Same{"Same certs as<br/>KDC chain?"}
+    Same -- Yes --> SendOne(["Seal payload with<br/>kdc_ca_certs only"])
+    Same -- No --> SendBoth(["Seal payload with<br/>kdc_ca_certs + realm_ca_certs"])
+```
+
 ##### CA chain propagation to enrolled clients
 
 `trust-bootstrap-retrieve` imports deployment B's `kdc_ca_certs` into
@@ -372,6 +430,17 @@ fleet-wide CA distribution mechanism anywhere in FreeIPA today. Until
 trust B's KDC certificates — for example, it cannot validate an anonymous
 PKINIT exchange against a KDC in B. `trust-bootstrap-retrieve` returns a
 summary reminding the administrator of this required follow-up step.
+
+```mermaid
+flowchart TD
+    Recv(["trust-bootstrap-retrieve<br/>opens sealed payload"]) --> ImportKdc["Import kdc_ca_certs:<br/>trusted=True,<br/>ext_key_usage={PKINIT_KDC, PKINIT_CLIENT_AUTH}"]
+    ImportKdc --> HasRealm{"realm_ca_certs<br/>present?"}
+    HasRealm -- No --> Done1(["Done -- kdc_ca_certs already<br/>covers both purposes"])
+    HasRealm -- Yes --> ImportRealm["Import realm_ca_certs:<br/>trusted=True (no PKINIT EKU)"]
+    ImportRealm --> Done2(["Done"])
+    Done1 --> Reminder(["Summary: run ipa-certupdate on every<br/>server, replica, and enrolled client"])
+    Done2 --> Reminder
+```
 
 This also means bidirectional CA trust is *not* implied by
 `--two-way=true`. That flag only marks the Kerberos trust object itself as
