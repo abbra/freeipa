@@ -41,6 +41,7 @@ extensions = [
     'sphinx.ext.intersphinx',
     'sphinx.ext.viewcode',
     'sphinxcontrib.plantuml',
+    'sphinxcontrib.mermaid',
     'm2r2',
 ]
 

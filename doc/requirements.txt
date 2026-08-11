@@ -35,3 +35,7 @@ lxml
 # Sequence diagrams generator
 sphinxcontrib-plantuml
 pillow
+
+# Mermaid diagrams (rendered client-side via mermaid.js, no native/JS build
+# dependency needed) -- used by doc/designs/ipa_to_ipa_trust.md
+sphinxcontrib-mermaid
