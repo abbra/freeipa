@@ -457,6 +457,9 @@ IPA API Commands
    topologysuffix_show.md
    topologysuffix_verify.md
    trust_add.md
+   trust_bootstrap_init.md
+   trust_bootstrap_prepare.md
+   trust_bootstrap_retrieve.md
    trust_del.md
    trust_enable_agent.md
    trust_fetch_domains.md

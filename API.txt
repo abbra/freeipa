@@ -6338,6 +6338,37 @@ option: Str('version?')
 output: Entry('result')
 output: Output('summary', type=[<type 'unicode'>, <type 'NoneType'>])
 output: PrimaryKey('value')
+command: trust_bootstrap_init/1
+args: 0,2,1
+option: StrEnum('kem_parameter_set?', autofill=True, cli_name='kem_parameter_set', default=u'ML-KEM-768', values=[u'ML-KEM-768', u'ML-KEM-1024'])
+option: Str('version?')
+output: Output('result')
+command: trust_bootstrap_prepare/1
+args: 1,9,1
+arg: Str('remote_domain', cli_name='remote_domain')
+option: Int('base_id?', cli_name='base_id')
+option: Bool('bidirectional?', cli_name='two_way', default=False)
+option: StrEnum('kem_parameter_set?', autofill=True, cli_name='kem_parameter_set', default=u'ML-KEM-768', values=[u'ML-KEM-768', u'ML-KEM-1024'])
+option: Int('range_size?', cli_name='range_size')
+option: StrEnum('range_type?', cli_name='range_type', values=[u'ipa-ad-trust-posix'])
+option: Bytes('remote_kem_public_key', cli_name='remote_kem_public_key')
+option: StrEnum('signature_algorithm?', autofill=True, cli_name='signature_algorithm', default=u'EC', values=[u'RSA', u'EC', u'ML-DSA'])
+option: Int('ttl?', autofill=True, cli_name='ttl', default=3600)
+option: Str('version?')
+output: Output('result')
+command: trust_bootstrap_retrieve/1
+args: 0,9,2
+option: Int('base_id?', cli_name='base_id')
+option: Bool('bidirectional?', cli_name='two_way', default=False)
+option: StrEnum('kem_parameter_set?', autofill=True, cli_name='kem_parameter_set', default=u'ML-KEM-768', values=[u'ML-KEM-768', u'ML-KEM-1024'])
+option: Bytes('kem_private_key', cli_name='kem_private_key')
+option: Int('range_size?', cli_name='range_size')
+option: StrEnum('range_type?', cli_name='range_type', values=[u'ipa-ad-trust-posix'])
+option: Str('server', cli_name='server')
+option: Str('token', cli_name='token')
+option: Str('version?')
+output: Output('result')
+output: Output('summary', type=[<type 'unicode'>, <type 'NoneType'>])
 command: trust_del/1
 args: 1,2,3
 arg: Str('cn+', cli_name='realm')
@@ -7689,6 +7720,9 @@ default: topologysuffix_show/1
 default: topologysuffix_verify/1
 default: trust/1
 default: trust_add/1
+default: trust_bootstrap_init/1
+default: trust_bootstrap_prepare/1
+default: trust_bootstrap_retrieve/1
 default: trust_del/1
 default: trust_enable_agent/1
 default: trust_fetch_domains/1

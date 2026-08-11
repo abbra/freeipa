@@ -86,8 +86,9 @@ define(IPA_DATA_VERSION, 20100614120000)
 #                                                      #
 ########################################################
 define(IPA_API_VERSION_MAJOR, 2)
-# Last change: add key_type_size option to config
-define(IPA_API_VERSION_MINOR, 257)
+# Last change: add trust_bootstrap_init, trust_bootstrap_prepare,
+# trust_bootstrap_retrieve commands
+define(IPA_API_VERSION_MINOR, 258)
 
 ########################################################
 # Following values are auto-generated from values above
