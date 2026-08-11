@@ -15,6 +15,12 @@
                   argument_passing_method="cmdline"
 		  prepend_user_name="no"/>
         </method>
+        <method name="bootstrap_fetch">
+          <helper exec="@ODDJOBDIR@/com.redhat.idm.trust-bootstrap-fetch"
+		  arguments="30"
+                  argument_passing_method="cmdline"
+		  prepend_user_name="no"/>
+        </method>
       </interface>
     </object>
   </service>

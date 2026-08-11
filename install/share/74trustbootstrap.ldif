@@ -1,0 +1,9 @@
+# IPA-IPA trust bootstrap schema
+#
+# Attributes:    2.16.840.1.113730.3.8.29.x
+# ObjectClasses: 2.16.840.1.113730.3.8.30.x
+#
+dn: cn=schema
+attributeTypes: ( 2.16.840.1.113730.3.8.29.1 NAME 'ipaTrustBootstrapCiphertext' DESC 'CMS(ML-KEM) sealed blob for a pending IPA-IPA trust bootstrap request' EQUALITY octetStringMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.40 SINGLE-VALUE X-ORIGIN 'IPA v5' )
+attributeTypes: ( 2.16.840.1.113730.3.8.29.2 NAME 'ipaTrustBootstrapExpires' DESC 'Expiration time of a pending IPA-IPA trust bootstrap request' EQUALITY generalizedTimeMatch ORDERING generalizedTimeOrderingMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.24 SINGLE-VALUE X-ORIGIN 'IPA v5' )
+objectclasses: ( 2.16.840.1.113730.3.8.30.1 NAME 'ipaTrustBootstrapRequest' DESC 'Pending IPA-IPA trust bootstrap ciphertext, retrievable once by token hash' SUP top STRUCTURAL MUST ( cn $ ipaTrustBootstrapCiphertext $ ipaTrustBootstrapExpires ) X-ORIGIN 'IPA v5' )

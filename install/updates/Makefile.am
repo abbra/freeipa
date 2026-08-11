@@ -68,6 +68,7 @@ app_DATA =				\
 	73-passkey.update		\
 	73-service-rbcd.update		\
 	75-user-trust-attributes.update	\
+	76-trust-bootstrap.update	\
 	78-ahdapa.update		\
 	79-akamu.update			\
 	80-schema_compat.update 	\

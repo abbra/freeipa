@@ -169,6 +169,16 @@ Alias /ipa/session/cookie "/usr/share/ipa/gssapi.login"
   Require all granted
 </Location>
 
+# Anonymous, token-gated retrieval of a sealed IPA-IPA trust bootstrap
+# package (see doc/designs/ipa_to_ipa_trust.md). The caller has no account
+# on this server, so it cannot pass through the Kerberos auth required by
+# the surrounding "/ipa" Location -- the one-time token itself is the sole
+# authorization check, applied inside trust_bootstrap_fetch.
+<Location "/ipa/session/trust_bootstrap_fetch">
+  Satisfy Any
+  Require all granted
+</Location>
+
 # Custodia stuff is redirected to the custodia daemon
 # after authentication
 <Location "/ipa/keys/">

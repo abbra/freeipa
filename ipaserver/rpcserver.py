@@ -27,6 +27,7 @@ from __future__ import absolute_import
 
 import base64
 import json
+import hashlib
 import logging
 from xml.sax.saxutils import escape
 import os
@@ -38,6 +39,8 @@ from sys import version_info
 from urllib.parse import parse_qs, urlparse
 from xmlrpc.client import Fault
 
+import dbus
+import dbus.mainloop.glib
 import gssapi
 import requests
 
@@ -1684,6 +1687,79 @@ class sync_token(Backend, HTTP_Status):
         output = _success_template % dict(title=str(title),
                                           message=str(message))
         return [output.encode('utf-8')]
+
+
+class trust_bootstrap_fetch(Backend, HTTP_Status):
+    """
+    Anonymous, single-use retrieval of a sealed IPA-IPA trust bootstrap
+    package (see ipaserver/plugins/trust_bootstrap.py and
+    doc/designs/ipa_to_ipa_trust.md). The caller has no account on this
+    server at all: possession of the one-time token is the only proof of
+    authorization, so this endpoint intentionally skips check_referer()
+    -- that CSRF check assumes a same-origin browser caller, which does
+    not apply to a different, not-yet-trusted realm's server fetching
+    this over a plain HTTP client.
+    """
+
+    content_type = 'application/octet-stream'
+    key = '/session/trust_bootstrap_fetch'
+
+    # Must match ipaserver.plugins.trust.DBUS_IFACE_TRUST. Not imported
+    # from there directly to avoid pulling a full plugin module into the
+    # core RPC server.
+    _DBUS_IFACE_TRUST = 'com.redhat.idm.trust'
+
+    def _on_finalize(self):
+        super(trust_bootstrap_fetch, self)._on_finalize()
+        self.api.Backend.wsgi_dispatch.mount(self, self.key)
+
+    def _fetch_via_oddjob(self, token_hash):
+        # Same quirks and 30-slot fixed-argument-count convention as
+        # fetch_trusted_domains_over_dbus() in ipaserver/plugins/trust.py
+        # (see install/oddjob/etc/oddjobd.conf.d/oddjobd-ipa-trust.conf.in).
+        dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+        bus = dbus.SystemBus()
+        intf = bus.get_object(
+            self._DBUS_IFACE_TRUST, "/", follow_name_owner_changes=True)
+        fetch_method = intf.get_dbus_method(
+            'bootstrap_fetch', dbus_interface=self._DBUS_IFACE_TRUST)
+        method_arguments = [token_hash] + [''] * 29
+        return fetch_method(*method_arguments)
+
+    def __call__(self, environ, start_response):
+        method = environ.get('REQUEST_METHOD', '').upper()
+        if method != 'GET':
+            return self.bad_request(
+                environ, start_response,
+                "HTTP request method must be GET")
+
+        query_dict = parse_qs(environ.get('QUERY_STRING', ''))
+        tokens = query_dict.get('token')
+        if not tokens or len(tokens) != 1:
+            return self.bad_request(
+                environ, start_response,
+                "exactly one token parameter is required")
+        token_hash = hashlib.sha256(tokens[0].encode('utf-8')).hexdigest()
+
+        try:
+            ret, stdout, _stderr = self._fetch_via_oddjob(token_hash)
+        except dbus.DBusException as e:
+            logger.error(
+                'trust_bootstrap_fetch: failed to call oddjobd helper: %s',
+                e)
+            ret, stdout = 1, ''
+
+        if ret != 0 or not stdout:
+            return self.not_found(
+                environ, start_response, environ.get('PATH_INFO', self.key),
+                "trust bootstrap package not found, expired, or already "
+                "retrieved")
+
+        sealed = b64decode(stdout)
+        start_response(
+            HTTP_STATUS_SUCCESS, [('Content-Type', self.content_type)])
+        return [sealed]
+
 
 class xmlserver_session(xmlserver, KerberosSession):
     """

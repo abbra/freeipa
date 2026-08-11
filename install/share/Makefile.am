@@ -29,6 +29,7 @@ dist_app_DATA =				\
 	71idviews.ldif			\
 	72domainlevels.ldif			\
 	73certmap.ldif			\
+	74trustbootstrap.ldif		\
 	anon-princ-aci.ldif		\
 	bootstrap-template.ldif		\
 	ca-topology.uldif		\

@@ -1,0 +1,79 @@
+#!/usr/bin/python3
+"""Single-use, root-privileged retrieval of a sealed IPA-IPA trust
+bootstrap package.
+
+Invoked by oddjobd on behalf of the httpd worker (running as the
+unprivileged `ipaapi` user) via the com.redhat.idm.trust D-Bus service's
+`bootstrap_fetch` method -- see
+install/oddjob/etc/oddjobd.conf.d/oddjobd-ipa-trust.conf.in. The httpd
+worker has no LDAP identity of its own to bind as for the anonymous
+callers this serves (see ipaserver/rpcserver.py:trust_bootstrap_fetch and
+ipaserver/plugins/trust_bootstrap.py), so the actual LDAP read+delete is
+delegated to this root-run helper, which connects over the local ldapi://
+socket and authenticates via SASL EXTERNAL (Directory Manager equivalent)
+the same way other root-invoked admin scripts do (e.g.
+ipa_idrange_fix.py's bare `api.Backend.ldap2.connect()`).
+
+Takes a single argument (the SHA-256 hex digest of the retrieval token);
+oddjobd always passes a fixed 30 argument slots, unused ones empty.
+Prints the base64-encoded sealed CMS blob to stdout and exits 0 if the
+entry was found and not expired (deleting it in the same operation, so
+a token can only ever be redeemed once); otherwise prints nothing and
+exits non-zero.
+"""
+
+import datetime
+import base64
+import sys
+
+from ipalib import api, errors
+from ipapython.ipautil import realm_to_suffix
+from ipapython.dn import DN
+from ipaplatform.paths import paths
+
+
+def main():
+    if len(sys.argv) < 2 or not sys.argv[1]:
+        # LSB status code 2: invalid or excess argument(s)
+        return 2
+    token_hash = sys.argv[1]
+
+    api.bootstrap(
+        in_server=True, log=None, context="server", confdir=paths.ETC_IPA)
+    api.finalize()
+    api.Backend.ldap2.connect()
+
+    suffix = realm_to_suffix(api.env.realm)
+    entry_dn = DN(
+        ('cn', token_hash), ('cn', 'trust bootstrap'), ('cn', 'ipa'),
+        ('cn', 'etc'), suffix)
+
+    try:
+        entry = api.Backend.ldap2.get_entry(
+            entry_dn,
+            ['ipatrustbootstrapciphertext', 'ipatrustbootstrapexpires'])
+    except errors.NotFound:
+        return 1
+
+    try:
+        expires = entry.single_value['ipatrustbootstrapexpires']
+        ciphertext = entry.single_value['ipatrustbootstrapciphertext']
+
+        # Delete on read regardless of expiry: a lookup, expired or not,
+        # consumes the one-time entry so it cannot be retried.
+        api.Backend.ldap2.delete_entry(entry_dn)
+
+        now = datetime.datetime.now(datetime.timezone.utc)
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=datetime.timezone.utc)
+        if now > expires:
+            return 1
+    except (KeyError, AttributeError):
+        return 1
+
+    sys.stdout.write(base64.b64encode(ciphertext).decode('ascii'))
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

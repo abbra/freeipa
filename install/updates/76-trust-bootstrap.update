@@ -1,0 +1,38 @@
+dn: cn=trust bootstrap,cn=ipa,cn=etc,$SUFFIX
+default: objectClass: top
+default: objectClass: nsContainer
+default: cn: trust bootstrap
+
+# trust-bootstrap-prepare (run under the admin's own authenticated bind, a
+# member of "trust admins") writes pending bootstrap ciphertext entries here.
+# The one-time fetch endpoint that later reads and deletes those entries runs
+# as a root-invoked oddjobd helper connecting to LDAP over ldapi:// autobind
+# (Directory Manager equivalent), so it needs no separate ACI here.
+add:aci: (target = "ldap:///cn=trust bootstrap,cn=ipa,cn=etc,$SUFFIX")(targetattr = "objectclass || cn || ipatrustbootstrapciphertext || ipatrustbootstrapexpires")(version 3.0;acl "Allow trust admins manage trust bootstrap requests"; allow (read,write,add,delete) groupdn="ldap:///cn=trust admins,cn=groups,cn=accounts,$SUFFIX";)
+
+# Virtual operations backing VirtualCommand.check_access() for the three
+# trust-bootstrap-* commands (ipaserver/plugins/trust_bootstrap.py), the
+# same mechanism cert_status/cert_request/etc. use in ipaserver/plugins/
+# cert.py -- see ipaserver/plugins/virtual.py. trust_bootstrap_init has no
+# LDAP write of its own to check an ACI against at all, and
+# trust_bootstrap_prepare/retrieve gate on this in addition to whatever
+# ACIs their actual LDAP writes (the entry above, trust_add) require.
+dn: cn=trust bootstrap init,cn=virtual operations,cn=etc,$SUFFIX
+default: objectClass: top
+default: objectClass: nsContainer
+default: cn: trust bootstrap init
+
+dn: cn=trust bootstrap prepare,cn=virtual operations,cn=etc,$SUFFIX
+default: objectClass: top
+default: objectClass: nsContainer
+default: cn: trust bootstrap prepare
+
+dn: cn=trust bootstrap retrieve,cn=virtual operations,cn=etc,$SUFFIX
+default: objectClass: top
+default: objectClass: nsContainer
+default: cn: trust bootstrap retrieve
+
+dn: $SUFFIX
+add:aci: (targetattr = "objectclass")(target = "ldap:///cn=trust bootstrap init,cn=virtual operations,cn=etc,$SUFFIX")(version 3.0;acl "Allow trust admins to bootstrap trust init"; allow (write) groupdn="ldap:///cn=trust admins,cn=groups,cn=accounts,$SUFFIX";)
+add:aci: (targetattr = "objectclass")(target = "ldap:///cn=trust bootstrap prepare,cn=virtual operations,cn=etc,$SUFFIX")(version 3.0;acl "Allow trust admins to bootstrap trust prepare"; allow (write) groupdn="ldap:///cn=trust admins,cn=groups,cn=accounts,$SUFFIX";)
+add:aci: (targetattr = "objectclass")(target = "ldap:///cn=trust bootstrap retrieve,cn=virtual operations,cn=etc,$SUFFIX")(version 3.0;acl "Allow trust admins to bootstrap trust retrieve"; allow (write) groupdn="ldap:///cn=trust admins,cn=groups,cn=accounts,$SUFFIX";)
