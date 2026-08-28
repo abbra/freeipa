@@ -73,6 +73,7 @@ app_DATA =				\
 	79-akamu.update			\
 	80-schema_compat.update 	\
 	81-externalmembers.update	\
+	82-ipa-trusts.update		\
 	90-post_upgrade_plugins.update	\
 	$(NULL)
 

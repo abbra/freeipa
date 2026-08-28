@@ -1,0 +1,14 @@
+# Container for the trusted domain objects (TDOs) of IPA-to-IPA trusts,
+# cn=<domain>,cn=ipa,cn=trusts,$SUFFIX, see
+# ipaserver/plugins/ipa_trust_kdb.py and
+# ipaserver/plugins/trust.py (make_trust_dn, trust_type 'ipa').
+#
+# The sibling cn=ad,cn=trusts container holding the Active Directory
+# trust TDOs is created by ipa-adtrust-install because it belongs to
+# the Samba/AD trust machinery; the IPA container is needed on every
+# deployment, so it is created at install/upgrade time like the rest
+# of the trust infrastructure (cn=trusts, cn=trust bootstrap).
+dn: cn=ipa,cn=trusts,$SUFFIX
+default: objectClass: top
+default: objectClass: nsContainer
+default: cn: ipa
