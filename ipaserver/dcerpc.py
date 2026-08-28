@@ -993,6 +993,8 @@ class TrustDomainInstance:
                          unicode(e),
                          unicode(result.pdc_name))
 
+        self.info['is_ipa'] = is_ipa
+
         if search_result:
             if is_ipa:
                 try:
@@ -1768,6 +1770,10 @@ def retrieve_remote_domain(hostname, local_flatname,
                         td.retrieve(rd.info['dns_hostname'])
                     else:
                         td.retrieve(realm_server)
+                    # The Kerberos-based retrieval does not probe the
+                    # rootDSE, carry over the IPA/AD detection that was
+                    # already done anonymously above
+                    td.info['is_ipa'] = rd.info.get('is_ipa', False)
             td.read_only = False
             return td
 

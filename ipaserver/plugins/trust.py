@@ -58,6 +58,7 @@ from ipaserver.dcerpc_common import (TRUST_ONEWAY,
                                      trust_direction_string,
                                      trust_status_string,
                                      ipatrust_encode_type)
+from ipaserver.plugins import ipa_trust_kdb
 from ipaserver.plugins.privilege import principal_has_privilege
 
 if six.PY3:
@@ -182,6 +183,45 @@ _trust_type_option = StrEnum(
          default=u'ad',
          autofill=True,
         )
+
+# trust-add has no default: the type is detected from the remote
+# deployment (see _resolve_trust_type) so that ipa trust-add works
+# the same way for both Active Directory and IPA targets
+_trust_add_type_option = StrEnum(
+    'trust_type?',
+    cli_name='type',
+    label=_('Trust type (ad for Active Directory, ipa for '
+            'another IPA deployment; detected automatically if '
+            'not specified)'),
+    values=(u'ad', u'ipa'),
+    default=None,
+    autofill=True,
+)
+
+
+def _resolve_trust_type(options, trusted_realm_domain, remote_is_ipa):
+    """Default or validate the --type option based on the detected
+    type of the remote deployment.
+
+    Mutates options['trust_type'] and returns the resolved value.
+    """
+    trust_type = options.get('trust_type')
+    if trust_type is None:
+        options['trust_type'] = u'ipa' if remote_is_ipa else u'ad'
+    elif remote_is_ipa and trust_type != u'ipa':
+        raise errors.ValidationError(
+            name='trust_type',
+            error=_('%s appears to be an IPA deployment, not Active '
+                    'Directory; use --type ipa')
+            % trusted_realm_domain)
+    elif not remote_is_ipa and trust_type == u'ipa':
+        raise errors.ValidationError(
+            name='trust_type',
+            error=_('%s does not appear to be an IPA deployment; use '
+                    '--type ad')
+            % trusted_realm_domain)
+    return options['trust_type']
+
 
 DEFAULT_RANGE_SIZE = 200000
 
@@ -670,7 +710,11 @@ This command establishes trust relationship to another domain
 which becomes 'trusted'. As result, users of the trusted domain
 may access resources of this domain.
 
-Only trusts to Active Directory domains are supported right now.
+Trusts to Active Directory domains as well as to other IPA
+deployments are supported. The type of the remote deployment is
+detected automatically, so --type is usually not required; specify
+it explicitly only if the automatic detection is not possible or
+you want to override it.
 
 The command can be safely run multiple times against the same domain,
 this will cause change to trust relationship credentials on both
@@ -689,14 +733,14 @@ ipa idrange-del before retrying the command with the desired range type.
                   }
 
     takes_options = LDAPCreate.takes_options + (
-        _trust_type_option,
+        _trust_add_type_option,
         Str('realm_admin?',
             cli_name='admin',
-            label=_("Active Directory domain administrator"),
+            label=_("Trusted domain administrator"),
             ),
         Password('realm_passwd?',
                  cli_name='password',
-                 label=_("Active Directory domain administrator's password"),
+                 label=_("Trusted domain administrator's password"),
                  confirm=False,
                  ),
         Str('realm_server?',
@@ -859,22 +903,71 @@ ipa idrange-del before retrying the command with the desired range type.
                 )
             )
 
-        if 'trust_type' not in options:
-            raise errors.RequirementError(name='trust_type')
-
-        if options['trust_type'] not in ('ad', 'ipa'):
-            raise errors.ValidationError(
-                name=_('trust type'),
-                error=_('only "ad" and "ipa" types are supported')
-            )
-
-        # Detect IPA-AD domain clash
+        # Detect domain clash with the remote deployment
         if self.api.env.domain.lower() == trusted_realm_domain.lower():
             raise errors.ValidationError(
                 name=_('domain'),
-                error=_('Cannot establish a trust to AD deployed in the same '
-                        'domain as IPA. Such setup is not supported.')
+                error=_('Cannot establish a trust to a deployment in the '
+                        'same domain as IPA. Such setup is not supported.')
+            )
+
+        self.realm_server = options.get('realm_server')
+        self.realm_admin = options.get('realm_admin')
+        self.realm_passwd = options.get('realm_passwd')
+
+        # Resolve the trust type:
+        #
+        # 1. An explicit --type is accepted as given; the local half
+        #    of the trust does not require reaching the remote domain
+        #    and the IPA path does not require Samba at all.
+        # 2. Otherwise, probe the remote deployment's LDAP server to
+        #    detect whether it is another IPA deployment or an Active
+        #    Directory forest; the probe is plain LDAP and does not
+        #    require Samba.
+        # 3. If the probe is inconclusive, fall back to the Samba-based
+        #    remote discovery when Samba is available.
+        self.trustinstance = None
+        remote_is_ipa = None
+        if options.get('trust_type') is None:
+            remote_type = ipa_trust_kdb.probe_remote_realm(
+                trusted_realm_domain, self.realm_server)
+            if remote_type is not None:
+                remote_is_ipa = (remote_type == 'ipa')
+
+        if remote_is_ipa is None and options.get('trust_type') is None:
+            self.trustinstance = ipaserver.dcerpc.TrustDomainJoins(self.api)
+            if not self.trustinstance.configured:
+                raise errors.NotFound(
+                    name=_('Trust setup'),
+                    reason=_(
+                        'Unable to determine the type of the remote '
+                        'deployment %s. Please specify it explicitly '
+                        'with the --type option (ad or ipa).'
+                    ) % trusted_realm_domain
                 )
+            self.trustinstance.populate_remote_domain(
+                trusted_realm_domain,
+                self.realm_server,
+                self.realm_admin,
+                self.realm_passwd)
+            remote_is_ipa = self.trustinstance.remote_domain.info.get(
+                'is_ipa', False)
+
+        if remote_is_ipa is not None:
+            _resolve_trust_type(options, trusted_realm_domain, remote_is_ipa)
+        else:
+            options['trust_type'] = options.get('trust_type')
+
+        self.trustinstance = ipaserver.dcerpc.TrustDomainJoins(self.api)
+        if not self.trustinstance.configured:
+            raise errors.NotFound(
+                name=_('AD Trust setup'),
+                reason=_(
+                    'Cannot perform join operation without own domain '
+                    'configured. Make sure you have run ipa-adtrust-install '
+                    'on the IPA server first'
+                )
+            )
 
         # If domain name and realm does not match, IPA server is not be able
         # to establish trust with Active Directory.
@@ -890,17 +983,6 @@ ipa idrange-del before retrying the command with the desired range type.
                         'domain name and the realm name of the IPA server '
                         'must match')
                 )
-
-        self.trustinstance = ipaserver.dcerpc.TrustDomainJoins(self.api)
-        if not self.trustinstance.configured:
-            raise errors.NotFound(
-                name=_('AD Trust setup'),
-                reason=_(
-                    'Cannot perform join operation without own domain '
-                    'configured. Make sure you have run ipa-adtrust-install '
-                    'on the IPA server first'
-                )
-            )
 
         # Obtain a list of IPA realm domains
         result = self.api.Command.realmdomains_show()['result']
@@ -918,10 +1000,6 @@ ipa idrange-del before retrying the command with the desired range type.
                     '"ipa realmdomains-mod --del-domain" command.'
                 ) % dict(domain=trusted_realm_domain)
             )
-
-        self.realm_server = options.get('realm_server')
-        self.realm_admin = options.get('realm_admin')
-        self.realm_passwd = options.get('realm_passwd')
 
         if self.realm_admin:
             names = self.realm_admin.split('@')
