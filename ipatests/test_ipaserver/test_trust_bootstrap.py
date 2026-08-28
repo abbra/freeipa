@@ -156,6 +156,9 @@ class TestTrustBootstrapPrepare:
         assert call_kwargs['trust_type'] == u'ipa'
         assert call_kwargs['bidirectional'] is False
         assert 'trust_secret' in call_kwargs
+        # IPA-to-IPA trusts must use POSIX ID ranges even when the
+        # admin does not pass --range-type
+        assert call_kwargs['range_type'] == u'ipa-ad-trust-posix'
 
         sealed = entry['ipatrustbootstrapciphertext'][0]
         plaintext, _cert = cms_kem.open_and_verify(sealed, kem_priv)
@@ -343,6 +346,9 @@ class TestTrustBootstrapRetrieve:
         assert call_kwargs['trust_type'] == u'ipa'
         assert call_kwargs['trust_secret'] == 's3cr3t'
         assert call_kwargs['realm_server'] == 'b-server.example.test'
+        # IPA-to-IPA trusts must use POSIX ID ranges even when the
+        # admin does not pass --range-type
+        assert call_kwargs['range_type'] == u'ipa-ad-trust-posix'
 
     def test_imports_both_chains_when_sent_separately(self):
         api = FakeApi()

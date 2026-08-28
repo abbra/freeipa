@@ -330,6 +330,9 @@ class trust_bootstrap_prepare(VirtualCommand):
         for opt in _TRUST_ADD_PASSTHROUGH:
             if opt in options:
                 trust_add_kw[opt] = options[opt]
+        # IPA-to-IPA trusts always use POSIX ID ranges; pass the type
+        # explicitly instead of relying on trust-add's discovery step
+        trust_add_kw.setdefault('range_type', u'ipa-ad-trust-posix')
         self.api.Command.trust_add(remote_domain, **trust_add_kw)
 
         return dict(result=dict(
@@ -470,6 +473,9 @@ class trust_bootstrap_retrieve(VirtualCommand):
         for opt in _TRUST_ADD_PASSTHROUGH:
             if opt in options:
                 trust_add_kw[opt] = options[opt]
+        # IPA-to-IPA trusts always use POSIX ID ranges; pass the type
+        # explicitly instead of relying on trust-add's discovery step
+        trust_add_kw.setdefault('range_type', u'ipa-ad-trust-posix')
         self.api.Command.trust_add(payload['domain'], **trust_add_kw)
 
         if realm_ca_certs:
