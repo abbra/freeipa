@@ -20,8 +20,11 @@
 
 import dbus
 import dbus.mainloop.glib
+import hashlib
 import logging
+import os
 import secrets
+import tempfile
 
 import six
 
@@ -47,7 +50,10 @@ from ipapython.ipautil import (format_netloc, private_ccache,
                                private_krb5_config, realm_to_suffix)
 from ipalib import api, Str, StrEnum, Password, Bool, _, ngettext, Int, Flag
 from ipalib import create_api
+from ipalib import x509
+from ipalib.install import certstore
 from ipalib.kinit import kinit_password
+from ipalib.util import create_https_connection
 from ipalib import Command
 from ipalib import errors
 from ipalib import messages
@@ -227,9 +233,112 @@ def _resolve_trust_type(options, trusted_realm_domain, remote_is_ipa):
     return options['trust_type']
 
 
+def _fetch_remote_ipa_ca_chain(server):
+    """Fetch the remote deployment's CA chain without TLS verification.
+
+    GETs the public ``/ipa/config/ca.crt`` endpoint (the same artifact
+    ipa-client-install downloads) over a connection that deliberately
+    does not verify the server certificate. This is the
+    trust-on-first-use step of the full-credentials IPA-to-IPA trust
+    flow: it only runs after verification against the local CA bundle
+    failed, and the fetched chain is only acted upon after the
+    caller's trust decision.
+    """
+    conn = None
+    try:
+        conn = create_https_connection(server, 443, no_verify=True)
+        conn.request('GET', '/ipa/config/ca.crt')
+        response = conn.getresponse()
+        if response.status != 200:
+            logger.warning(
+                'trust-add: %s /ipa/config/ca.crt returned HTTP %d',
+                server, response.status)
+            return None
+        return response.read()
+    except OSError as e:
+        logger.warning('trust-add: unable to fetch the CA chain of %s: %s',
+                       server, e)
+        return None
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def _build_remote_ipa_ca_verifier(server, ca_chain_file):
+    """Build the cert_verifier used for the remote IPA half.
+
+    The returned callable is run by the RPC transport
+    (SSLTransport.make_connection in ipalib/rpc.py) when the
+    connection to the remote server fails TLS verification against the
+    local CA bundle -- the remote deployment's CA is not trusted
+    locally yet, which is exactly what the full-credentials flow
+    bootstraps. It returns a path to a CA bundle for the transport to
+    retry verification against, or None to fail.
+
+    When a --ca-chain file is given, it is used as the trust anchor
+    as-is (strict mode): the TLS handshake itself rejects the
+    connection if the server's certificate does not chain to it. Otherwise
+    the chain is fetched from the remote's public /ipa/config/ca.crt
+    endpoint and imported into the local CA store (trust on first use,
+    mirroring the import trust-bootstrap-retrieve performs). The chain
+    matters for what TLS trusts afterwards (e.g. PKINIT against the
+    remote KDC); the API session itself is independently bound to the
+    remote realm by GSSAPI authentication to its HTTP service principal
+    with mutual authentication, which a forged CA chain cannot
+    reproduce.
+
+    Returns (verifier, imported_certs); imported_certs is filled as the
+    verifier runs and feeds the command summary so the administrator
+    can cross-check the imported certificates out of band.
+    """
+    imported = []
+
+    def verifier(host):
+        if ca_chain_file:
+            with open(ca_chain_file, 'rb') as f:
+                chain = f.read()
+        else:
+            chain = _fetch_remote_ipa_ca_chain(host)
+            if chain is None:
+                return None
+
+        try:
+            certs = x509.load_certificate_list(chain)
+        except (ValueError, TypeError) as e:
+            logger.error('trust-add: cannot parse the CA chain of %s: %s',
+                         host, e)
+            return None
+        if not certs:
+            return None
+
+        if ca_chain_file is None:
+            # Trust on first use: make this deployment trust the chain
+            # persistently, mirroring the trust-bootstrap-retrieve
+            # import (trusted for general use and marked good for
+            # PKINIT/KDC validation)
+            ldap = api.Backend.ldap2
+            for index, cert in enumerate(certs):
+                nickname = u'%s IPA CA %d' % (api.env.realm, index)
+                certstore.put_ca_cert(
+                    ldap, api.env.basedn, cert, nickname, trusted=True,
+                    ext_key_usage={x509.EKU_PKINIT_KDC,
+                                   x509.EKU_PKINIT_CLIENT_AUTH})
+                imported.append(cert)
+
+        fd, path = tempfile.mkstemp(prefix='ipa-trust-add-ca-',
+                                    suffix='.pem')
+        os.write(fd, chain)
+        os.close(fd)
+        os.chmod(path, 0o600)
+        return path
+
+    return verifier, imported
+
+
 def configure_remote_ipa_half(remote_domain, realm_server, realm_admin,
                               realm_passwd, local_domain, local_server,
-                              trust_secret, bidirectional):
+                              trust_secret, bidirectional,
+                              ca_chain_file=None):
     """Configure the other IPA deployment's own half of the trust.
 
     Authenticates to the remote deployment's IPA API as the given
@@ -238,12 +347,20 @@ def configure_remote_ipa_half(remote_domain, realm_server, realm_admin,
     trust object, the cross-realm principal and the ID range that
     maps our deployment's users and groups.
 
-    The remote deployment's CA must be trusted locally for the API
-    connection (e.g. import its CA chain with ipa-client-install or
-    ipa-certupdate); see the subsequent trust-on-first-use support.
+    The remote deployment's CA is not trusted locally yet, so the API
+    connection is anchored through a cert_verifier (see
+    _build_remote_ipa_ca_verifier): the --ca-chain file when given,
+    otherwise the chain fetched from the remote's public
+    /ipa/config/ca.crt endpoint and imported into the local CA store
+    (trust on first use).
+
+    Returns the list of CA certificates imported from the remote
+    deployment (empty when --ca-chain was given or the remote chain
+    was already trusted locally).
     """
     principal = u'%s@%s' % (realm_admin, remote_domain.upper())
     server = realm_server or remote_domain
+    imported = []
     with private_krb5_config(remote_domain, realm_server, dir='/tmp'):
         with private_ccache():
             try:
@@ -260,6 +377,11 @@ def configure_remote_ipa_half(remote_domain, realm_server, realm_admin,
                 context='installer',
                 confdir=paths.ETC_IPA,
                 xmlrpc_uri=u'https://%s/ipa/xml' % format_netloc(server))
+            verifier, imported = _build_remote_ipa_ca_verifier(
+                server, ca_chain_file)
+            # The cert_verifier is per-thread and must not outlive this
+            # call, whatever its outcome
+            context.cert_verifier = verifier
             remote_api.finalize()
             try:
                 remote_api.Command.trust_add(
@@ -269,7 +391,9 @@ def configure_remote_ipa_half(remote_domain, realm_server, realm_admin,
                     realm_server=local_server,
                     bidirectional=bidirectional)
             finally:
+                context.cert_verifier = None
                 remote_api.finalize()
+    return imported
 
 
 DEFAULT_RANGE_SIZE = 200000
@@ -810,6 +934,12 @@ ipa idrange-del before retrying the command with the desired range type.
                  label=_("Trusted domain administrator's password"),
                  confirm=False,
                  ),
+        Str('ca_chain?',
+            cli_name='ca_chain',
+            label=_('PEM file with the CA chain of the trusted IPA '
+                    'deployment (only with --type ipa, --admin and '
+                    '--password)'),
+            ),
         Str('realm_server?',
             cli_name='server',
             label=_('Domain controller for the Active Directory domain '
@@ -1102,6 +1232,20 @@ ipa idrange-del before retrying the command with the desired range type.
                     name=_('AD Trust setup'),
                     error=_('Realm administrator password should be specified')
                 )
+
+            ca_chain = options.get('ca_chain')
+            if ca_chain is not None:
+                if options.get('trust_type') not in (None, u'ipa'):
+                    raise errors.ValidationError(
+                        name='ca_chain',
+                        error=_('The --ca-chain option is only supported '
+                                'for IPA-to-IPA trusts (--type ipa)'))
+                if not (os.path.isfile(ca_chain)
+                        and os.access(ca_chain, os.R_OK)):
+                    raise errors.ValidationError(
+                        name='ca_chain',
+                        error=_('File %s does not exist or is not readable')
+                        % ca_chain)
             return True
 
         return False
@@ -1358,7 +1502,7 @@ ipa idrange-del before retrying the command with the desired range type.
         # Configure the remote deployment's own half of the trust
         # (trust object, cross-realm principals and the ID range that
         # maps our domain) through its own IPA API
-        configure_remote_ipa_half(
+        imported_certs = configure_remote_ipa_half(
             domain,
             self.realm_server,
             self.realm_admin,
@@ -1366,13 +1510,28 @@ ipa idrange-del before retrying the command with the desired range type.
             self.api.env.domain,
             self.api.env.host,
             trust_secret,
-            bool(options.get('bidirectional', False)))
+            bool(options.get('bidirectional', False)),
+            options.get('ca_chain'))
 
         ret = dict(
             value=pkey_to_value(domain, options),
             verified=True
         )
-        if dn:
+        if imported_certs:
+            fingerprints = u', '.join(
+                hashlib.sha256(
+                    cert.public_bytes(x509.Encoding.DER)).hexdigest()
+                for cert in imported_certs)
+            ret['summary'] = (
+                _('Trusted CA chain of %(domain)s imported (%(count)d '
+                  'certificate(s), SHA-256 fingerprints: '
+                  '%(fingerprints)s). Run ipa-certupdate on every '
+                  'server, replica and enrolled client of this '
+                  'deployment so they trust %(domain)s KDC '
+                  'certificates.')
+                % dict(domain=domain, count=len(imported_certs),
+                       fingerprints=fingerprints))
+        elif dn:
             ret['summary'] = self.msg_summary_existing % ret
         return ret
 
