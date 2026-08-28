@@ -202,6 +202,68 @@ account credential or an Anonymous PKINIT service is used for this purpose. If
 Kerberos realms aren’t trusting each other yet, one cannot reuse the existing
 own realm’s PKINIT infrastructure to obtain a local FAST channel.
 
+#### The local half, without Samba
+
+Both variants of the exchange end in an ordinary `trust-add --type ipa`
+(possibly with an explicitly given `--trust-secret`) on each side, and that
+command configures the local half of the trust natively — no Samba,
+no DCE RPC, no `ipasam` involvement, only the local LDAP directory and the
+local KDC. The implementation lives in `ipaserver/plugins/ipa_trust_kdb.py`
+and intentionally reuses the exact entry layout that `ipasam` writes for
+Active Directory trusts (see `ipasam_set_trusted_domain()` and
+`handle_cross_realm_princs()` in `daemons/ipa-sam/ipa_sam.c`), so everything
+downstream — SSSD, the trust agents, the KDC — sees a uniform structure
+regardless of the trust type:
+
+* **Trusted domain object (TDO).** A single LDAP entry
+  `cn=<remote-domain>,cn=ipa,cn=trusts,<suffix>` (object classes
+  `ipaNTTrustedDomain`, `ipaIDObject`, `posixAccount`, plus the
+  `ipaTrustObject` auxiliary class and `ipaPartnerTrustType` added by the
+  command itself, the same way as for AD trusts). Its
+  `ipaNTTrustAuthIncoming`/`ipaNTTrustAuthOutgoing` attributes carry the
+  shared secret NDR-encoded as `trustAuthInOutBlob`, byte-identical to
+  Samba’s `ndr_pack()` output for the same secret; `ipaNTFlatName`,
+  `ipaNTTrustPartner`, `ipaNTTrustType`, `ipaNTTrustDirection` and
+  `ipaNTSupportedEncryptionTypes` are set to the IPA-to-IPA-appropriate
+  values (inbound by default, `--two-way` adds outbound). There is no
+  `ipaNTTrustedDomainSID`: neither deployment uses SIDs. The TDO account’s
+  `gidNumber` is resolved from the local Samba domain entry’s
+  `ipaNTFallbackPrimaryGroup` when an AD trust has been installed on the
+  same deployment and falls back to the root group otherwise — the account
+  (`uid=<remote-flat>$`, `uidNumber=-1`, `homeDirectory=/dev/null`) has no
+  real login. The `cn=ipa,cn=trusts` container is created at install and
+  upgrade time (`install/updates/82-ipa-trusts.update`), the way
+  `cn=trusts` and the `cn=trust bootstrap` container are.
+* **Cross-realm principals.** One principal per direction, created as
+  child entries of the TDO, mirroring `handle_cross_realm_princs()`:
+  - inbound: `krbtgt/<LOCAL.REALM>@<REMOTE.REALM>`, enabled, keyed with the
+    shared secret, and the trust-agent principal
+    `krbtgt/<LOCAL-flat>@<REMOTE.REALM>` (aliased
+    `<LOCAL-flat$>@<REMOTE.REALM>`), also keyed with the secret but with
+    ticket issuance disabled (`krbTicketFlags` =
+    `KRB_DISALLOW_ALL_TIX`); read access to its key is granted to the trust
+    agent account and the `trust admins` group via
+    `ipaAllowedToPerform;read_keys`, exactly as ipasam does for AD trusts;
+  - outbound (only with `--two-way`): `krbtgt/<REMOTE.REALM>@<LOCAL.REALM>`
+    and `krbtgt/<REMOTE-flat>@<LOCAL.REALM>` (aliased
+    `<REMOTE-flat$>@<LOCAL.REALM>`), both enabled.
+
+  The keys are derived from the shared secret and set through the
+  `2.16.840.1.113730.3.8.10.5` keytab extended operation handled by
+  `ipa_pwd_extop.c`’s `ipapwd_getkeytab()`; the `GetKeytabControl` request
+  is BER-encoded byte-identically to the C reference encoder
+  `ipaasn1_enc_getkt()` (`asn1/ipa_asn1.c`).
+* **ID range.** `trust-add` maps the remote deployment’s users and groups
+  with an `ipa-ad-trust-posix` ID range (global POSIX mapping, no
+  per-subdomain ranges, no SID space to discover) — see
+  `validate_range`/`add_range` in `ipaserver/plugins/trust.py`.
+
+The command is idempotent: re-running it updates the existing TDO and
+principals (rotating the keys when a new secret is given) rather than
+failing on the already-existing entries. The remote half is configured by
+the two variants below, which authenticate to the remote deployment’s own
+IPA API — the remote deployment’s Samba is never involved either.
+
 #### Bootstrapping authentication using encrypted CMS(KEM)
 
 The paragraph above identifies the actual obstacle: creating a trust from IPA
@@ -360,12 +422,25 @@ tamper-evidence and binds the response to a specific signing key for the
 duration of that one exchange, but on first contact there is no independent
 way to verify that the embedded signing certificate really belongs to
 deployment B's administrator; this is an accepted, explicitly documented
-trade-off rather than an oversight. As with the Active Directory shared-secret
-flow, establishing trust this way still relies on the existing
-Samba/`ipa-adtrust-install` machinery on both sides for the actual trust
-object bookkeeping — decoupling `--type ipa` trusts from that Samba
-requirement, so that the "no DCE RPC services" goal stated earlier in this
-document is fully realized, is left as follow-up work.
+trade-off rather than an oversight. And unlike that AD shared-secret flow,
+which relies on the Samba/`ipa-adtrust-install` machinery on both sides for
+the actual trust object bookkeeping, the local half of a `--type ipa` trust
+is implemented natively, without Samba at all (see "The local half, without
+Samba" below) — `ipa-adtrust-install` is not a prerequisite for IPA-to-IPA
+trusts, so the "no DCE RPC services" goal stated earlier in this document is
+fully realized.
+
+#### Trust type auto-detection
+
+`trust-add` detects the type of the remote deployment during the initial
+domain lookup: if the remote LDAP rootDSE carries the `ipaDomainLevel`
+attribute, the domain is another IPA deployment, otherwise it is an Active
+Directory forest. `--type` is therefore optional and is usually omitted; it
+defaults to the detected type, and an explicitly given type that contradicts
+the detection is rejected with a validation error. The type determines the
+local bookkeeping — IPA trusts always use `ipa-ad-trust-posix` ID ranges and
+skip the Active Directory-specific ID space discovery — so an undetected or
+misdetected target can never silently produce an unusable range mapping.
 
 ##### Which CA chain(s) get sent
 
@@ -457,10 +532,13 @@ with `--two-way=true`.
 
 ##### How to use
 
-`ipa-adtrust-install` must already have been run on both deployments, and
-both administrators must be members of the `trust admins` group. Deployment
-A is requesting the trust; deployment B is providing it — the roles are
-symmetric and either side can play either one.
+Both deployments must be at a release that creates the `cn=ipa,cn=trusts`
+container at install/upgrade time (see "The local half, without Samba"
+above), and both administrators must be members of the `trust admins`
+group. Unlike Active Directory trusts, `ipa-adtrust-install` is **not** a
+prerequisite: the IPA-to-IPA flow never touches Samba. Deployment A is
+requesting the trust; deployment B is providing it — the roles are symmetric
+and either side can play either one.
 
 The raw commands take base64 key material and a token directly as option
 values, which works but means copying long blobs between terminals by hand.
@@ -533,4 +611,84 @@ The raw, non-file option names (`--remote-kem-public-key`,
 `--kem-private-key`, `--server`, `--token`) still work directly wherever a
 `--*-file` alternative is shown above, for scripting or when copying a
 short value by hand is more convenient than moving a file.
+
+### Full-credentials variant of `trust-add`
+
+The bootstrap exchange above exists precisely because neither
+administrator has a credential in the other realm. When one does — for
+example when the deployments are managed by the same team —
+`trust-add` can be given the remote deployment's administrator
+credentials directly and does all of the work itself, from a single
+server, in a single command:
+
+```
+ipa trust-add b.example.test --admin admin --password [secret] [--two-way]
+```
+
+The deployment type is detected automatically (see "Trust type
+auto-detection" above), so no `--type` is needed. What the command
+does on each side:
+
+* Locally, it generates a fresh random shared secret and configures
+  the local half of the trust — the trust object, the cross-realm
+  principal and the ID range mapping deployment B's users and groups
+  (always `ipa-ad-trust-posix` for IPA-to-IPA trusts).
+* On the remote deployment, it authenticates to its IPA API as the
+  given administrator (Kerberos, using the supplied password) and runs
+  the local-only `trust-add` there with the *same* secret, creating
+  the remote half: the trust object, the matching cross-realm
+  principal and the ID range mapping deployment A's users and groups.
+
+The result is equivalent to the bootstrap exchange with roles
+assigned so that the side running the command is the requester —
+except that B's CA chain is not delivered through the sealed package
+but established *internally* by the same command, and no out-of-band
+exchange of artifacts happens at all. As with the shared-secret
+bootstrap flow, running the exchange again (with either mechanism)
+re-establishes the trust with a newly generated secret on both sides.
+
+##### Anchoring the remote API call: trust on first use
+
+One thing the bootstrap exchange delivers for free is B's CA chain:
+A cannot verify B's HTTPS/TLS (and therefore cannot even reach B's
+API) before it has B's CA. The full-credentials flow performs the
+same step internally, so the command is self-contained:
+
+1. A kinit's as `admin@B_REALM` using the supplied password (pure
+   Kerberos; needs only the realm name, no CA chain).
+2. A connects to `https://<B>/ipa/xml`. Verification against A's
+   local CA bundle fails — B's CA is not trusted yet. The RPC
+   transport supports a per-connection `cert_verifier` hook for
+   exactly this: when verification fails and a verifier is installed,
+   the verifier may establish trust by other means and the
+   connection is retried once with full verification against the
+   anchor it returns (`SSLTransport.make_connection` in
+   `ipalib/rpc.py`).
+3. The verifier A installs for this flow either
+   * uses the `--ca-chain=FILE` option as the anchor as-is (strict
+     mode, zero TOFU: the admin obtained B's chain out of band, and
+     the TLS handshake itself rejects the connection if B's
+     certificate does not chain to it), or
+   * fetches B's deployment CA chain from its public
+     `/ipa/config/ca.crt` endpoint (the same artifact
+     `ipa-client-install` downloads) over a deliberately
+     unverified connection — trust on first use — and imports it
+     into A's CA store exactly like `trust-bootstrap-retrieve` does
+     (trusted for general use, marked good for PKINIT/KDC
+     validation).
+4. The API session itself is independently bound to the remote
+   realm: it authenticates with GSSAPI against B's `HTTP/<host>`
+   service principal with mutual authentication, which a forged CA
+   chain alone cannot reproduce (the attacker would need B's KDC).
+   The command summary reports every imported certificate's subject
+   and SHA-256 fingerprint so the administrator can cross-check the
+   accepted chain out of band, and reminds to run `ipa-certupdate`
+   on every server and client of the deployment so they trust B's
+   KDC certificates (PKINIT) too — the same propagation caveat as
+   the sealed-blob flow above.
+
+With `--ca-chain` the flow has no TOFU at all; without it, TOFU is
+an accepted and documented tradeoff, consistent with the one the
+sealed-blob flow makes (there the retrieval token is the security
+boundary, here the GSSAPI-bound API session is).
 
