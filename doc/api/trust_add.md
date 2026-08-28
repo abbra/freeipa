@@ -7,7 +7,11 @@ This command establishes trust relationship to another domain
 which becomes 'trusted'. As result, users of the trusted domain
 may access resources of this domain.
 
-Only trusts to Active Directory domains are supported right now.
+Trusts to Active Directory domains as well as to other IPA
+deployments are supported. The type of the remote deployment is
+detected automatically, so --type is usually not required; specify
+it explicitly only if the automatic detection is not possible or
+you want to override it.
 
 The command can be safely run multiple times against the same domain,
 this will cause change to trust relationship credentials on both
@@ -25,17 +29,17 @@ ipa idrange-del before retrying the command with the desired range type.
 |cn|:ref:`Str<Str>`|True
 
 ### Options
-* trust_type : :ref:`StrEnum<StrEnum>` **(Required)**
- * Default: ad
- * Values: ('ad', 'ipa')
 * all : :ref:`Flag<Flag>` **(Required)**
  * Default: False
 * raw : :ref:`Flag<Flag>` **(Required)**
  * Default: False
 * setattr : :ref:`Str<Str>`
 * addattr : :ref:`Str<Str>`
+* trust_type : :ref:`StrEnum<StrEnum>`
+ * Values: ('ad', 'ipa')
 * realm_admin : :ref:`Str<Str>`
 * realm_passwd : :ref:`Password<Password>`
+* ca_chain : :ref:`Str<Str>`
 * realm_server : :ref:`Str<Str>`
 * trust_secret : :ref:`Password<Password>`
 * base_id : :ref:`Int<Int>`
