@@ -21,6 +21,7 @@
 import dbus
 import dbus.mainloop.glib
 import logging
+import secrets
 
 import six
 
@@ -42,8 +43,11 @@ from .baseldap import (
 from .dns import dns_container_exists
 from ipaplatform.paths import paths
 from ipapython.dn import DN
-from ipapython.ipautil import realm_to_suffix
+from ipapython.ipautil import (format_netloc, private_ccache,
+                               private_krb5_config, realm_to_suffix)
 from ipalib import api, Str, StrEnum, Password, Bool, _, ngettext, Int, Flag
+from ipalib import create_api
+from ipalib.kinit import kinit_password
 from ipalib import Command
 from ipalib import errors
 from ipalib import messages
@@ -223,6 +227,51 @@ def _resolve_trust_type(options, trusted_realm_domain, remote_is_ipa):
     return options['trust_type']
 
 
+def configure_remote_ipa_half(remote_domain, realm_server, realm_admin,
+                              realm_passwd, local_domain, local_server,
+                              trust_secret, bidirectional):
+    """Configure the other IPA deployment's own half of the trust.
+
+    Authenticates to the remote deployment's IPA API as the given
+    administrator and runs a local-only trust_add there with the same
+    shared secret as our half. This creates on the remote side the
+    trust object, the cross-realm principal and the ID range that
+    maps our deployment's users and groups.
+
+    The remote deployment's CA must be trusted locally for the API
+    connection (e.g. import its CA chain with ipa-client-install or
+    ipa-certupdate); see the subsequent trust-on-first-use support.
+    """
+    principal = u'%s@%s' % (realm_admin, remote_domain.upper())
+    server = realm_server or remote_domain
+    with private_krb5_config(remote_domain, realm_server, dir='/tmp'):
+        with private_ccache():
+            try:
+                kinit_password(principal, realm_passwd)
+            except (RuntimeError, OSError) as e:
+                raise errors.ValidationError(
+                    name='realm_admin',
+                    error=_('Unable to authenticate to %s as %s: %s')
+                    % (remote_domain, principal, e))
+
+            remote_api = create_api(mode=None)
+            remote_api.bootstrap(
+                in_server=True,
+                context='installer',
+                confdir=paths.ETC_IPA,
+                xmlrpc_uri=u'https://%s/ipa/xml' % format_netloc(server))
+            remote_api.finalize()
+            try:
+                remote_api.Command.trust_add(
+                    local_domain,
+                    trust_type=u'ipa',
+                    trust_secret=trust_secret,
+                    realm_server=local_server,
+                    bidirectional=bidirectional)
+            finally:
+                remote_api.finalize()
+
+
 DEFAULT_RANGE_SIZE = 200000
 
 DBUS_IFACE_TRUST = 'com.redhat.idm.trust'
@@ -355,7 +404,9 @@ def add_range(myapi, trustinstance, range_name, dom_sid, *keys, **options):
     information contained in the Active Directory.
 
     If that was not successful, we go for our usual defaults (random base,
-    range size 200 000, ipa-ad-trust range type).
+    range size 200 000, ipa-ad-trust range type). IPA-to-IPA trusts
+    always use the ipa-ad-trust-posix range type and skip the AD
+    discovery step.
 
     Any of these can be overridden by passing appropriate CLI options
     to the trust-add command.
@@ -367,9 +418,14 @@ def add_range(myapi, trustinstance, range_name, dom_sid, *keys, **options):
 
     # First, get information about ID space from AD
     # However, we skip this step if other than ipa-ad-trust-posix
-    # range type is enforced
+    # range type is enforced, or if this is an IPA-to-IPA trust where
+    # the msSFU30DomainInfo object does not exist in the target
+    # deployment to begin with
 
-    if options.get('range_type', None) in (None, u'ipa-ad-trust-posix'):
+    is_ipa_trust = options.get('trust_type') == u'ipa'
+    explicit_range_type = options.get('range_type')
+    if not is_ipa_trust and \
+            explicit_range_type in (None, u'ipa-ad-trust-posix'):
 
         # Get the base dn
         domain = keys[-1]
@@ -437,6 +493,11 @@ def add_range(myapi, trustinstance, range_name, dom_sid, *keys, **options):
     # Second, options given via the CLI options take precedence to discovery
     if options.get('range_type', None):
         range_type = options.get('range_type', None)
+    elif options.get('trust_type') == u'ipa':
+        # IPA-to-IPA trusts use POSIX ID ranges so that the trusted
+        # deployment's users and groups resolve consistently on both
+        # sides of the trust
+        range_type = u'ipa-ad-trust-posix'
     elif not range_type:
         range_type = u'ipa-ad-trust'
 
@@ -449,20 +510,26 @@ def add_range(myapi, trustinstance, range_name, dom_sid, *keys, **options):
         base_id = options.get('base_id', None)
     elif not base_id:
         # Generate random base_id if not discovered nor given via CLI
+        # IPA-to-IPA trusts have no domain SID, use the domain name as
+        # the seed in that case
+        seed = dom_sid if dom_sid is not None else keys[-1]
+        if not isinstance(seed, bytes):
+            seed = seed.encode('utf-8')
         base_id = DEFAULT_RANGE_SIZE + (
             pysss_murmur.murmurhash3(
-                dom_sid,
-                len(dom_sid), 0xdeadbeef
+                seed,
+                len(seed), 0xdeadbeef
             ) % 10000
         ) * DEFAULT_RANGE_SIZE
 
     # Finally, add new ID range
-    myapi.Command['idrange_add'](range_name,
-                                 ipabaseid=base_id,
-                                 ipaidrangesize=range_size,
-                                 ipabaserid=0,
-                                 iparangetype=range_type,
-                                 ipanttrusteddomainsid=dom_sid)
+    idrange_args = dict(ipabaseid=base_id,
+                        ipaidrangesize=range_size,
+                        ipabaserid=0,
+                        iparangetype=range_type)
+    if dom_sid is not None:
+        idrange_args['ipanttrusteddomainsid'] = dom_sid
+    myapi.Command['idrange_add'](range_name, **idrange_args)
 
     # Return the values that were generated inside this function
     return range_type, range_size, base_id
@@ -810,17 +877,19 @@ ipa idrange-del before retrying the command with the desired range type.
     def execute(self, *keys, **options):
         ldap = self.obj.backend
 
-        verify_samba_component_presence(ldap, self.api)
-
         full_join = self.validate_options(*keys, **options)
         old_range, range_name, dom_sid = self.validate_range(*keys, **options)
 
         # Dispatch to the correct trust establishing procedure
-        # Right now they are the same but allow differentiating to future
         if options.get('trust_type') == 'ad':
+            # The AD path relies on the local Samba/AD trust machinery
+            # (DCE RPC trust services, ipasam); the IPA-to-IPA path is
+            # native (ipaserver/plugins/ipa_trust_kdb.py) and never
+            # touches Samba
+            verify_samba_component_presence(ldap, self.api)
             result = self.execute_ad(full_join, *keys, **options)
         elif options.get('trust_type') == 'ipa':
-            result = self.execute_ad(full_join, *keys, **options)
+            result = self.execute_ipa(full_join, *keys, **options)
 
         if not old_range:
             # Store the created range type, since for POSIX trusts no
@@ -958,16 +1027,27 @@ ipa idrange-del before retrying the command with the desired range type.
         else:
             options['trust_type'] = options.get('trust_type')
 
-        self.trustinstance = ipaserver.dcerpc.TrustDomainJoins(self.api)
-        if not self.trustinstance.configured:
-            raise errors.NotFound(
-                name=_('AD Trust setup'),
-                reason=_(
-                    'Cannot perform join operation without own domain '
-                    'configured. Make sure you have run ipa-adtrust-install '
-                    'on the IPA server first'
-                )
-            )
+        # The AD path is Samba-based and needs the full information
+        # about the remote domain
+        if options['trust_type'] == u'ad':
+            if self.trustinstance is None:
+                self.trustinstance = ipaserver.dcerpc.TrustDomainJoins(
+                    self.api)
+                if not self.trustinstance.configured:
+                    raise errors.NotFound(
+                        name=_('AD Trust setup'),
+                        reason=_(
+                            'Cannot perform join operation without own '
+                            'domain configured. Make sure you have run '
+                            'ipa-adtrust-install on the IPA server first'
+                        )
+                    )
+            if self.trustinstance.remote_domain is None:
+                self.trustinstance.populate_remote_domain(
+                    trusted_realm_domain,
+                    self.realm_server,
+                    self.realm_admin,
+                    self.realm_passwd)
 
         # If domain name and realm does not match, IPA server is not be able
         # to establish trust with Active Directory.
@@ -1071,34 +1151,38 @@ ipa idrange-del before retrying the command with the desired range type.
                 )
             )
 
-        # If a range for this trusted domain already exists,
-        # domain SID must also match
-        self.trustinstance.populate_remote_domain(
-            keys[-1],
-            self.realm_server,
-            self.realm_admin,
-            self.realm_passwd
-        )
-
-        dom_sid = self.trustinstance.remote_domain.info.get('sid', None)
-        if dom_sid is None:
-            raise errors.RemoteRetrieveError(
-                reason=_('Unable to read domain information, check {}'
-                         ).format(paths.VAR_LOG_HTTPD_ERROR))
+        # AD trusts require the SID of the remote domain, the remote
+        # domain was already populated by validate_options. IPA-to-IPA
+        # trusts have no domain SID.
+        dom_sid = None
+        if self.trustinstance is not None:
+            if self.trustinstance.remote_domain is None:
+                self.trustinstance.populate_remote_domain(
+                    keys[-1],
+                    self.realm_server,
+                    self.realm_admin,
+                    self.realm_passwd
+                )
+            dom_sid = self.trustinstance.remote_domain.info.get('sid', None)
+            if dom_sid is None:
+                raise errors.RemoteRetrieveError(
+                    reason=_('Unable to read domain information, check {}'
+                             ).format(paths.VAR_LOG_HTTPD_ERROR))
 
         if old_range:
-            old_dom_sid = old_range['result']['ipanttrusteddomainsid'][0]
             old_range_type = old_range['result']['iparangetype'][0]
 
-            if old_dom_sid != dom_sid:
-                raise errors.ValidationError(
-                    name=_('range exists'),
-                    error=_(
-                        'ID range with the same name but different domain SID '
-                        'already exists. The ID range for the new trusted '
-                        'domain must be created manually.'
+            if dom_sid is not None:
+                old_dom_sid = old_range['result']['ipanttrusteddomainsid'][0]
+                if old_dom_sid != dom_sid:
+                    raise errors.ValidationError(
+                        name=_('range exists'),
+                        error=_(
+                            'ID range with the same name but different domain '
+                            'SID already exists. The ID range for the new '
+                            'trusted domain must be created manually.'
+                        )
                     )
-                )
 
             if range_type and range_type != old_range_type:
                 raise errors.ValidationError(
@@ -1225,6 +1309,72 @@ ipa idrange-del before retrying the command with the desired range type.
                 name=_('AD Trust setup'),
                 error=_('Not enough arguments specified to perform trust '
                         'setup'))
+
+    def execute_ipa(self, full_join, *keys, **options):
+        # Establish the local half of the IPA-to-IPA trust natively,
+        # without Samba: the trusted domain object, the set of
+        # cross-realm Kerberos principals and their keys, see
+        # ipaserver/plugins/ipa_trust_kdb.py. The remote deployment's
+        # own half is configured through its IPA API with the given
+        # administrator credentials instead of the DCE RPC trust
+        # services another IPA deployment does not provide.
+        domain = keys[-1]
+
+        # First see if the trust is already in place
+        try:
+            dn = self.obj.get_dn(domain)
+        except errors.NotFound:
+            dn = None
+
+        # By default the trust is inbound one-way (the remote
+        # deployment trusts us), the same as for AD trusts
+        direction = ipa_trust_kdb.LSA_TRUST_DIRECTION_INBOUND
+        if options.get('bidirectional', False):
+            direction |= ipa_trust_kdb.LSA_TRUST_DIRECTION_OUTBOUND
+
+        # The shared trust secret; the bootstrap flows pass it in via
+        # --trust-secret, otherwise a new one is generated
+        trust_secret = options.get('trust_secret')
+        if trust_secret is None:
+            trust_secret = secrets.token_urlsafe(32)
+
+        ipa_trust_kdb.establish_ipa_trust(
+            self.api,
+            domain,
+            trust_secret,
+            direction,
+            external=bool(options.get('external', False)))
+
+        if not full_join:
+            # Shared-secret flow (used by trust-bootstrap-prepare and
+            # trust-bootstrap-retrieve): only the local half is
+            # configured here, the other side receives the secret out
+            # of band
+            return dict(
+                value=pkey_to_value(domain, options),
+                verified=False
+            )
+
+        # Configure the remote deployment's own half of the trust
+        # (trust object, cross-realm principals and the ID range that
+        # maps our domain) through its own IPA API
+        configure_remote_ipa_half(
+            domain,
+            self.realm_server,
+            self.realm_admin,
+            self.realm_passwd,
+            self.api.env.domain,
+            self.api.env.host,
+            trust_secret,
+            bool(options.get('bidirectional', False)))
+
+        ret = dict(
+            value=pkey_to_value(domain, options),
+            verified=True
+        )
+        if dn:
+            ret['summary'] = self.msg_summary_existing % ret
+        return ret
 
 
 @register()
