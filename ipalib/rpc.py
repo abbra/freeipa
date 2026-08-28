@@ -429,6 +429,42 @@ class SSLTransport(LanguageAwareTransport):
 
         try:
             conn.connect()
+        except SSLError as e:
+            # The server certificate cannot be verified against the local
+            # CA bundle. If the caller installed a cert_verifier (via the
+            # request context), it may establish trust for this host by
+            # other means (e.g. fetching the peer's CA chain over an
+            # unverified connection; see the full-credentials IPA-to-IPA
+            # trust flow in ipaserver/plugins/trust.py); the connection
+            # is then retried once with full verification against the
+            # trust anchor the verifier returns.
+            verifier = getattr(context, 'cert_verifier', None)
+            if verifier is None:
+                raise errors.NetworkError(message=unicode(e))
+            conn.close()
+            self.close()
+            logger.debug(
+                "HTTP certificate for %s is not trusted locally, asking "
+                "the cert_verifier for an alternative trust anchor",
+                host)
+            cafile = verifier(host)
+            if not cafile:
+                raise errors.NetworkError(
+                    message=("Certificate for %s is not trusted and no "
+                             "alternative trust anchor could be "
+                             "established") % host)
+            try:
+                conn = create_https_connection(
+                    host, 443,
+                    cafile,
+                    tls_version_min=api.env.tls_version_min,
+                    tls_version_max=api.env.tls_version_max)
+                conn.connect()
+            except (SSLError, socket.error) as e:
+                conn.close()
+                self.close()
+                logger.debug("HTTP connection destroyed (%s)", host)
+                raise errors.NetworkError(message=unicode(e))
         except socket.error as e:
             # Network error, close connection and let transport
             # handle reconnect for us.

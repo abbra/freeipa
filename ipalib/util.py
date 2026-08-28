@@ -317,6 +317,12 @@ def create_https_connection(
             A path to the file which stores the password that is used to
             encrypt client_keyfile. Leave default value if the keyfile
             is not encrypted.
+    :param no_verify:  When True, do not verify the server certificate
+            at all (no CA anchor, no hostname check). Intended for
+            trust-on-first-use probe connections where the caller
+            establishes trust in the peer's CA chain by other means; a
+            connection created this way must not be used for sensitive
+            data without that trust decision.
     :returns An established HTTPS connection to host:port
     """
     tls_cutoff_map = {
