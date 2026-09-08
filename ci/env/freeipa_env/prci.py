@@ -203,11 +203,15 @@ def ad_comments(preset):
         out.append(f"# {h['role']}: {h['name']} ({h['address']}) -- EDIT ME")
     return out
 
-def migrate(defpath, outdir, only=None, report=True):
-    """Migrate a PRCI definition file to presets under outdir.
+def iter_jobs(defpath):
+    """Yield (job_name, preset_name, skip_reason, built) in definition
+    order.
 
-    Returns (written, skipped): written is a list of
-    (path, preset, notes), skipped a list of (job_name, reason)."""
+    ``preset_name`` is the preset file stem (matching what ``migrate``
+    writes under ``presets/prci/<definition>/``) or None for jobs that
+    cannot be migrated, with ``skip_reason`` explaining why;
+    ``built`` is the (preset, header, notes) tuple from ``build_preset``
+    (None for skipped jobs)."""
     with open(defpath) as f:
         doc = yaml.safe_load(f) or {}
     jobs = doc.get('jobs') or {}
@@ -220,24 +224,36 @@ def migrate(defpath, outdir, only=None, report=True):
     common = prefixes.pop() if len(prefixes) == 1 and '' not in prefixes \
         else ''
 
-    os.makedirs(outdir, exist_ok=True)
-    written, skipped = [], []
     for job_name, job in jobs.items():
         cls = ((job.get('job') or {}).get('class', '?'))
         if cls == 'Build':
-            skipped.append((job_name, 'class Build: replaced by the '
-                                      'freeipa-ci image pipeline'))
+            yield (job_name, None, 'class Build: replaced by the freeipa-ci'
+                                  ' image pipeline', None)
             continue
         built = build_preset(defpath, job_name, job, common)
         if built is None:
             topo = (((job.get('job') or {}).get('args') or {})
                     .get('topology') or {}).get('name', '?')
-            skipped.append((job_name,
-                            f'class {cls} / topology {topo}: not mappable'))
+            yield (job_name, None, f'class {cls} / topology {topo}: '
+                                   'not mappable', None)
             continue
-        preset, header, notes = built
+        yield (job_name, built[0]['name'], None, built)
+
+
+def migrate(defpath, outdir, only=None, report=True):
+    """Migrate a PRCI definition file to presets under outdir.
+
+    Returns (written, skipped): written is a list of
+    (path, preset, notes), skipped a list of (job_name, reason)."""
+    os.makedirs(outdir, exist_ok=True)
+    written, skipped = [], []
+    for job_name, preset_name, reason, built in iter_jobs(defpath):
+        if built is None:
+            skipped.append((job_name, reason))
+            continue
         if only and not any(o.lower() in job_name.lower() for o in only):
             continue
+        preset, header, notes = built
         path = os.path.join(outdir, f'{preset["name"]}.yaml')
         with open(path, 'w') as f:
             f.write('\n'.join(header) + '\n\n')

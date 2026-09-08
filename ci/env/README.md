@@ -11,6 +11,8 @@ freeipa-env down ENV.YAML    collect journal/logs, then tear down
 freeipa-env show ENV.YAML    print environment state
 freeipa-env logs ENV.YAML    categorize and retrieve collected logs
 freeipa-env migrate PRCI.YAML  generate presets from a PRCI definition
+freeipa-env queue run QUEUE.YAML --runner USER@HOST [...]   # run a queue
+freeipa-env queue generate PRCI.YAML -o QUEUE.YAML          # PRCI-order queue
 ```
 
 Common options: `--workdir DIR` (state/logs dir, default `./<env-name>.env`),
@@ -179,6 +181,51 @@ IPA containers resolve the AD FQDNs via `/etc/hosts` entries written at
 via `ad_admin_name`/`ad_admin_password` (defaults `Administrator`/
 `Secret123`). A Samba AD DC (or Windows) reachable over SSH for log
 collection works; Windows-only DCs need `user` adjusted.
+
+## Run queues and the supervisor (`queue`)
+
+Queues run ordered preset lists on a pool of **pre-allocated runners**
+(hosts with ssh + podman + systemd, e.g. the lab VMs) — the replacement
+for PRCI's per-PR job scheduling. Queue files live in `ci/queues/`:
+
+* `azure.yaml` — the 16 Azure CI jobs (Azure ran them in parallel; the
+  queue order is conventional);
+* one per PRCI definition, named like the preset dirs
+  (`gating.yaml`, `nightly-latest.yaml`, …) — each in the PRCI
+  definition's job order, generated with `freeipa-env queue generate`
+  (regenerate after PRCI definition changes).
+
+Queue format: an ordered `jobs:` list of preset paths (relative to
+`ci/env/`), a directory entry (trailing `/`) expanding to all presets in
+it sorted, or per-job dicts (`preset`/`dir` + `note`). The image each job
+runs is read from the preset itself.
+
+```
+freeipa-env queue run ci/queues/gating.yaml \
+    --runner root@192.168.122.215 --runner root@192.168.122.216 \
+    [--jobs NAME ...] [--limit N] [--dry-run] [--keep-on-failure] \
+    [--job-timeout SECS] [--outdir DIR] [--no-bootstrap] [--ssh-key FILE]
+```
+
+The supervisor, per run:
+
+1. validates every preset (parse + existence),
+2. checks each runner (ssh + podman) and rsyncs the local `ci/` tree to
+   `--remote-ci` (default `/root/freeipa-ci/ci`),
+3. verifies every image the queue needs is present on every runner
+   (fail fast with the missing list),
+4. schedules: each runner pulls the next job from the front of the list,
+   one job at a time — `up` → `run` → `down`, under a per-job remote
+   `timeout` (default 4 h), workdir `/root/jobs/<job-key>` per job.
+5. writes `summary.tsv` / `summary.md` + per-job transcripts to `--outdir`
+   (default `./<queue>.queue`); exit code 0 only when every job passed.
+
+Ordering semantics: with one runner the jobs run exactly in queue order;
+with N runners each runner's subsequence preserves queue order (FIFO
+dequeue) — the same shape as a PRCI run queue spread over a pool of VMs.
+`--keep-on-failure` skips `down` on a failed job so the environment stays
+on the runner for `freeipa-env logs --refresh`-style triage (remember to
+`down` manually before reusing the runner's capacity).
 
 ## Notes
 

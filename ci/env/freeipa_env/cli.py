@@ -220,6 +220,59 @@ def _fetch_xunit(prov, workdir):
         print('== no xunit report found', file=sys.stderr)
 
 
+def cmd_queue(args):
+    if args.queue_cmd == 'generate':
+        from .queue import generate_prci_queue
+        text = generate_prci_queue(args.definition)
+        if args.out:
+            d = os.path.dirname(os.path.abspath(args.out))
+            os.makedirs(d, exist_ok=True)
+            with open(args.out, 'w') as f:
+                f.write(text)
+            print(f'wrote {args.out}')
+        else:
+            sys.stdout.write(text)
+        return 0
+
+    from .queue import QueueSpec
+    from .supervisor import Supervisor, SupervisorError, Runner
+    try:
+        q = QueueSpec.from_file(args.queue_file)
+    except (ValueError, OSError) as e:
+        print(f'error: {e}', file=sys.stderr)
+        return 2
+    jobs = q.jobs
+    if args.jobs:
+        jobs = [j for j in jobs
+                if any(o.lower() in j.key.lower() for o in args.jobs)]
+    if args.limit:
+        jobs = jobs[:args.limit]
+    if not jobs:
+        print('error: no jobs left after filtering', file=sys.stderr)
+        return 2
+    q.jobs = jobs
+    if args.dry_run:
+        print(f'queue {q.name}: {len(jobs)} job(s) over '
+              f'{len(args.runner)} runner(s): '
+              f'{"; ".join(args.runner)}')
+        for i, j in enumerate(jobs, 1):
+            note = f'  # {j.note}' if j.note else ''
+            missing = '' if os.path.isfile(j.path) else '  [MISSING PRESET]'
+            print(f'{i:3d}. {j.key:45s} {j.preset_rel}{note}{missing}')
+        return 0
+    outdir = args.outdir or os.path.join(os.getcwd(), f'{q.name}.queue')
+    runners = [Runner(s, ssh_key=args.ssh_key) for s in args.runner]
+    sup = Supervisor(q, runners, outdir, job_timeout=args.job_timeout,
+                     keep_on_failure=args.keep_on_failure,
+                     remote_ci=args.remote_ci, jobs_dir=args.jobs_dir,
+                     bootstrap=not args.no_bootstrap)
+    try:
+        return sup.run()
+    except SupervisorError as e:
+        print(f'error: {e}', file=sys.stderr)
+        return 1
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(
         prog='freeipa-env',
@@ -300,6 +353,47 @@ def main(argv=None):
                     help='only migrate jobs whose name contains NAME '
                          '(repeatable)')
     sp.set_defaults(fn=cmd_migrate)
+
+    spq = sub.add_parser(
+        'queue', help='ordered preset queues + the queue supervisor')
+    qsub = spq.add_subparsers(dest='queue_cmd', required=True)
+    qrun = qsub.add_parser(
+        'run', help='run a queue on pre-allocated runners '
+                    '(ssh + podman + systemd)')
+    qrun.add_argument('queue_file', help='queue YAML (ci/queues/*.yaml)')
+    qrun.add_argument('--runner', action='append', required=True,
+                      metavar='USER@HOST',
+                      help='runner host (repeatable; one job at a time per '
+                           'runner, jobs dequeued in queue order)')
+    qrun.add_argument('--jobs', action='append', metavar='NAME',
+                      help='substring filter on the job key (repeatable)')
+    qrun.add_argument('--limit', type=int, default=None,
+                      help='run at most N jobs')
+    qrun.add_argument('--dry-run', action='store_true',
+                      help='print the planned queue and exit')
+    qrun.add_argument('--keep-on-failure', action='store_true',
+                      help='skip `down` when a job fails (env stays on the '
+                           'runner for triage)')
+    qrun.add_argument('--job-timeout', type=int, default=14400,
+                      help='per-job remote timeout in seconds '
+                           '(default 14400 = 4h)')
+    qrun.add_argument('--outdir', default=None,
+                      help='local artifacts dir (default ./<queue>.queue)')
+    qrun.add_argument('--remote-ci', default='/root/freeipa-ci/ci',
+                      help='remote ci/ tree location on each runner')
+    qrun.add_argument('--jobs-dir', default='/root/jobs',
+                      help='remote per-job workdir parent (default /root/jobs)')
+    qrun.add_argument('--ssh-key', default=None, help='ssh identity file')
+    qrun.add_argument('--no-bootstrap', action='store_true',
+                      help='do not rsync the ci/ tree to the runners')
+    qrun.set_defaults(fn=cmd_queue)
+    qgen = qsub.add_parser(
+        'generate', help='generate a queue from a PRCI definition '
+                         '(in PRCI job order)')
+    qgen.add_argument('definition', help='PRCI definition YAML file')
+    qgen.add_argument('-o', '--out', default=None,
+                      help='output queue file (default: print to stdout)')
+    qgen.set_defaults(fn=cmd_queue)
 
     args = p.parse_args(argv)
     try:

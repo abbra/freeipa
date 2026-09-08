@@ -1,0 +1,26 @@
+# Ordered run queue recreating the 16 Azure CI test runs. Azure ran all
+# of these in parallel on dedicated agents; here they form an ordered
+# queue (base-mode jobs first, then the gating integration jobs — the
+# queue order is conventional, PRCI-style ordering only applies to
+# PRCI-generated queues).
+name: azure
+jobs:
+  - preset: presets/base-xmlrpc.yaml
+    note: Azure BASE_XMLRPC (test_xmlrpc, test_dns_plugin excluded)
+  - preset: presets/azure/base.yaml
+    note: Azure base unit tests (test_base)
+  - preset: presets/azure/topologies-testconfig.yaml
+    note: test_topologies + test_testconfig
+  - presets/azure/kerberos-flags.yaml
+  - presets/azure/netgroup.yaml
+  - presets/azure/membermanager.yaml
+  - presets/azure/service-permissions.yaml
+  - presets/azure/simple-replication.yaml
+  - presets/azure/sudo.yaml
+  - presets/azure/external-ca-install.yaml
+  - presets/azure/external-ca-constraints.yaml
+  - presets/azure/external-ca-profile-scenarios.yaml
+  - presets/azure/external-ca-self-external-self.yaml
+  - presets/azure/external-ca.yaml
+  - presets/azure/caless-to-ca-full.yaml
+  - presets/azure/forced-client-reenrollment.yaml

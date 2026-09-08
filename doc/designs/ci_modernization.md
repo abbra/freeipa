@@ -430,6 +430,34 @@ migrated and committed under `ci/env/presets/prci/`; a regenerated
 (6/6 passed), and a 3-AD-domain preset renders the correct four-domain
 multihost config.
 
+### 3.8 Run queues and the supervisor (`freeipa-env queue`)
+
+Running the migrated coverage needs PRCI/Azure-style run queues: ordered
+lists of presets executed by a supervisor over a pool of pre-allocated
+runners (ssh + podman + systemd hosts).
+
+* **Queue files** (`ci/queues/`): `azure.yaml` (the 16 Azure jobs; Azure
+  ran them in parallel, so the order is conventional) plus one per PRCI
+  definition, each in the definition's job order (generated with
+  `freeipa-env queue generate <def>.yaml`). A queue is an ordered `jobs:`
+  list of preset paths (relative to `ci/env/`), a directory entry
+  expanding to all its presets sorted, or per-job dicts with notes. The
+  image a job runs is read from the preset itself.
+* **Supervisor** (`freeipa-env queue run <queue> --runner user@host …`):
+  validates every preset, checks each runner, rsyncs the `ci/` tree, and
+  verifies every required image is present (fail fast with the missing
+  list). Scheduling is a shared FIFO: each runner pulls jobs from the
+  front of the list, one at a time — `up` → `run` → `down` under a per-job
+  remote timeout, per-job workdir, per-job transcript. Results land in
+  `summary.tsv` / `summary.md` + `queue.log`; exit code 0 iff all passed.
+  With one runner the queue order is exactly the run order; with N
+  runners each runner's subsequence preserves queue order (FIFO dequeue),
+  the same shape as a PRCI run queue over a VM pool. `--keep-on-failure`
+  leaves a failed environment up for triage.
+
+This is the concrete first instance of the §4 orchestrator's scheduling
+primitive (single machine, ssh + rsync, no results DB yet).
+
 ## 4. Orchestrator
 
 A small Python service (single deployment; SQLite→Postgres as it grows):
@@ -505,9 +533,10 @@ ci/
     server/Dockerfile         # + server RPMs   (parameter: dist, build_url)
     full/Dockerfile           # + client RPMs
   env/                        # the freeipa-env provisioner (python package)
-    freeipa_env/...
-    cli.py                    # `freeipa-env up/run/down/show/logs/migrate`
-  presets/prci/               # migrated PRCI definitions (11 defs, 1301 presets)
+    freeipa_env/...           # + queue.py, supervisor.py (run queues)
+    cli.py                    # `freeipa-env up/run/down/show/logs/migrate/queue`
+    presets/prci/             # migrated PRCI definitions (11 defs, 1301 presets)
+  queues/                     # ordered run queues (azure + 11 PRCI definitions)
   orchestrator/               # scheduler service, results db, report
   runners/                    # node provisioning (podman setup, capacity tags)
   scripts/                    # hook -> trigger, report posting

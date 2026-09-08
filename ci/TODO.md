@@ -272,6 +272,38 @@ are `mode: base` with a browser/selenium note (the CI image does not
 include a browser). AD admin defaults (`Administrator`/`Secret123`)
 match the PRCI AD template.
 
+## G. Run queues + supervisor (`freeipa-env queue`)
+
+Goal: run the migrated coverage in the same order Azure and PRCI use —
+ordered preset queues driven by a supervisor over pre-allocated runners
+(ssh + podman + systemd hosts).
+
+- [x] G1: `freeipa_env/queue.py` — queue files (ordered `jobs:` list of
+  preset paths relative to `ci/env/`; directory entries expand sorted;
+  per-job dicts with notes) + `generate_prci_queue()`.
+- [x] G2: `freeipa_env/supervisor.py` — runner check (ssh + podman),
+  rsync of the local `ci/` tree to `--remote-ci` (default
+  `/root/freeipa-ci/ci`), fail-fast image presence check, shared-FIFO
+  scheduling (one job at a time per runner, jobs dequeued in queue
+  order), per-job `up` → `run` → `down` under a remote `timeout`
+  (default 4 h), per-job workdir `/root/jobs/<job-key>`, transcripts,
+  `summary.tsv`/`summary.md`/`queue.log`, exit 0 iff all passed;
+  `--keep-on-failure` skips `down` for triage.
+- [x] G3: CLI `freeipa-env queue run QUEUE --runner USER@HOST [...]`
+  (`--jobs`, `--limit`, `--dry-run`, `--job-timeout`, `--outdir`,
+  `--remote-ci`, `--jobs-dir`, `--ssh-key`, `--no-bootstrap`) and
+  `freeipa-env queue generate PRCI.YAML -o OUT` (reuses the migrate
+  mapping via the new `prci.iter_jobs()`; skipped jobs become comments).
+- [x] G4: all 12 queues committed under `ci/queues/`: `azure.yaml` (16
+  jobs; Azure ran them in parallel, order conventional) + one per PRCI
+  definition in the definition's job order — gating 31, nightly-latest
+  185, nightly-previous 185, nightly-rawhide 185, selinux/testing
+  variants 185 each, pki 91, 389ds 48, sssd 20, temp-commit 1.
+- [x] G5: e2e validation on 192.168.122.215: 2-job queue
+  (azure kerberos-flags + netgroup) over 1 runner — **2/2 PASS**
+  (6:40 + 7:38), full artifacts per job on the runner, summary +
+  transcripts locally.
+
 ## Known limitations / follow-ups
 
 - **Repo pinning**: the validation image was built against a rolling F44
