@@ -399,6 +399,37 @@ view without the operator having to know the layout.
   still-live environment before analyzing. A failed collection never
   clobbers previously collected artifacts (write-on-success only).
 
+### 3.7 PRCI definition migration (`freeipa-env migrate`)
+
+Existing PRCI definitions (`ipatests/prci_definitions/*.yaml`) are not
+rewritten by hand: `freeipa-env migrate <definition>.yaml [-o DIR] [--jobs
+NAME]` converts every job to a preset under `presets/prci/<definition>/`
+(plus a `MIGRATED.md` report), so the new system inherits the existing
+coverage inventory directly.
+
+* **Topology → hosts**: `ipaserver` → one master (base mode);
+  `master[_Nrepl]_Mclient` → master/replica/client hosts (integration mode
+  for multi-host topologies); AD tokens (`ad`, `adroot_adchild_adtree`) add
+  **external** AD hosts with roles `ad`/`ad_subdomain`/`ad_treedomain`.
+* **Topology memory → per-role limits**: PRCI numbers are per-topology
+  totals; the migration splits them evenly (rounded to 100 MiB, 512 MiB
+  floor) into the preset's per-role `resources`.
+* **test_suite → `run.tests`**; **class** selects the mode (`RunPytest*` →
+  integration, `RunWebuiTests` → base with a browser/selenium note);
+  `Build` jobs and `ipa_ipa_trust` topologies are skipped with reasons.
+* **AD hosts stay external**: PRCI provisions the AD DCs itself; the
+  migration emits RFC 5737 placeholder addresses + FQDNs marked EDIT ME.
+  The podman provider renders them into the multihost config as separate
+  `AD`/`AD_SUBDOMAIN`/`AD_TREEDOMAIN` domains (framework `WinHost`) and
+  writes `/etc/hosts` entries into the IPA containers so AD name resolution
+  works without AD DNS on the container network.
+
+All 11 current definitions (gating + 10 nightlies, 1301 jobs) are
+migrated and committed under `ci/env/presets/prci/`; a regenerated
+`gating/simple_replication` ran end-to-end on the validation host
+(6/6 passed), and a 3-AD-domain preset renders the correct four-domain
+multihost config.
+
 ## 4. Orchestrator
 
 A small Python service (single deployment; SQLite→Postgres as it grows):
@@ -475,7 +506,8 @@ ci/
     full/Dockerfile           # + client RPMs
   env/                        # the freeipa-env provisioner (python package)
     freeipa_env/...
-    cli.py                    # `freeipa-env up/run/down/show/logs`
+    cli.py                    # `freeipa-env up/run/down/show/logs/migrate`
+  presets/prci/               # migrated PRCI definitions (11 defs, 1301 presets)
   orchestrator/               # scheduler service, results db, report
   runners/                    # node provisioning (podman setup, capacity tags)
   scripts/                    # hook -> trigger, report posting

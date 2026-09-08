@@ -10,6 +10,7 @@ freeipa-env run  ENV.YAML    run the test workflow (install, tests, uninstall)
 freeipa-env down ENV.YAML    collect journal/logs, then tear down
 freeipa-env show ENV.YAML    print environment state
 freeipa-env logs ENV.YAML    categorize and retrieve collected logs
+freeipa-env migrate PRCI.YAML  generate presets from a PRCI definition
 ```
 
 Common options: `--workdir DIR` (state/logs dir, default `./<env-name>.env`),
@@ -129,6 +130,55 @@ The `xmlrpc` job is `presets/base-xmlrpc.yaml`. Base-pipeline jobs run in
 run in `mode: integration`, where the framework performs the per-class
 install/uninstall from the multihost config. Per-host memory limits mirror
 the Azure definitions.
+
+## Migrated PRCI definitions (`migrate`)
+
+`freeipa-env migrate ipatests/prci_definitions/<def>.yaml` converts a PRCI
+definition into freeipa-env presets (one per job) under
+`presets/prci/<def>/`, with a `MIGRATED.md` report. Regenerate after PRCI
+definition changes; options: `-o DIR`, `--jobs NAME` (substring filter).
+
+`presets/prci/` currently contains all 11 PRCI definitions
+(1301 presets):
+
+dir | PRCI file | presets
+---|---|---
+`gating/` | `gating.yaml` | 31
+`nightly-latest/` | `nightly_latest.yaml` | 185
+`nightly-latest-389ds/` | `nightly_latest_389ds.yaml` | 48
+`nightly-latest-pki/` | `nightly_latest_pki.yaml` | 91
+`nightly-latest-selinux/` | `nightly_latest_selinux.yaml` | 185
+`nightly-latest-sssd/` | `nightly_latest_sssd.yaml` | 20
+`nightly-latest-testing/` | `nightly_latest_testing.yaml` | 185
+`nightly-latest-testing-selinux/` | `nightly_latest_testing_selinux.yaml` | 185
+`nightly-previous/` | `nightly_previous.yaml` | 185
+`nightly-rawhide/` | `nightly_rawhide.yaml` | 185
+`temp-commit/` | `temp_commit.yaml` | 1
+
+Mapping rules:
+
+- **topology → hosts**: `ipaserver` → 1 master (base mode);
+  `master[_Nrepl]_Mclient` → master/replica/client hosts (integration
+  mode when >1 IPA host); AD tokens `ad` / `adroot_adchild_adtree` add
+  external AD hosts with roles `ad`, `ad_subdomain`, `ad_treedomain`.
+- **topology memory → per-role limits**, split evenly (rounded to 100 MiB,
+  floor 512 MiB) — PRCI numbers are per-topology totals.
+- **test_suite → `run.tests`** (space-separated list preserved).
+- **class Build** → skipped (the `freeipa-ci` image pipeline replaces it);
+  **ipa_ipa_trust** topologies → skipped (two IPA domains; the preset
+  model supports one IPA domain plus AD domains).
+- **RunWebuiTests** → `mode: base` with a NOTE: PRCI provisions a browser
+  + selenium; `freeipa-ci/full` does not include them, so those presets
+  will not pass as-is.
+
+**AD hosts are external.** PRCI provisions the AD DCs itself; here each AD
+host is an `address` placeholder (RFC 5737) plus a placeholder FQDN — edit
+both before `freeipa-env up` (the preset footer lists every EDIT ME). The
+IPA containers resolve the AD FQDNs via `/etc/hosts` entries written at
+`up`; trust setup itself (AD admin credentials, DNS) is done by the tests
+via `ad_admin_name`/`ad_admin_password` (defaults `Administrator`/
+`Secret123`). A Samba AD DC (or Windows) reachable over SSH for log
+collection works; Windows-only DCs need `user` adjusted.
 
 ## Notes
 

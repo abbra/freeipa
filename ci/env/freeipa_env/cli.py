@@ -92,6 +92,29 @@ def cmd_show(args):
     return 0
 
 
+def cmd_migrate(args):
+    """Generate freeipa-env presets from a PRCI definition file."""
+    from .prci import migrate
+    if args.out:
+        outdir = args.out
+    else:
+        stem = os.path.splitext(os.path.basename(args.definition))[0]
+        outdir = os.path.join('presets', 'prci', stem.replace('_', '-'))
+    written, skipped = migrate(args.definition, outdir, only=args.jobs)
+    for path, preset, notes in written:
+        ad = any('AD host' in n for n in notes)
+        flag = '  [AD: edit external placeholders]' if ad else ''
+        print(f'== {path}  [{preset["run"]["mode"]}{flag}]')
+        for n in notes:
+            print(f'   note: {n}')
+    for jn, reason in skipped:
+        print(f'== skipped {jn}: {reason}')
+    print(f'\n{len(written)} preset(s) generated in {outdir}, '
+          f'{len(skipped)} skipped; report: '
+          f'{os.path.join(outdir, "MIGRATED.md")}')
+    return 0
+
+
 def cmd_logs(args):
     workdir = args.workdir
     spec = None
@@ -265,6 +288,18 @@ def main(argv=None):
     sp.add_argument('--refresh', action='store_true',
                     help='re-collect logs from a live environment first')
     sp.set_defaults(fn=cmd_logs)
+
+    sp = sub.add_parser(
+        'migrate',
+        help='generate presets from a PRCI definition '
+             '(ipatests/prci_definitions/*.yaml)')
+    sp.add_argument('definition', help='PRCI definition YAML file')
+    sp.add_argument('-o', '--out', default=None,
+                    help='output dir (default: presets/prci/<definition>)')
+    sp.add_argument('--jobs', action='append', metavar='NAME',
+                    help='only migrate jobs whose name contains NAME '
+                         '(repeatable)')
+    sp.set_defaults(fn=cmd_migrate)
 
     args = p.parse_args(argv)
     try:

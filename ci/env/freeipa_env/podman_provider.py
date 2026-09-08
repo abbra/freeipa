@@ -152,15 +152,25 @@ class PodmanProvider:
                 f"echo -e '127.0.0.1 localhost\n::1 localhost\n"
                 f"0:0:0:0:0:0:0:1 localhost' > /etc/hosts",
                 log=f'{h.name}.setup.log')
-        # controller entry for every other host (DNS covers this too, but
-        # keep the Azure behaviour)
-        cname = self.spec.container_name(self.spec.master)
-        extra = [f'{self._ip(h)} {self.spec.host_fqdn(h)}'
-                 for h in self.spec.hosts
-                 if not h.is_external and h.role != 'master']
-        if extra:
-            self._exec(cname, 'echo -e ' + shlex.quote('\n'.join(extra))
-                       + ' >> /etc/hosts', log=f'{self.spec.master.name}.setup.log')
+        # every container resolves every other host: DNS covers the IPA
+        # hosts (Azure kept an extra entry for the controller); external
+        # hosts (e.g. AD DCs) get /etc/hosts entries so IPA<->AD name
+        # resolution works without AD DNS on the container network
+        for h in self.spec.hosts:
+            if h.is_external:
+                continue
+            name = self.spec.container_name(h)
+            extra = []
+            for o in self.spec.hosts:
+                if o.name == h.name:
+                    continue
+                if o.is_external:
+                    extra.append(f'{o.address}\t{o.name}')
+                else:
+                    extra.append(f'{self._ip(o)}\t{self.spec.host_fqdn(o)}')
+            if extra:
+                self._exec(name, 'echo -e ' + shlex.quote('\n'.join(extra))
+                           + ' >> /etc/hosts', log=f'{h.name}.setup.log')
 
     def _setup_hostname(self):
         for h in self.spec.hosts:
@@ -265,20 +275,36 @@ class PodmanProvider:
         NOTE: pytest_multihost's Host.from_dict rejects unknown keys, so
         the host entries must look exactly like the Azure template:
         external_hostname / name (FQDN) / ip / role -- no 'type' key.
-        'type: IPA' belongs on the domain, not the host."""
-        hosts = []
-        for h in self.spec.hosts:
-            if h.is_external:
-                address = h.address
-                fqdn = h.name  # external hosts are given as FQDNs
-            else:
-                address = self._ip(h)
-                fqdn = self.spec.host_fqdn(h)
-            hosts.append({
-                'external_hostname': fqdn,
-                'name': fqdn,
-                'ip': address,
-                'role': h.role,
+        'type: IPA' belongs on the domain, not the host.
+
+        The framework supports several domains in one config
+        (Config.from_dict): one IPA domain plus optional AD / AD_SUBDOMAIN /
+        AD_TREEDOMAIN domains for external AD hosts (roles ad,
+        ad_subdomain, ad_treedomain -> pytest_ipa WinHost). AD host entries
+        take name (AD FQDN) / role / ip only."""
+        ad_types = {'ad': 'AD', 'ad_subdomain': 'AD_SUBDOMAIN',
+                    'ad_treedomain': 'AD_TREEDOMAIN'}
+        domains = []
+        ipa_hosts = [h for h in self.spec.hosts
+                     if h.role not in ad_types]
+        ad_hosts = [h for h in self.spec.hosts if h.role in ad_types]
+        domains.append({
+            'name': self.spec.domain,
+            'type': 'IPA',
+            'hosts': [self._host_dict(h) for h in ipa_hosts],
+        })
+        for role in ('ad', 'ad_subdomain', 'ad_treedomain'):
+            group = [h for h in ad_hosts if h.role == role]
+            if not group:
+                continue
+            # AD domain name = FQDN without its first label
+            first = group[0].name
+            domain_name = first.split('.', 1)[1] if '.' in first else first
+            domains.append({
+                'name': domain_name,
+                'type': ad_types[role],
+                'hosts': [{'name': h.name, 'ip': h.address, 'role': h.role}
+                          for h in group],
             })
         cfg = {
             'admin_name': self.spec.admin_name,
@@ -291,17 +317,27 @@ class PodmanProvider:
             # the YAML would not be picked up the same way
             'dns_forwarder': self.spec.dns_forwarder or '8.8.8.8',
             'root_ssh_key_filename': os.path.join(self.workdir, 'id_rsa'),
-            'domains': [{
-                'name': self.spec.domain,
-                'type': 'IPA',
-                'hosts': hosts,
-            }],
+            'domains': domains,
         }
         import yaml
         with open(self.config_path, 'w') as f:
             yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False)
         print(f'== wrote {self.config_path}')
         return cfg
+
+    def _host_dict(self, h):
+        if h.is_external:
+            address = h.address
+            fqdn = h.name  # external hosts are given as FQDNs
+        else:
+            address = self._ip(h)
+            fqdn = self.spec.host_fqdn(h)
+        return {
+            'external_hostname': fqdn,
+            'name': fqdn,
+            'ip': address,
+            'role': h.role,
+        }
 
     # ------------------------------------------------------------------ ops
     def up(self):

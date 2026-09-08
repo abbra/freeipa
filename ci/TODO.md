@@ -233,6 +233,45 @@ managed-permissions rework (`fa2555cfd`, `dd317d3fd`, `fbb80bb5f`,
 InternalError and the Insufficient-access cluster — empirically, the 405
 errors and ~108 unrelated failures are gone, leaving the 16 analysed above.
 
+## F. PRCI definition migration (`freeipa-env migrate`)
+
+Goal: stop hand-maintaining PRCI YAML — convert every existing PRCI
+job into a freeipa-env preset so the new system inherits the whole
+current coverage inventory (gating + nightlies).
+
+- [x] F1: `freeipa_env/prci.py` — PRCI definition → preset conversion
+  (topology grammar `ipaserver` / `master[_Nrepl]_Mclient` / `ad_*` /
+  `adroot_adchild_adtree_*` → host roles; topology memory split evenly
+  into per-role `resources`; `test_suite` → `run.tests`; class → mode;
+  Build + ipa_ipa_trust skipped with reasons; AD hosts → external
+  placeholders, RFC 5737 addresses, EDIT-ME footer).
+- [x] F2: `freeipa-env migrate <def.yaml> [-o DIR] [--jobs NAME]` CLI
+  subcommand + per-definition `MIGRATED.md` report.
+- [x] F3: podman provider AD support: `write_config` renders separate
+  `AD` / `AD_SUBDOMAIN` / `AD_TREEDOMAIN` domains (framework WinHost;
+  host dict `name`/`ip`/`role` only, per `BaseHost.from_dict`);
+  `_setup_hosts` writes `/etc/hosts` entries for external hosts into
+  every IPA container (IPA↔AD name resolution without AD DNS).
+- [x] F4: all 11 PRCI definitions migrated and committed under
+  `ci/env/presets/prci/` — 1301 presets (gating 31, nightly-latest 185,
+  nightly-previous 185, nightly-rawhide 185, selinux/testing variants,
+  389ds 48, pki 91, sssd 20, temp-commit 1).
+- [x] F5: validation on 192.168.122.215:
+  - all 1301 generated presets parse via `EnvSpec.from_file`;
+  - `up` on `prci/gating/test_ipahealthcheck_adtrust.yaml` renders the
+    correct four-domain multihost config (IPA + AD + AD_SUBDOMAIN +
+    AD_TREEDOMAIN) and `getent` resolves all AD placeholder FQDNs in the
+    IPA containers; `down` leaves the external AD hosts in place;
+  - `prci/gating/simple_replication.yaml` full end-to-end run:
+    **6/6 passed** (install master+replica, replication, tests,
+    uninstall; 15:39), image `freeipa-ci/full:44` = b1af1d8bb build.
+
+Notes: PRCI has no single-IPA-host RunPytest jobs, so every migrated
+RunPytest/RunADTests preset is `mode: integration`; RunWebuiTests presets
+are `mode: base` with a browser/selenium note (the CI image does not
+include a browser). AD admin defaults (`Administrator`/`Secret123`)
+match the PRCI AD template.
+
 ## Known limitations / follow-ups
 
 - **Repo pinning**: the validation image was built against a rolling F44
