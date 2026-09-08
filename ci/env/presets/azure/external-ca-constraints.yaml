@@ -1,0 +1,13 @@
+# Azure gating job 'external_ca_ExternalCAConstraints'.
+name: azure-external-ca-constraints
+domain: ipa.test
+dist: 44
+image: freeipa-ci/full:44-b1af1d8bb
+hosts:
+  - {role: master, name: master1}
+  - {role: client, name: client1}
+resources:
+  client: {memory: 768m, memory-swap: 1024m}
+run:
+  mode: integration
+  tests: [test_integration/test_external_ca.py::TestExternalCAConstraints]

@@ -1,0 +1,10 @@
+# Azure gating job 'external_ca_SelfExternalSelf'.
+name: azure-external-ca-self-external-self
+domain: ipa.test
+dist: 44
+image: freeipa-ci/full:44-b1af1d8bb
+hosts:
+  - {role: master, name: master1}
+run:
+  mode: integration
+  tests: [test_integration/test_external_ca.py::TestSelfExternalSelf]

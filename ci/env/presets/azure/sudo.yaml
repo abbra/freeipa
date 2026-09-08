@@ -1,0 +1,14 @@
+# Azure gating job 'sudo' (TestSudo_Functional deselected, as in Azure).
+name: azure-sudo
+domain: ipa.test
+dist: 44
+image: freeipa-ci/full:44-b1af1d8bb
+hosts:
+  - {role: master, name: master1}
+  - {role: client, name: client1}
+resources:
+  master: {memory: 2600m, memory-swap: 3900m}
+run:
+  mode: integration
+  tests: [test_integration/test_sudo.py]
+  deselect: [test_integration/test_sudo.py::TestSudo_Functional]

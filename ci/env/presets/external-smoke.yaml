@@ -1,0 +1,14 @@
+# Smoke preset for the external provider: attach/validate against hosts that
+# were provisioned outside freeipa-env (VMs, bare metal). `up` only validates
+# SSH + host facts and never mutates; `down` only collects logs.
+#
+# Point `address:` at a real machine and run:
+#   freeipa-env up presets/external-smoke.yaml --ssh-key ~/.ssh/id_rsa
+name: external-smoke
+provider: external
+domain: ipa.test
+hosts:
+  - role: master
+    name: master1
+    address: 192.0.2.10
+    user: root

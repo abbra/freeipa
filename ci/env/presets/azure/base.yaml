@@ -1,0 +1,19 @@
+# Azure 'base' job (ipatests/azure/azure_definitions/base-fedora.yml):
+# unit tests + test_xmlrpc/test_dns_plugin.py against an installed master.
+# mode: base -> run-base-tests.sh (install -> test -> uninstall).
+name: azure-base
+domain: ipa.test
+dist: 44
+image: freeipa-ci/full:44-b1af1d8bb
+hosts:
+  - {role: master, name: master1}
+run:
+  mode: base
+  setup_dns: true
+  setup_kra: true
+  forwarder: 8.8.8.8
+  tests: [test_cmdline, test_custodia, test_install, test_ipaclient,
+          test_ipalib, test_ipaplatform, test_ipapython, test_ipaserver,
+          test_ipatests_plugins, test_xmlrpc/test_dns_plugin.py]
+  ignore: [test_ipaserver/test_migratepw.py]
+  args: ['-k', 'not test_dns_soa']

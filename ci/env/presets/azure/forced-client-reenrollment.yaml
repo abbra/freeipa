@@ -1,0 +1,15 @@
+# Azure gating job 'forced_client_reenrollment'.
+name: azure-forced-client-reenrollment
+domain: ipa.test
+dist: 44
+image: freeipa-ci/full:44-b1af1d8bb
+hosts:
+  - {role: master, name: master1}
+  - {role: replica, name: replica1}
+  - {role: client, name: client1}
+resources:
+  replica: {memory: 2300m, memory-swap: 3300m}
+  client: {memory: 805m, memory-swap: 1024m}
+run:
+  mode: integration
+  tests: [test_integration/test_forced_client_reenrollment.py]

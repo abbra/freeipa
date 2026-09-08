@@ -1,0 +1,259 @@
+# CI modernization — implementation TODO
+
+Implementation of `doc/designs/ci_modernization.md`. Validation host:
+`root@192.168.122.215` (Fedora 44, podman 5.8.4, 2 vCPU / 4 GB). Target
+validation workload: the Azure **BASE_XMLRPC** job (`test_xmlrpc`, ignoring
+`test_xmlrpc/test_dns_plugin.py`, 1 master / 0 replicas / 0 clients).
+
+## A. Image pipeline (`ci/images`)
+
+- [x] A1 `base/Dockerfile` — fedora-toolbox:44, systemd as PID 1, sshd,
+  firewalld installed-but-masked (design §2: active firewalld REJECTs
+  inter-container traffic), resolved masked, multi-user.target,
+  STOPSIGNAL RTMIN+3
+- [x] A2 `full/Dockerfile` — base + dev-build IPA RPMs, with a repo-pinning
+  hook (`PIN_SPECS`) for frozen repo snapshots
+- [x] A3 `build.sh` — builds base+full from a directory of RPMs, tags
+  `freeipa-ci/full:<dist>-<sha>` (and `<dist>` alias), include/exclude
+  filters for the RPM set
+- [x] A4 Validation on 192.168.122.215: full image builds and boots to
+  systemd `running`
+
+## B. Provisioner (`ci/env`)
+
+- [x] B1 `freeipa_env/envspec.py` — `env.yaml` schema (provider, hosts with
+  optional `address` for external attach, resources, run spec)
+- [x] B2 `freeipa_env/podman_provider.py` — `up`: dual-stack podman network,
+  containers (caps/seccomp/mem from Azure's docker-compose), systemd wait,
+  /etc/hosts + hostname + resolv.conf, controller SSH keypair,
+  nis-domainname container override, multihost config YAML
+- [x] B3 podman `down` (journal + log collection, destroy) and `show`
+- [x] B4 `freeipa_env/external_provider.py` — `up` = attach/validate (SSH,
+  hostname, dist, IPA state, ports), same config YAML, `down` =
+  collect-don't-destroy; `--ssh-key` for operator keys
+- [x] B5 `run` base mode: `scripts/run-base-tests.sh` — faithful port of
+  `ipatests/azure/scripts/azure-run-base-tests.sh` (install master w/ KRA,
+  `ipa-run-tests ... --with-xunit`, uninstall x2, log collection)
+- [x] B6 `run` integration mode — exec `ipa-run-tests` in the controller with
+  `IPATEST_YAML_CONFIG`
+- [x] B7 `presets/base-xmlrpc.yaml` — the Azure BASE_XMLRPC job as a preset
+- [x] B8 `freeipa-env` CLI wiring (up/run/down/show) + `ci/env/README.md`
+
+## C. Validation: BASE_XMLRPC on 192.168.122.215
+
+- [x] C1 Build `freeipa-ci/full:44` via `ci/images/build.sh`
+- [x] C2 `freeipa-env up presets/base-xmlrpc.yaml`
+- [x] C3 `freeipa-env run presets/base-xmlrpc.yaml` — master install
+  (DNS+KRA), `test_xmlrpc` run, uninstall x2
+- [x] C4 `freeipa-env down` — journal/log artifacts in the workdir
+- [x] C5 External provider smoke check on the host itself (attach/validate,
+  no destructive ops)
+- [x] C6 Record results; correct design doc where reality differs
+
+## D. Log analysis (`freeipa-env logs`, D1)
+
+- [x] D1a `freeipa_env/loganalyze.py` — selective tarball extraction
+  (dirsrv, httpd, ipa*, krb5kdc, pki kra/ca, samba, named, in-tarball
+  journal; pki-tomcat backups excluded) into `logs/extracted/<host>/`,
+  cached by mtime+size; 13 categories with per-category line filters
+  (tests/run/install/uninstall/ds/httpd/kra/ca/kdc/samba/dns/ipa/system);
+  JUnit parse with failures grouped by module (message + traceback tail);
+  workflow-tarball snapshots for install/uninstall de-duplicated by content
+- [x] D1b CLI `logs` subcommand: default per-category summary, `--category`
+  (repeatable, `all`), `--pattern`, `--lines`, `--tail`, `--all`, `--host`,
+  `--json`, `--refresh` (re-collect from a live env)
+- [x] D1c `collect_logs` robustness: a failed collection (dead container /
+  unreachable host) never clobbers previously collected artifacts (podman
+  journal fetch + external tarball now write-on-success only)
+- [x] D1d Validated on 192.168.122.215 against the BASE_XMLRPC artifacts of
+  build `8f33c1304` (summary + all 13 categories + pattern/json/host/refresh
+  paths); docs updated (README, design §3.2/§3.6)
+
+## E. Full Azure-CI recreation (16 jobs, image `44-b1af1d8bb`)
+
+- [x] E1 New RPM set from the fixed tree (`b1af1d8bb`, version
+  `4.14.0.dev202609080859+gitb1af1d8bb`): 24 packages including
+  `freeipa-server-trust-ad` + `freeipa-client-samba`, built against
+  samba 4.24.6 (no version conflict anymore — samba 4.24.6 is the
+  current F44 repo state; the 4.24.5 rotation that broke resolution is
+  gone from the repos).
+- [x] E2 Samba in the image: `full/Dockerfile` installs `python3-samba`
+  (server-side bindings for the xmlrpc idrange tests) + `sudo` (client
+  sudo job); the IPA trust packages come from the RPM set and pull
+  samba 4.24.6 cleanly. No PIN_SPECS needed.
+- [x] E3 Presets for all 16 Azure jobs: `presets/base-xmlrpc.yaml`
+  (xmlrpc job) + `presets/azure/*.yaml` (15 more: base unit job + the 14
+  gating jobs from `gating-fedora.yml`), mirroring Azure host sets, test
+  selections, deselects (sudo) and per-role memory limits.
+- [x] E4 `cli.py`: `run.args`/`ignore`/`deselect` values are shlex-quoted
+  when rendered into the shell-expanding env vars (multi-word pytest `-k`
+  expressions survive).
+- [x] E5 Image `freeipa-ci/full:44-b1af1d8bb` built + verified in-image
+  (samba 4.24.6, trust-ad, client-samba, sudo, fixed test expectations).
+- [x] E6 Run all 16 jobs on 192.168.122.215 via the sequential runner
+  (artifacts `/root/jobs/<job>/`, summary `/root/jobs/summary.tsv`).
+  **Final: 16/16 PASS.** Validation status: see below.
+
+### E6 progress (2026-09-08)
+
+| job | status | notes |
+|-----|--------|-------|
+| topologies | PASS | 28/28 (smoke-tested the integration pipeline before the queue) |
+| xmlrpc | PASS | 2636 tests, 0 failures, 13 skipped, 26 min total (samba/idrange now pass) |
+| unit | PASS | 1261 tests, 0 failures, 39 skipped (re-run green after the
+  `container=podman` fix; first-pass failure was
+  `test_ipaplatform/test_tasks.py::test_detect_container` — runc
+  defaults the container env var to `oci`, disagreeing with
+  `systemd-detect-virt`) |
+| kerberos-flags | PASS | 5/5, master+client, 7.5 min |
+| netgroup | PASS | 7/7, 8 min |
+| membermanager | PASS | 8/8, 7.7 min |
+| service-permissions | PASS | 5/5, 6 min |
+| simple-replication | PASS | 6/6, 17 min — first 2-host job |
+| sudo | PASS | 87 tests, 0 failures, 1 skipped (re-run green after the
+  `--deselect` argv fix) |
+| external-ca-install | PASS | 3/3 |
+| external-ca-constraints | PASS | 1/1 |
+| external-ca-profile-scenarios | PASS | 12/12 |
+| external-ca-self-external-self | PASS | 5/5 (3-host env) |
+| external-ca | PASS | 2/2, 15 min (3-host env) |
+| caless-to-ca-full | PASS | 3/3, 15 min |
+| forced-client-reenrollment | PASS | 9/9, 16 min (3-host env) |
+
+**Final totals: 16/16 PASS** (initial pass 14/16). Both first-pass
+failures were CI-harness bugs, fixed and re-run green — no FreeIPA
+test failures at all. Every job ran the full install → test → uninstall
+loop on `freeipa-ci/full:44-b1af1d8bb`. Wall-clock: 14-job queue ≈ 2.7 h
+serial on 2 vCPU / 8 GB, plus ~60 min for the two reruns.
+
+Fixes made during the first full pass:
+1. `write_config` now emits the exact multihost YAML shape of
+   `ipa-test-config-template.yaml` (FQDN `name`, `external_hostname`,
+   no `type` key on hosts — pytest_multihost rejects extra keys).
+2. `_setup_resolvconf` always writes a forwarder for the master
+   (default 8.8.8.8, same as the framework's DNSFORWARD default):
+   podman leaves `/etc/resolv.conf` empty, and the multihost
+   `PlainFileResolver` rejects an empty file ("Resolver manager could
+   not be detected").
+3. Unit preset: `setup_dns`/`setup_kra`/`forwarder` (the Azure base
+   runner always installs `--setup-dns --setup-kra`; without a
+   forwarder the installer's DNS check fails in the container).
+4. `-e container=podman` at container creation (runc defaults to
+   `container=oci`, which disagreed with
+   `test_ipaplatform/test_tasks.py::test_detect_container`).
+5. `cli.py` integration mode: `--ignore`/`--deselect` options are
+   emitted as separate argv entries (a space-joined `"--deselect x"`
+   string is shlex-quoted into one bogus test path).
+
+## Results (2026-09-08, host 192.168.122.215)
+
+Image: `freeipa-ci/full:44-8f33c1304` (1.99 GB; IPA dev build
+`4.14.0.dev202609080257+git8f33c1304-0.fc44`; KRA now part of the main
+`freeipa-server` package — no separate `freeipa-server-kra` subpackage;
+`freeipa-server-trust-ad` / `freeipa-client-samba` excluded — samba 4.24.5
+no longer in the F44 updates repo; see repo-pinning note below). Host RAM
+raised 3.9 GB → 7.9 GB after an OOM crash in the first run.
+
+| Step                          | Duration      |
+|-------------------------------|---------------|
+| `build.sh` (base + full)      | ~2 min        |
+| `freeipa-env up` (network, container, systemd wait, sshd, config) | ~40 s |
+| `ipa-server-install` (DNS+KRA) in `run` | ~5 min    |
+| `test_xmlrpc` (2636 tests + 13 skipped, test_dns_plugin.py ignored) | 11 min 11 s |
+| `ipa-server-install --uninstall` x2 in `run` | ~1 min  |
+| `freeipa-env down` (journal + Azure-parity daemon tarball, stop, rm, net rm) | <5 s |
+
+Suite result: **16 failed, 2607 passed, 13 skipped, 0 errors in 671.10s
+(11:11)**. Deterministic: a second full run of the same build produced
+identical numbers. All 16 failures analysed against the source tree at
+`8f33c1304` — **none are environment bugs**; 14 are stale test expectations
+introduced by two test commits in the dev branch, 2 are the known samba
+environment gap:
+
+1. `test_permission_bindtype` ×10 (0001, 0005-0006, 0008, 0011-0016) —
+   commit `585084e6e` ("tests: xmlrpc: cover the permission authentication
+   checks") re-baselined the test from `write`+anonymous to
+   `read`+anonymous but left stale write-baseline expectations in the
+   transition steps: `ipapermright=[u'write']` where the permission is now
+   `read` (0005/0008/0011/0013/0015), `allow (write) ...` ACI strings where
+   the server renders `allow (read) ...` (0006/0012/0014/0016 aci_show), and
+   0001 drops the 13032 `MissingTargetAttributesinPermission` expectation
+   that the server still emits (right='read'; `make_aci` warns for any
+   read/write/search/compare right without attributes). Server behaviour is
+   correct and unchanged since 2022 (`dc73813b8`); the test expectations
+   are wrong.
+2. `test_selfservice` ×4 (add_1002-style negative tests) — commit
+   `998126e08` ("tests: xmlrpc: expect the hardened self-service ACIs")
+   updated the show/find ACI expectations to the compound bind rule
+   `(userdn = "ldap:///self" and userdn = "ldap:///all")` but the ACL Syntax
+   **error-message** expectations (e.g. line ~806,
+   `r'...all\22;)'`) are missing the closing paren the server now emits:
+   server: `...userdn = \22ldap:///all\22);):`, test: `...\22ldap:///all\22;):`.
+   Server rendering is correct (ipalib commit `941c151be`);
+   expectations incomplete.
+3. `test_range::test_range` ×2 (idrange_add with `ipanttrusteddomainsid`,
+   0025/0026) — **environment gap, expected**: `validate_trusted_domain_sid`
+   requires `import ipaserver.dcerpc` to succeed, which needs the `samba`
+   python module (`python3-samba`). The image excludes trust-ad and samba
+   4.24.5 rotated out of the F44 rolling repo, so the flag is False and the
+   server raises `NotFound: Cannot perform SID validation without Samba 4
+   support`. The test itself injects a fake trusted domain via
+   `ipatests/test_xmlrpc/mock_trust.py` (MockLDAP), so no real AD is needed
+   — only the python bindings. Fix = pin `python3-samba` (or
+   `freeipa-server-trust-ad`) into the image via `PIN_SPECS`; deferred
+   per project decision (samba work out of scope for this validation).
+
+Artifacts (workdir): `nosetests.xml` (JUnit, 643 KB, from the container's
+`$IPA_TESTS_LOGSDIR` = `/root/ipa-env/logs`), `logs/collect-master1.journal.log`
+(27k lines), `logs/collected/master1/master1-logs.tar.gz` (Azure-parity
+daemon set: dirsrv, httpd, ipa*, krb5kdc, pki, samba, /var/named/data +
+boot journal), `logs/collected/master1/ipa-env/logs/` (workflow tarballs:
+`ipaserver_install_logs.tar.gz` 4.9 MB, `ipaserver_uninstall_logs.tar.gz`,
+`systemd_journal.log`, `nosetests.xml`), `logs/run.log`, per-step logs.
+
+### Previous build (for reference)
+
+`freeipa-ci/full:44-962ac6d0e`: **2106 passed, 124 failed, 13 skipped,
+405 errors in 8:54** (and identically on re-run, 8:44). Failures were in the
+product under test, not the environment:
+
+- 344 server-side `InternalError` — `AttributeError: 'Principal' object has
+  no attribute 'replace'` in `ipaserver/plugins/service.py` `get_dn()` on the
+  new managed-permissions path (`baseldap.enforce_managed_permissions` →
+  `rights_allow` → `_probe_effective_rights`).
+- ~100 `ACIError: Insufficient access` for admin (e.g. `user_show`) and
+  `ca_add`/`ca_del` — modernized-ACI behaviour changes.
+- Remainder: cascades from the above (`DuplicateEntry`, `NotFound`) and
+  assorted assertion deltas.
+
+The 39-commit window between the builds includes the baseldap
+managed-permissions rework (`fa2555cfd`, `dd317d3fd`, `fbb80bb5f`,
+`8f33c1304`) and the hardened-ACI changes (`941c151be` ipalib,
+`998126e08`/`585084e6e` tests) that fixed the Principal/replacement
+InternalError and the Insufficient-access cluster — empirically, the 405
+errors and ~108 unrelated failures are gone, leaving the 16 analysed above.
+
+## Known limitations / follow-ups
+
+- **Repo pinning**: the validation image was built against a rolling F44
+  updates repo; samba 4.24.5→4.24.6 rotation broke trust-ad resolution
+  (documented in the design). CI builds must use frozen repo snapshots —
+  `build.sh` accepts `PIN_SPECS` for this.
+- **xunit path**: `ipa-run-tests` sets `IPATEST_XUNIT_PATH` from `$PWD`
+  before chdir. `run-base-tests.sh` uses `mkdir -p "$IPA_TESTS_LOGSDIR"`
+  (not `mkdir`, which would fail in a container where the parent doesn't
+  exist) so the `pushd` succeeds and JUnit lands at
+  `/root/ipa-env/logs/nosetests.xml` (Azure-parity); the CLI fetches it
+  from there first, with `/root/nosetests.xml` and the ipatests package
+  dir as fallbacks.
+- **Status (2026-09-08)**: phases A/B/C complete; both builds validated
+  end to end; 16 remaining failures fully diagnosed (14 stale test
+  expectations in the dev tree, 2 deferred samba environment gap);
+  stale image `44-962ac6d0e` pruned from the VM (disk 70% → 64%). Phase D
+  (log analysis mode `freeipa-env logs`) implemented and validated against
+  the BASE_XMLRPC artifacts.
+- **chronyd** must be active (unmasked) in the base image: the installer
+  without `--no-ntp` restarts it; it harmlessly tracks the host clock.
+- External provider: validated against the host itself (F44 detection,
+  dev-build IPA detection, port probing, collect-only down, `--ssh-key`).
+  No destructive operations performed.

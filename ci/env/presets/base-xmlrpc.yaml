@@ -1,0 +1,30 @@
+# base-xmlrpc — the Azure BASE_XMLRPC job as a freeipa-env preset (B7).
+#
+# Source of truth: ipatests/azure/azure_definitions/base-fedora.yml, job
+# 'xmlrpc' (type base: 1 master / 0 replicas / 0 clients), which runs the
+# test_xmlrpc suite with test_xmlrpc/test_dns_plugin.py ignored:
+#
+#   ipa-run-tests ... --with-xunit \
+#       --ignore test_xmlrpc/test_dns_plugin.py test_xmlrpc
+#
+# The base mode (run.mode: base) reproduces azure-run-base-tests.sh:
+# install master (DNS + KRA), run the suite, uninstall x2, collect logs.
+
+name: base-xmlrpc
+provider: podman
+domain: ipa.test
+dist: 44
+image: freeipa-ci/full:44
+domain_level: 1
+dns_forwarder: 8.8.8.8
+
+hosts:
+  - {role: master, name: master1}
+
+run:
+  mode: base
+  setup_dns: true
+  setup_kra: true
+  forwarder: 8.8.8.8
+  tests: [test_xmlrpc]
+  ignore: [test_xmlrpc/test_dns_plugin.py]

@@ -1,0 +1,13 @@
+# Azure gating job 'simple_replication'.
+name: azure-simple-replication
+domain: ipa.test
+dist: 44
+image: freeipa-ci/full:44-b1af1d8bb
+hosts:
+  - {role: master, name: master1}
+  - {role: replica, name: replica1}
+resources:
+  replica: {memory: 2400m, memory-swap: 3500m}
+run:
+  mode: integration
+  tests: [test_integration/test_simple_replication.py]
