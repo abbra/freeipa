@@ -1,7 +1,10 @@
 summary: Provision a FreeIPA env and run its job recipe
 description: |
-    Runs on a Testing Farm guest. Builds the channel image from an SRPM
-    when one is supplied, then drives the same freeipa-env up/run/down flow
-    a local or ssh queue job would. Exits with the run step's status.
+    Runs on a Testing Farm guest. The plan's prepare step installs the
+    BuildRequires of freeipa.spec.in, so when no SRPM URL is supplied the
+    test builds freeipa's SRPM directly on the guest from the checked-out
+    repo, bakes the preset's channel image from it, and then drives the same
+    freeipa-env up/run/down flow a local or ssh queue job would. Exits with
+    the run step's status.
 test: bash $TMT_TREE/ci/tmt/tests/freeipa-env/tf-runner.sh
-duration: 2h
+duration: 6h
