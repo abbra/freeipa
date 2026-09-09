@@ -23,7 +23,7 @@ unreachable ports), `--ssh-key FILE` (external: root SSH key).
 
 ```yaml
 name: base-xmlrpc
-provider: podman            # or: external (pre-created systems)
+provider: podman            # or: external (pre-created), nested (get a VM via API)
 domain: ipa.test
 dist: 44
 image: freeipa-current      # build channel; the provider resolves the
@@ -49,6 +49,60 @@ host an `address:`). Hosts then need `name`/`role`/`address` (plus optional
 hostname/distribution/IPA state and never mutates; `run` is unchanged; `down`
 collects logs without destroying anything. Authenticate with `--ssh-key`
 (default `~/.ssh/id_rsa`).
+
+## Nested provider (get a VM, run the env in it)
+
+For cloud deployments where the test VMs exist only **through an API**, set
+`provider: nested`. A nested provider composes an **outer VM backend**
+("get a VM") with an **inner provider** (default `podman`, "run the env in
+the VM"). The inner environment is this same spec with `provider` set to
+`inner` and the `vm:` block stripped — the `hosts:` become containers in the
+provisioned VM, and the whole podman flow runs there. It is the supervisor's
+pre-allocated runner generalized: the runner is acquired by the backend on
+demand and released on `down`.
+
+```yaml
+name: nested-example
+provider: nested
+image: freeipa-current
+inner: podman              # inner provider (default podman)
+vm:
+  backend: command         # ssh | command | openstack
+  count: 1                 # VMs to provision (podman inner uses the 1st)
+  provision_cmd: examples/nested/get-vm.sh      # $1 = count; print user@host[:port] / line
+  deprovision_cmd: examples/nested/drop-vm.sh   # $1 = vm id/target
+hosts:
+  - {role: master, name: master1}
+  - {role: replica, name: replica1}
+run: {mode: integration, tests: [test_integration/test_simple_replication.py]}
+```
+
+**VM backends** (`freeipa_env/vmbackend.py`):
+
+* `ssh` — a pool of pre-allocated `user@host[:port]` entries (`vm.hosts`);
+  `terminate` is a no-op. The "no real API" reference case.
+* `command` — shell out to `vm.provision_cmd <count>` (stdout: one
+  `user@host[:port]` per line, or a JSON list of handles) and
+  `vm.deprovision_cmd <handle>`. The **generic cloud-API integration
+  point**: wrap any cloud in two scripts. See `examples/nested/`.
+* `openstack` — a concrete real-API example on the `openstack` CLI
+  (`server create`/`show`/`delete`, floating IPs); the template for any
+  other cloud.
+
+**Lifecycle.** `up`: provision → wait for ssh → rsync the `ci/` tree + the
+inner spec to the VM → run the inner `freeipa-env up` there → save the VM
+handles to `<workdir>/nested-state.json` (so a later `down` knows what to
+tear down). `down`: run the inner `freeipa-env down` (collects logs), rsync
+the remote workdir back (so `logs` and the xunit work locally), release the
+VMs, clear state. `run` drives the inner `freeipa-env run` on the primary VM.
+`resolve` is deferred — the VM does not exist yet, so image resolution
+happens on the VM at `up` time (a provisioned VM is expected to carry the
+`freeipa-ci` image, or set `vm.image_ref` to `podman pull` it).
+
+The nested provider runs on the **control node** (a CI machine with the
+cloud API creds + ssh). A queue of `provider: nested` presets runs under the
+existing `freeipa-env queue` supervisor on a control-node `--runner`; each
+job provisions its own VM(s).
 
 ## Artifacts
 

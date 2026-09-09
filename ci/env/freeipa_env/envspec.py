@@ -101,6 +101,10 @@ class EnvSpec:
     hosts: list = field(default_factory=list)
     resources: dict = field(default_factory=dict)
     run: Optional[RunSpec] = None
+    # nested provider (design doc §3.9): get a VM through a backend, then
+    # run the inner provider (default podman) inside it
+    inner: Optional[str] = None
+    vm: Optional[dict] = None
     raw: dict = field(default_factory=dict, repr=False)
 
     # Defaults mirror ipatests/azure/templates/variables-fedora.yml.
@@ -128,9 +132,17 @@ class EnvSpec:
         if not any(h.role == 'master' for h in spec.hosts):
             raise EnvSpecError('env needs a master host')
         spec.run = RunSpec.from_dict(d.get('run'))
-        if spec.provider not in ('podman', 'external'):
-            raise EnvSpecError(f'provider must be podman|external, '
+        if spec.provider not in ('podman', 'external', 'nested'):
+            raise EnvSpecError(f'provider must be podman|external|nested, '
                                f'got {spec.provider!r}')
+        if spec.provider == 'nested':
+            if not isinstance(spec.vm, dict) or not spec.vm.get('backend'):
+                raise EnvSpecError(
+                    f'env needs a `vm:` block with a `backend` '
+                    f'(ssh | command | openstack | ...) for the nested '
+                    f'provider')
+            if spec.inner is not None and not isinstance(spec.inner, str):
+                raise EnvSpecError(f'`inner` must be a provider name')
         return spec
 
     @classmethod

@@ -12,6 +12,8 @@ import sys
 from .envspec import EnvSpec, EnvSpecError, RunSpec
 from .podman_provider import PodmanProvider, PodmanError
 from .external_provider import ExternalProvider, ExternalError
+from .vmbackend import VMBackendError
+from .nested_provider import NestedProvider, NestedError
 from .loganalyze import (LogStore, CATEGORIES, CATEGORY_NAMES,
                          render_list, render_json, show_categories,
                          DEFAULT_LINES, DEFAULT_TAIL)
@@ -39,6 +41,8 @@ def make_provider(spec, workdir, args):
     if spec.provider == 'podman':
         return PodmanProvider(spec, workdir, tool=args.tool,
                               seccomp=args.seccomp)
+    if spec.provider == 'nested':
+        return NestedProvider(spec, workdir, args)
     return ExternalProvider(spec, workdir, strict=args.strict,
                          ssh_key=args.ssh_key)
 
@@ -102,7 +106,9 @@ def cmd_resolve(args):
     prov = make_provider(spec, workdir, args)
     resolved = prov.resolve_images()
     if not resolved:
-        print('no image references (external provider: hosts run their own IPA)')
+        print('no image references to resolve locally (the provider '
+              'resolves at `up` time, e.g. a nested provider resolves on '
+              'the provisioned VM)')
         return 0
     for ref, (concrete, img_id) in resolved.items():
         print(f'{ref} {concrete} {img_id}')
@@ -422,7 +428,8 @@ def main(argv=None):
     args = p.parse_args(argv)
     try:
         return args.fn(args)
-    except (PodmanError, ExternalError, EnvSpecError) as e:
+    except (PodmanError, ExternalError, EnvSpecError, VMBackendError,
+            NestedError) as e:
         print(f'error: {e}', file=sys.stderr)
         return 1
 

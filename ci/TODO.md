@@ -374,6 +374,43 @@ the concrete image on the host at `up` time. External provider ignores it.
   current`; `freeipa-env resolve` prints `freeipa-current -> freeipa-ci/
   full:44-b1af1d8bb (<id>)`; 2-job queue **2/2 PASS**.
 
+## J. Nested providers (get a VM, run the env in it)
+
+Goal: support cloud deployments where the test VMs exist only **through an
+API**. A **nested provider** (`provider: nested`) composes an outer **VM
+backend** ("get a VM") with an inner provider (default `podman`, "run the
+env in the VM"). It is the supervisor's pre-allocated runner generalized:
+the runner is acquired by the backend on demand and released on `down`.
+The inner environment is the same spec with `provider` set to `inner` and
+the `vm:` block stripped — the `hosts:` become containers in the provisioned
+VM and the whole validated podman flow runs there.
+
+- [x] J1: `freeipa_env/vmbackend.py` — `VMHandle` (ssh target: user@host[:port]
+  + key + id + meta) + `VMBackend` interface (`provision` / `wait_ready` /
+  `terminate`) + ssh/rsync helpers.
+- [x] J2: backends — `ssh` (pre-allocated pool; "no real API" reference),
+  `command` (shell out to provision/deprovision scripts — the generic
+  cloud-API integration point), `openstack` (concrete real-API example on the
+  `openstack` CLI: server create/show/delete + floating IPs).
+- [x] J3: `freeipa_env/nested_provider.py` — `NestedProvider` composes a
+  backend + inner provider: `up` (provision → wait → rsync ci/ + inner spec →
+  inner `freeipa-env up` → persist `<workdir>/nested-state.json`), `down` (inner
+  `down` → rsync artifacts back → release VMs → clear state), `run` (inner
+  `freeipa-env run` on the primary VM), `resolve` (deferred to the VM),
+  `show`.
+- [x] J4: `envspec.py` — `provider: nested` + `vm:` (backend config) +
+  `inner:` (inner provider, default podman) fields, validated; `cli.py`
+  `make_provider` dispatches to `NestedProvider`; `main()` catches the new
+  error types; `resolve` message made provider-generic.
+- [x] J5: example preset `presets/nested-example.yaml` +
+  `examples/nested/{get-vm.sh,drop-vm.sh}`; README + design doc §3.9.
+- [x] J6: e2e on 192.168.122.215 (as the "provisioned VM" via the `command`
+  backend stub): `up` (provision → bootstrap → inner podman up) → `run`
+  (`test_integration/test_pki_config_override.py::TestPKIConfigOverride`
+  **1 passed in 349s**) → `down` (inner down → logs + xunit fetched back
+  locally → deprovisioned via the command backend → state cleared). Full
+  nested lifecycle validated; host left clean (0 containers).
+
 ## Known limitations / follow-ups
 
 - **Repo pinning**: the validation image was built against a rolling F44

@@ -1,0 +1,30 @@
+# Example nested-provider preset (design doc §3.9).
+#
+# A nested provider composes an outer VM backend ("get a VM" through an
+# API) with an inner provider (default podman, "run the env in the VM").
+# This example provisions one VM through two scripts (vm.backend: command)
+# and runs a master+replica IPA env as podman containers inside it.
+#
+# To use against your own cloud: point vm.provision_cmd / vm.deprovision_cmd
+# at scripts that call your API (see examples/nested/), or switch to
+# vm.backend: ssh (a pool of pre-allocated hosts) or vm.backend: openstack.
+# The inner environment is this same spec with provider set to `inner`
+# (podman here) and the vm: block stripped — so the hosts below become
+# containers in the provisioned VM.
+name: nested-example
+domain: ipa.test
+provider: nested
+image: freeipa-current
+inner: podman
+vm:
+  backend: command
+  count: 1
+  provision_cmd: examples/nested/get-vm.sh
+  deprovision_cmd: examples/nested/drop-vm.sh
+hosts:
+  - {role: master, name: master1}
+  - {role: replica, name: replica1}
+run:
+  mode: integration
+  tests:
+    - test_integration/test_simple_replication.py

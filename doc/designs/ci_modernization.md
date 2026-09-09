@@ -478,6 +478,90 @@ runners (ssh + podman + systemd hosts).
 This is the concrete first instance of the §4 orchestrator's scheduling
 primitive (single machine, ssh + rsync, no results DB yet).
 
+### 3.9 Nested providers — get a VM, run the env in it
+
+In a cloud deployment the test VMs are not pre-allocated boxes an operator
+hands over; they only exist **through a cloud API**. The unit of work is:
+*provision a VM through that API → run the test environment inside it →
+tear the VM back down through the API.* A **nested provider** composes two
+things for exactly this:
+
+* an **outer VM backend** — "get a VM": a pluggable cloud-API integration
+  that provisions, waits for, and terminates VMs and returns ssh handles
+  for them;
+* an **inner provider** — "run the env in the VM": the existing provider
+  (default `podman`) that brings up the environment *on* the provisioned
+  VM.
+
+It is the supervisor's pre-allocated runner model generalized: instead of
+`--runner user@host` (a box you already have), the runner is **acquired by
+a VM backend on demand** and released when done.
+
+**EnvSpec.** `provider: nested` plus two new fields:
+
+```yaml
+provider: nested
+vm:
+  backend: command            # ssh | command | openstack | …
+  count: 1                    # VMs to provision (podman inner uses the 1st)
+  provision_cmd: /path/get-vms.sh   # backend-specific params follow
+  deprovision_cmd: /path/drop-vms.sh
+inner: podman                 # inner provider (default podman)
+```
+
+The inner environment is the *same* spec with `provider` set to `inner`
+and the `vm:` block stripped — the nested provider materializes it, ships
+it to the VM, and drives the inner provider there by re-invoking
+`freeipa-env up/run/down <inner-spec> --workdir <remote>` over ssh. All of
+the validated podman flow (network, containers, config, logs) runs
+unchanged, just on the VM.
+
+**VMBackend interface** (`freeipa_env/vmbackend.py`). A backend turns a
+config dict into VMs and hands back `VMHandle`s (ssh targets:
+`user@host[:port]` + optional key):
+
+```python
+class VMBackend:
+    def provision(self, count=1) -> list[VMHandle]: ...
+    def wait_ready(self, handle, timeout=600): ...
+    def terminate(self, handle): ...
+```
+
+Shipped backends:
+
+* `ssh` — a pool of pre-allocated `user@host` entries; `provision` returns
+  the next N, `terminate` is a no-op. The "no real API" reference case (and
+  what the supervisor already does).
+* `command` — shells out to `provision_cmd <count>` (stdout: one
+  `user@host[:port]` per line) and `deprovision_cmd <handle…>`. This is the
+  **generic cloud-API integration point**: wrap any cloud in two scripts.
+* `openstack` — a concrete real-API example (built on the `openstack`
+  CLI: `server create/show/delete`, floating IPs) showing the call-a-cloud
+  pattern; the template for any other cloud.
+
+**Lifecycle.** `up()`: `provision(count)` → `wait_ready` on each → persist
+the handles to `<workdir>/nested-state.json` (so `up` and `down` are
+separate CLI calls) → bootstrap the primary VM (rsync the `ci/` tree + the
+inner spec) → run the inner `freeipa-env up` on it. `down()`: run the inner
+`freeipa-env down` on the primary VM (which collects the env logs), rsync
+the remote workdir back to the local one (so `freeipa-env logs` / xunit
+work locally), then `terminate` every VM and clear state. `run()` drives
+the inner `freeipa-env run` on the primary VM (test selection is recomputed
+from the identical inner spec there).
+
+**Image resolution is deferred.** At `resolve` time the VM does not exist
+yet, so the nested provider cannot inspect an image store; `resolve`
+returns empty (the supervisor preflight passes with rc 0) and resolution
+happens *on the VM* during the inner `up`. Image availability on the VM is
+checked then — a provisioned VM is expected to carry the `freeipa-ci`
+image (baked into its image, or `vm.image_ref` is `podman pull`ed).
+
+**Queue integration.** A queue of `provider: nested` presets runs under the
+existing supervisor on a **control-node runner** (a CI node that has the
+cloud API creds + ssh). Each job provisions its own VM(s) in `up` and
+drops them in `down` — the queue order and FIFO scheduling are unchanged;
+only where the env's VMs come from differs.
+
 ## 4. Orchestrator
 
 A small Python service (single deployment; SQLite→Postgres as it grows):
@@ -553,9 +637,12 @@ ci/
     server/Dockerfile         # + server RPMs   (parameter: dist, build_url)
     full/Dockerfile           # + client RPMs
   env/                        # the freeipa-env provisioner (python package)
-    freeipa_env/...           # + image.py (build channels), queue.py, supervisor.py
+    freeipa_env/...           # + image.py (build channels), queue.py, supervisor.py,
+                              #   vmbackend.py + nested_provider.py (nested providers, §3.9)
     cli.py                    # `freeipa-env up/run/down/show/logs/migrate/queue/resolve`
     presets/prci/             # migrated PRCI definitions (11 defs, 1301 presets)
+    presets/nested-example.yaml  # nested-provider example (§3.9)
+    examples/nested/          # get-vm.sh / drop-vm.sh (vm.backend: command examples)
   queues/                     # ordered run queues (azure + 11 PRCI definitions)
   orchestrator/               # scheduler service, results db, report
   runners/                    # node provisioning (podman setup, capacity tags)
