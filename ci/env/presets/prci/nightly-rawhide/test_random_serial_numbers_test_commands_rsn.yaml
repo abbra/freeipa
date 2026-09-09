@@ -6,7 +6,7 @@
 provider: podman
 name: test_random_serial_numbers_test_commands_rsn
 domain: ipa.test
-image: freeipa-ci/full:44
+image: freeipa-next
 hosts:
 - role: master
   name: master1

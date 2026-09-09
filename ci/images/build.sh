@@ -12,6 +12,10 @@
 #                     pick the newest per package.
 #   --dist N          Fedora dist tag, default 44 (image tags:
 #                     <tag>/full:<dist>-<sha> and <tag>/full:<dist>).
+#   --channel NAME    Build channel to publish, default current. Tags the
+#                     built image as <tag>/full:<channel> (the abstract
+#                     channel presets reference via `image: freeipa-<channel>`).
+#                     One of: current, next, previous.
 #   --tag NAME        Image repo name, default freeipa-ci.
 #   --exclude GLOB    Skip files matching GLOB (repeatable). Debuginfo and
 #                     debugsource are excluded by default.
@@ -28,6 +32,7 @@ RPMS=
 SHA=
 DIST=44
 TAG=freeipa-ci
+CHANNEL=current
 EXCLUDES=()
 EXCLUDES+=('*debuginfo')
 EXCLUDES+=('*debugsource')
@@ -39,6 +44,7 @@ while [[ $# -gt 0 ]]; do
         --rpms) RPMS="$2"; shift 2 ;;
         --sha) SHA="$2"; shift 2 ;;
         --dist) DIST="$2"; shift 2 ;;
+        --channel) CHANNEL="$2"; shift 2 ;;
         --tag) TAG="$2"; shift 2 ;;
         --exclude) EXCLUDES+=("$2"); shift 2 ;;
         --pin) PINS="$2"; shift 2 ;;
@@ -122,14 +128,19 @@ ARGS=(build -f "$WORK/Dockerfile" -t "$FULL_IMAGE" --build-arg "BASE=$BASE_IMAGE
 
 # Image tag contract:
 #   <tag>/full:<dist>-<sha>  immutable per-build tag (provenance)
-#   <tag>/full:<dist>        rolling "currently built" pointer, re-pointed
-#                            by every build. Presets reference ONLY the
-#                            rolling tag; the podman provider resolves it
-#                            to the concrete image at up time
+#   <tag>/full:<dist>        rolling dist pointer, re-pointed by every build
+#   <tag>/full:<channel>     build channel (current/next/previous) — the
+#                            abstract reference presets use. Presets name a
+#                            channel (`image: freeipa-<channel>`), never a
+#                            concrete build; the podman provider resolves the
+#                            channel tag to the concrete image at up time
 #                            (freeipa-env resolve).
+CHANNEL_TAG="$TAG/full:$CHANNEL"
+"$TOOL" tag "$FULL_IMAGE" "$CHANNEL_TAG"
+echo "==> Tagged channel $CHANNEL_TAG (= $FULL_IMAGE)"
 if [[ -n "$SHA_TAG" ]]; then
     "$TOOL" tag "$FULL_IMAGE" "$TAG/full:$SHA_TAG"
-    echo "==> Tagged $TAG/full:$SHA_TAG (rolling $FULL_IMAGE = newest build)"
+    echo "==> Tagged $TAG/full:$SHA_TAG (provenance)"
 fi
 
-echo "==> Done: $FULL_IMAGE (rolling)${SHA_TAG:+ and $TAG/full:$SHA_TAG}"
+echo "==> Done: $CHANNEL_TAG (channel ${SHA_TAG:+and $TAG/full:$SHA_TAG, rolling $FULL_IMAGE})"

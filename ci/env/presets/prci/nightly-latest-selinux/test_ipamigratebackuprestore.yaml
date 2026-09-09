@@ -6,7 +6,7 @@
 provider: podman
 name: test_ipamigratebackuprestore
 domain: ipa.test
-image: freeipa-ci/full:44
+image: freeipa-current
 hosts:
 - role: master
   name: master1

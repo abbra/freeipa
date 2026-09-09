@@ -14,7 +14,7 @@ name: base-xmlrpc
 provider: podman
 domain: ipa.test
 dist: 44
-image: freeipa-ci/full:44
+image: freeipa-current
 domain_level: 1
 dns_forwarder: 8.8.8.8
 

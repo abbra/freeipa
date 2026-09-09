@@ -96,7 +96,7 @@ Non-goals:
                  v
         +------------------+          +----------------------------------+
         | Image pipeline   |  --->    | Container registry               |
-        | layered images    |          | freeipa-ci/... : dist+commit tags|
+        | layered images    |          | freeipa-ci/... : channel/dist/commit tags|
         +--------+---------+          +----------------------------------+
                  |
                  v
@@ -180,15 +180,24 @@ freeipa-ci/fedora-base:44                 # systemd, openssh, dnf cache warm,
                                           # debuginfo, python3 + pytest toolchain
   └── freeipa-ci/server:44-<sha>          # + all server RPMs from this commit
         └── freeipa-ci/full:44-<sha>      # + client RPMs (most envs want both)
-              (also tagged freeipa-ci/full:44 — the rolling tag)
+              (also tagged freeipa-ci/full:44 — the rolling dist tag — and
+               freeipa-ci/full:<channel> — the build channel, e.g. :current)
 ```
 
-The `<dist>-<sha>` tag is the immutable provenance tag; the plain `<dist>`
-tag is the rolling **currently-built** pointer re-pointed by every build.
-Presets reference only the rolling tag; **resolving it to a concrete
-image is a provider task** (the podman provider resolves it against the
-local image store at `up` time; the external provider ignores it —
-external hosts run their own IPA).
+Three tag families on the same image:
+* **`<dist>-<sha>`** — immutable provenance tag.
+* **`<dist>`** — rolling dist pointer, re-pointed by every build.
+* **`<channel>`** — the build generation pointer (`current` / `next` /
+  `previous`), re-pointed by `build.sh --channel NAME`.
+
+Presets name a **channel**, never a build — `image: freeipa-current` /
+`freeipa-next` / `freeipa-previous`, mirroring PRCI where each definition
+file references one build generation and every job in it uses that one
+build. **Resolving a channel to a concrete image is a provider task** (the
+podman provider maps the channel to its podman tag and resolves it against
+the local image store at `up` time; the external provider ignores it —
+external hosts run their own IPA). A preset may also name an explicit image
+reference (passed through) to pin a specific build.
 
 * Base is rebuilt weekly / on dist upgrade; server/full are thin (one `rpm -i`
   layer on top, `dnf install --downloadonly` of the PR RPMs from the build
@@ -236,7 +245,7 @@ domain: ipa.test
 provider: podman         # podman (default): created env | external: attached,
                          # pre-created elsewhere (all hosts need `address`)
 dist: f44
-image: freeipa-ci/full:44        # rolling tag; resolved by the provider
+image: freeipa-current         # build channel; resolved by the provider
 domain_level: 1
 fips: false            # userspace FIPS, per existing fips.py
 ipv6: true
@@ -450,7 +459,8 @@ runners (ssh + podman + systemd hosts).
   `freeipa-env queue generate <def>.yaml`). A queue is an ordered `jobs:`
   list of preset paths (relative to `ci/env/`), a directory entry
   expanding to all its presets sorted, or per-job dicts with notes. Each
-  preset carries only the logical image reference.
+  preset names only a build channel (`freeipa-current` / `freeipa-next` /
+  `freeipa-previous`).
 * **Supervisor** (`freeipa-env queue run <queue> --runner user@host …`):
   validates every preset, checks each runner, rsyncs the `ci/` tree, and
   asks each runner's provider to resolve every distinct preset's image
@@ -543,8 +553,8 @@ ci/
     server/Dockerfile         # + server RPMs   (parameter: dist, build_url)
     full/Dockerfile           # + client RPMs
   env/                        # the freeipa-env provisioner (python package)
-    freeipa_env/...           # + queue.py, supervisor.py (run queues)
-    cli.py                    # `freeipa-env up/run/down/show/logs/migrate/queue`
+    freeipa_env/...           # + image.py (build channels), queue.py, supervisor.py
+    cli.py                    # `freeipa-env up/run/down/show/logs/migrate/queue/resolve`
     presets/prci/             # migrated PRCI definitions (11 defs, 1301 presets)
   queues/                     # ordered run queues (azure + 11 PRCI definitions)
   orchestrator/               # scheduler service, results db, report

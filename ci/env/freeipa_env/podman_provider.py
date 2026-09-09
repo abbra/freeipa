@@ -18,6 +18,7 @@ import sys
 import time
 
 from .envspec import EnvSpec
+from .image import channel_tag, is_channel
 
 DEFAULT_V4_SUBNET = '10.89.0.0/24'
 DEFAULT_V6_SUBNET = '2001:db8:1::/64'
@@ -35,6 +36,7 @@ class PodmanProvider:
     def __init__(self, spec, workdir, tool='podman', seccomp=None):
         self.spec = spec
         self.workdir = workdir
+        self._resolved = {}
         self.tool = tool
         self.seccomp = seccomp
         self.logdir = os.path.join(workdir, 'logs')
@@ -87,21 +89,30 @@ class PodmanProvider:
         return out.strip() if rc == 0 and out.strip() else None
 
     def resolve_images(self):
-        """Resolve the spec's logical image references to concrete local
-        images. Presets carry a rolling reference (e.g.
-        freeipa-ci/full:44 = the newest full image for dist 44 — the tag
-        ci/images/build.sh re-points at every build); the provider, not
-        the preset, decides which concrete image that means on this
+        """Resolve the spec's image references to concrete local images.
+
+        A preset reference is either an *abstract build channel*
+        (``freeipa-current`` / ``freeipa-next`` / ``freeipa-previous`` —
+        mapped to the podman channel tag the build step publishes) or an
+        explicit image reference (passed through). The provider, not the
+        preset, decides which concrete image a channel means on this
         host. Read-only. Returns {ref: (concrete_tag, image_id)}."""
-        resolved = {}
+        resolved = self._resolved
         for h in self.spec.hosts:
             if h.is_external:
                 continue
             ref = self.spec.podman_image(h)
             if ref in resolved:
                 continue
-            img_id = self._image_id(ref)
+            imgref = channel_tag(ref)
+            img_id = self._image_id(imgref)
             if not img_id:
+                if is_channel(ref):
+                    raise PodmanError(
+                        f'channel {ref} (tag {imgref}) not found on this '
+                        f'host; build it with ci/images/build.sh '
+                        f'--channel {ref} (or load the saved image '
+                        f'tarball) and re-run')
                 raise PodmanError(
                     f'image {ref} not found on this host; build it with '
                     f'ci/images/build.sh (or load the saved image tarball) '
@@ -112,11 +123,25 @@ class PodmanProvider:
                                    echo=False)
             tags = out.split()
             # most specific tag on the same image = longest (commit tags
-            # like 44-<sha> outrun the rolling 44)
-            concrete = max(tags, key=len) if tags else ref
+            # like 44-<sha> outrun the channel and rolling dist tags)
+            concrete = max(tags, key=len) if tags else imgref
             resolved[ref] = (concrete, img_id)
             print(f'== image: {ref} -> {concrete} ({img_id[:12]})')
         return resolved
+
+    def _run_image(self, h):
+        """Concrete image to pass to `podman run` for this host.
+
+        Uses the resolved image (channel/explicit ref -> fully-qualified
+        concrete tag), so `podman run` never sees a bare short name like
+        `freeipa-current` (which would trigger podman's interactive
+        short-name resolution and fail without a TTY). Falls back to the
+        raw reference if it was never resolved."""
+        ref = self.spec.podman_image(h)
+        r = self._resolved.get(ref)
+        if r:
+            return r[0] or r[1]
+        return ref
 
     # ------------------------------------------------------------- containers
     def _network_args(self):
@@ -153,7 +178,7 @@ class PodmanProvider:
         if self.seccomp:
             args += ['--security-opt', f'seccomp={self.seccomp}']
         args += ['-v', f'{self.config_path}:{CONFIG_PATH_IN_CONTAINER}:ro']
-        args.append(self.spec.podman_image(h))
+        args.append(self._run_image(h))
         return args
 
     def _run_containers(self):

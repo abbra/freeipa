@@ -26,7 +26,7 @@ name: base-xmlrpc
 provider: podman            # or: external (pre-created systems)
 domain: ipa.test
 dist: 44
-image: freeipa-ci/full:44   # logical reference; the provider resolves the
+image: freeipa-current      # build channel; the provider resolves the
                             # concrete image (per-host image: overrides)
 hosts:
   - {role: master, name: master1}
@@ -200,15 +200,22 @@ Queue format: an ordered `jobs:` list of preset paths (relative to
 `ci/env/`), a directory entry (trailing `/`) expanding to all presets in
 it sorted, or per-job dicts (`preset`/`dir` + `note`).
 
-**Image references are logical.** A preset never pins a build —
-`image: freeipa-ci/full:44` means *the newest full image for dist 44*
-(the rolling tag `ci/images/build.sh` re-points at every build; the exact
-build stays available under `freeipa-ci/full:44-<sha>` for provenance).
-Resolving that reference to a concrete image on a given host is a
-**provider task**: the podman provider resolves it at `up` time against
-the local image store (and `freeipa-env resolve ENV.YAML` does just that
-one thing, printing `<ref> <concrete> <image_id>`); the external provider
-ignores it — external hosts run their own IPA.
+**Image references are build channels, never builds.** A preset pins
+no build — it names a *channel*: `image: freeipa-current` (the current
+release's newest build), `freeipa-next` (the next release, PRCI
+`fedora-rawhide`) or `freeipa-previous` (the previous release). This
+mirrors PRCI, where each definition file references one build generation
+and every job in it uses that one build. `ci/images/build.sh --channel
+NAME` tags each build with the channel tag (`freeipa-ci/full:<channel>`)
+alongside the immutable provenance tag (`freeipa-ci/full:<dist>-<sha>`).
+
+Resolving a channel to a concrete image on a given host is a **provider
+task**: the podman provider maps the channel to its podman tag and
+resolves it against the local image store at `up` time (and
+`freeipa-env resolve ENV.YAML` does just that one thing, printing
+`<ref> <concrete> <image_id>`); the external provider ignores it —
+external hosts run their own IPA. A preset may also name an explicit
+image reference (passed through unchanged) if you need to pin a build.
 
 ```
 freeipa-env queue run ci/queues/gating.yaml \

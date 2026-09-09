@@ -8,7 +8,7 @@
 provider: podman
 name: test_webui_host_net_groups
 domain: ipa.test
-image: freeipa-ci/full:44
+image: freeipa-previous
 hosts:
 - role: master
   name: master1

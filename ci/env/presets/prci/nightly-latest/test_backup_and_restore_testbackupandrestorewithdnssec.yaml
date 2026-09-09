@@ -6,7 +6,7 @@
 provider: podman
 name: test_backup_and_restore_testbackupandrestorewithdnssec
 domain: ipa.test
-image: freeipa-ci/full:44
+image: freeipa-current
 hosts:
 - role: master
   name: master1

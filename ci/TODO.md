@@ -338,6 +338,42 @@ to a concrete image is a provider task**.
   freeipa-ci/full:44 -> localhost/freeipa-ci/full:44-b1af1d8bb
   (db266cd23ffd)`; 2-job queue (kerberos-flags + netgroup) **2/2 PASS**.
 
+## I. Abstract build channels
+
+Goal: make the preset image reference *even more* abstract — an **abstract
+build channel** mirroring PRCI's per-file build generation. PRCI already
+does this: each definition file references one of the next/current/previous
+builds (via its `job_prefix` / `Build` job) and every job in the file uses
+that one build. Presets therefore name a **channel**, never a build:
+
+* `freeipa-current`  — newest build of the current release
+* `freeipa-next`     — the next release (PRCI `fedora-rawhide`)
+* `freeipa-previous` — the previous release (PRCI `fedora-previous`)
+
+The build step publishes the channel tag (`build.sh --channel NAME` tags
+`freeipa-ci/full:<channel>` alongside the immutable `<dist>-<sha>` tag);
+the **provider** maps the channel name to its podman tag and resolves it to
+the concrete image on the host at `up` time. External provider ignores it.
+
+- [x] I1: `freeipa_env/image.py` — `CHANNELS` (channel → podman tag),
+  `channel_tag()`, `is_channel()`, `channel_from_prefix()` (PRCI prefix →
+  channel: `*previous*` → previous, `*rawhide*` → next, else current).
+- [x] I2: `prci.py` — generated presets' `image:` is now the channel
+  derived from the definition's `job_prefix` (no more hardcoded dist tag).
+  All 1301 prci presets regenerated: 931 `freeipa-current` (fedora-latest
+  + component channels), 185 `freeipa-previous` (nightly-previous), 185
+  `freeipa-next` (nightly-rawhide). Deterministic: the *only* line
+  changed is `image:`.
+  (Plus the 16 hand-written azure presets → `freeipa-current`.)
+- [x] I3: `PodmanProvider.resolve_images()` maps a channel to its podman
+  tag before inspecting; explicit image refs pass through unchanged.
+  `build.sh --channel NAME` (default `current`) tags `freeipa-ci/full:
+  <channel>`.
+- [x] I4: azure presets + base-xmlrpc now use `image: freeipa-current`.
+- [x] I5: e2e on 192.168.122.215: `podman tag ... freeipa-ci/full:
+  current`; `freeipa-env resolve` prints `freeipa-current -> freeipa-ci/
+  full:44-b1af1d8bb (<id>)`; 2-job queue **2/2 PASS**.
+
 ## Known limitations / follow-ups
 
 - **Repo pinning**: the validation image was built against a rolling F44

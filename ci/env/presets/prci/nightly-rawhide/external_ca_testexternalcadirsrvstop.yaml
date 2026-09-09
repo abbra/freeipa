@@ -6,7 +6,7 @@
 provider: podman
 name: external_ca_testexternalcadirsrvstop
 domain: ipa.test
-image: freeipa-ci/full:44
+image: freeipa-next
 hosts:
 - role: master
   name: master1

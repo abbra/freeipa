@@ -2,7 +2,7 @@
 name: azure-external-ca-profile-scenarios
 domain: ipa.test
 dist: 44
-image: freeipa-ci/full:44
+image: freeipa-current
 hosts:
   - {role: master, name: master1}
 run:

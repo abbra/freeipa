@@ -6,9 +6,9 @@ of the lab VMs), addressed as ``user@host``. The supervisor:
   1. checks every runner (ssh reachability + podman),
   2. rsyncs the local ``ci/`` tree to ``--remote-ci`` (default
      ``/root/freeipa-ci/ci``) on each runner,
-  3. asks each runner's provider to resolve every preset's logical image
-     references (``freeipa-env resolve``; fail fast, and the resolved
-     concrete images are recorded in the summary),
+  3. asks each runner's provider to resolve every preset's build-channel
+     image references (``freeipa-env resolve``; fail fast, and the
+     resolved concrete images are recorded in the summary),
   4. schedules the queue: each runner pulls jobs from the front of the
      list, one at a time. A job is ``freeipa-env up`` -> ``run`` ->
      ``down`` (down is skipped on failure with ``--keep-on-failure``),
@@ -78,9 +78,9 @@ class Runner:
 
     def resolve_images(self, remote_ci, preset_rels, timeout=600):
         """Ask the runner's provider (via `freeipa-env resolve`) to
-        resolve the presets' logical image references. Remote output:
-        '== <preset>' header lines, then '<ref> <concrete> <id>' lines.
-        Stops at the first preset that fails to resolve."""
+        resolve the presets' build-channel image references. Remote
+        output: '== <preset>' header lines, then '<ref> <concrete> <id>'
+        lines. Stops at the first preset that fails to resolve."""
         cli = f'{remote_ci}/env/freeipa-env'
         ps = ' '.join(shlex.quote(p) for p in preset_rels)
         cmd = (f'for p in {ps}; do '
@@ -211,8 +211,8 @@ class Supervisor:
                           f'{r.spec}:{self.remote_ci}/')
                 r.bootstrap(self.remote_ci)
         # image resolution is a provider task: ask each runner to resolve
-        # every distinct preset's logical references against its local
-        # image store (fail fast before any job starts).
+        # every distinct preset's build channels against its local image
+        # store (fail fast before any job starts).
         self._resolved = {}
         presets = sorted({j.preset_rel for j in self.queue.jobs})
         for r in self.runners:
@@ -301,12 +301,12 @@ class Supervisor:
                     f'{n_fail} failed, {len(rows)} total\n\n')
             if resolved:
                 f.write('## Resolved images\n\n')
-                f.write('Presets carry logical references; each runner\'s '
-                        'provider resolved them against its local image '
-                        'store.\n\n')
+                f.write('Presets name a build channel (never a build); '
+                        'each runner\'s provider resolved it against its '
+                        'local image store.\n\n')
                 for rspec, by_ref in resolved.items():
                     f.write(f'### {rspec}\n\n')
-                    f.write('| logical | resolved to | image id |\n')
+                    f.write('| channel | resolved to | image id |\n')
                     f.write('|---|---|---|\n')
                     for ref, (concrete, img_id) in by_ref.items():
                         f.write(f'| {ref} | {concrete} | `{img_id[:12]}` |\n')

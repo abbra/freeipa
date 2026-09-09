@@ -6,7 +6,7 @@
 provider: podman
 name: test_hsm_testadtrustinstallwithdns_kra_adtrust
 domain: ipa.test
-image: freeipa-ci/full:44
+image: freeipa-previous
 hosts:
 - role: master
   name: master1

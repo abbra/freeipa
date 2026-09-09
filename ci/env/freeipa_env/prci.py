@@ -15,6 +15,10 @@ Mapping to the freeipa-env preset model:
   topology memory      ->  memory split evenly across IPA hosts
                            (limits, rounded down to 100 MiB, min 512 MiB)
   test_suite           ->  run.tests
+  build generation     ->  image: an abstract channel (freeipa-current/
+                           freeipa-next / freeipa-previous), mapped from
+                           the definition's job prefix; resolved to a
+                           concrete image by the provider at up time
   class Build          ->  skipped (the image pipeline replaces it)
   class RunPytest*     ->  mode: integration
   class RunWebuiTests  ->  mode: base + NOTE (needs a browser/selenium
@@ -32,6 +36,8 @@ the AD placeholders, then ``freeipa-env up/run/down`` as usual.
 import os
 
 import yaml
+
+from .image import channel_from_prefix
 
 
 # PRCI AD topology tokens -> (config role, placeholder FQDN, placeholder IP).
@@ -146,7 +152,9 @@ def build_preset(defpath, job_name, job, common_prefix=None):
         'provider': 'podman',
         'name': name,
         'domain': 'ipa.test',
-        'image': 'freeipa-ci/full:44',
+        # abstract build channel (one per PRCI definition); the provider
+        # resolves it to the concrete image at up time
+        'image': channel_from_prefix(common_prefix),
         'hosts': hosts,
         # resources are keyed by role (EnvSpec.resource(role))
         'resources': {r: {'memory': f'{per_mem}m',
