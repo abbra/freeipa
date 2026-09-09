@@ -4,15 +4,17 @@
 # Invoked by the tmt test (ci/tmt/tests/freeipa-env/main.fmf). The plan's
 # prepare step (how: install) has already placed podman, curl and every
 # BuildRequires of freeipa.spec.in on the guest, so the SRPM can be produced
-# here without any pre-supplied artifact. tmt exports TMT_TREE (the cloned
-# repo root) and the request variables (see
-# freeipa_env.testingfarm.build_tf_request). The guest runs as root, so this
+# here without any pre-supplied artifact. The request variables (see
+# freeipa_env.testingfarm.build_tf_request) carry FREEIPA_REPO_URL/REF: TF's
+# pipeline syncs the fmf tree (TMT_TREE) to the guest as a plain file copy
+# (no .git, no submodule contents), so the full flow clones the repo itself
+# on the guest. The guest runs as root, so this
 # script:
 #   1. obtains the preset's channel image (freshness-checked, like the
 #      supervisor's remote build):
 #        * if FREEIPA_SRPM_URL is set -> download that SRPM;
 #        * otherwise (full flow)      -> build freeipa's SRPM ON THE GUEST
-#          from the repo TF checked out (TMT_TREE),
+#          from the repo it cloned (FREEIPA_REPO_URL@FREEIPA_REPO_REF),
 #      then bake the channel image from it (ci/images/build.sh --srpm);
 #   2. drives the same `freeipa-env` up -> run -> down recipe a local or ssh
 #      runner would, and exits with the `run` step's status.
@@ -33,6 +35,8 @@ WORKDIR="${WORKDIR/#\~/$HOME}"
 TIMEOUT="${FREEIPA_JOB_TIMEOUT:-14400}"
 SRPM_URL="${FREEIPA_SRPM_URL:-}"
 CHANNEL="${FREEIPA_CHANNEL:-}"
+REPO_URL="${FREEIPA_REPO_URL:-}"
+REPO_REF="${FREEIPA_REPO_REF:-HEAD}"
 
 die() { echo "FATAL: $*" >&2; exit 1; }
 [ -f "$ENFFILE" ] || die "preset not found: $ENFFILE (FREEIPA_PRESET=$FREEIPA_PRESET)"
@@ -64,16 +68,38 @@ DIST="$(sed -nE 's/^dist:[[:space:]]*//p' "$ENFFILE" | head -n1 | tr -d '[:space
 [ -n "$DIST" ] || DIST=44
 
 # build_srpm_from_clone OUT_DIR
-#   Build freeipa's SRPM DIRECTLY ON THE GUEST from the repo TF checked out
-#   into $TREE. The plan's prepare step already installed the whole
-#   BuildRequires set + toolchain, so no build image is needed. Mirrors
-#   makerpms.sh (autoreconf + configure with the spec's rpm-equivalent flags)
-#   but only produces the SRPM (make srpms, no binaries, no %check).
+#   Build freeipa's SRPM DIRECTLY ON THE GUEST. The plan's prepare step
+#   already installed the whole BuildRequires set + toolchain, so no build
+#   image is needed. Mirrors makerpms.sh (autoreconf + configure with the
+#   spec's rpm-equivalent flags) but only produces the SRPM (make srpms, no
+#   binaries, no %check).
+#
+#   Source: TF's pipeline syncs the fmf tree (TMT_TREE) to the guest as a
+#   plain file copy -- no .git, and no submodule contents either (the
+#   install/freeipa-webui submodule feeds the dist tarball) -- so it cannot
+#   be built from. When FREEIPA_REPO_URL is set, the guest clones the repo
+#   itself (git clone --recursive + checkout of FREEIPA_REPO_REF); otherwise
+#   TMT_TREE is used, but only if it is a real clone.
 build_srpm_from_clone() {
     outdir="$1"
-    cd "$TREE" || die "cannot cd to $TREE"
-    [ -d .git ] || die "no .git in $TREE (tmt should have checked the repo out)"
-    git submodule update --init --recursive
+    if [ -n "$REPO_URL" ]; then
+        SRC="$WORKDIR/src"
+        rm -rf "$SRC"
+        echo "==> git clone --recursive $REPO_URL (ref: $REPO_REF) -> $SRC"
+        git clone --recursive "$REPO_URL" "$SRC" \
+            || die "git clone of $REPO_URL failed"
+        cd "$SRC" || die "cannot cd to $SRC"
+        [ "$REPO_REF" = "HEAD" ] || \
+            git checkout "$REPO_REF" || die "git checkout $REPO_REF failed"
+        git submodule update --init --recursive \
+            || die "git submodule update failed"
+    else
+        SRC="$TREE"
+        cd "$SRC" || die "cannot cd to $SRC"
+        [ -d .git ] || die "no .git in $SRC and no FREEIPA_REPO_URL given; a plain file copy cannot be built (submodules are missing)"
+        git submodule update --init --recursive \
+            || die "git submodule update failed"
+    fi
     git checkout po/*.po 2>/dev/null || true
     test -x configure && echo "configure: present" \
         || { echo "==> autoreconf -i"; autoreconf -i || die "autoreconf -i failed"; }
@@ -97,9 +123,9 @@ build_srpm_from_clone() {
 
     echo "==> make srpms (on the guest)"
     make srpms || die "make srpms failed"
-    ls "$TREE"/dist/srpms/
+    ls "$SRC"/dist/srpms/
 
-    cp "$TREE"/dist/srpms/*.src.rpm "$outdir/" \
+    cp "$SRC"/dist/srpms/*.src.rpm "$outdir/" \
         || die "make srpms produced no .src.rpm in dist/srpms"
     cd "$CI" || die "cannot cd back to $CI"
 }
@@ -120,7 +146,11 @@ if [ -n "$CHANNEL" ]; then
             curl -fsSL -o "$srpm_dir/freeipa.src.rpm" "$SRPM_URL" \
                 || die "failed to download SRPM from $SRPM_URL"
         else
-            echo "== full flow: no SRPM URL; building freeipa's SRPM on the guest from $TREE"
+            if [ -n "$REPO_URL" ]; then
+                echo "== full flow: no SRPM URL; building freeipa's SRPM on the guest (cloning $REPO_URL @ $REPO_REF)"
+            else
+                echo "== full flow: no SRPM URL; building freeipa's SRPM on the guest from $TREE"
+            fi
             build_srpm_from_clone "$srpm_dir"
         fi
         ls -l "$srpm_dir"

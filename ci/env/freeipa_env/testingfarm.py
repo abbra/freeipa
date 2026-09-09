@@ -108,6 +108,11 @@ def build_tf_request(cfg, job, timeout_s, srpm=None):
         # the guest runs as its own root; keep the historical layout via ~
         'FREEIPA_WORKDIR': f'~/freeipa-jobs/{job.key}',
         'FREEIPA_JOB_TIMEOUT': str(timeout_s),
+        # gluetool syncs the fmf tree to the guest as a plain file copy
+        # (no .git, no submodule contents), so the guest clones the repo
+        # itself for the on-guest SRPM build (see tf-runner.sh)
+        'FREEIPA_REPO_URL': cfg['repo_url'],
+        'FREEIPA_REPO_REF': cfg.get('ref') or 'HEAD',
     }
     if srpm:
         variables['FREEIPA_SRPM_URL'] = srpm
