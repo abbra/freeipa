@@ -115,6 +115,27 @@ def cmd_resolve(args):
     return 0
 
 
+def cmd_check(args):
+    """Parse + validate preset files without spawning anything (CI gating).
+
+    Checks every preset (default: all under ci/env/presets) parses as an
+    EnvSpec and passes the provider's read-only sanity checks. Exit 0 iff
+    every preset is sound and no given path was missing."""
+    from .checker import check_paths
+    results, missing = check_paths(args.paths or None)
+    n_ok = sum(1 for _p, errs in results if not errs)
+    n_bad = sum(1 for _p, errs in results if errs)
+    for path, errs in results:
+        for e in errs:
+            print(f'FAIL {path}: {e}')
+    for m in missing:
+        print(f'FAIL {m}: file not found')
+    total = len(results)
+    print(f'\nchecked {total} presets: {n_ok} ok, {n_bad} failed, '
+          f'{len(missing)} missing')
+    return 1 if (n_bad or missing) else 0
+
+
 def cmd_migrate(args):
     """Generate freeipa-env presets from a PRCI definition file."""
     from .prci import migrate
@@ -383,6 +404,15 @@ def main(argv=None):
                     help='only migrate jobs whose name contains NAME '
                          '(repeatable)')
     sp.set_defaults(fn=cmd_migrate)
+
+    sp = sub.add_parser(
+        'check',
+        help='parse + validate preset files without spawning containers '
+             '(CI gating)')
+    sp.add_argument('paths', nargs='*', default=None,
+                    help='preset files or directories '
+                         '(default: presets/ under ci/env)')
+    sp.set_defaults(fn=cmd_check)
 
     spq = sub.add_parser(
         'queue', help='ordered preset queues + the queue supervisor')

@@ -638,8 +638,9 @@ ci/
     full/Dockerfile           # + client RPMs
   env/                        # the freeipa-env provisioner (python package)
     freeipa_env/...           # + image.py (build channels), queue.py, supervisor.py,
-                              #   vmbackend.py + nested_provider.py (nested providers, §3.9)
-    cli.py                    # `freeipa-env up/run/down/show/logs/migrate/queue/resolve`
+                              #   vmbackend.py + nested_provider.py (nested providers, §3.9),
+                              #   checker.py (`freeipa-env check`, preset validation gate)
+    cli.py                    # `freeipa-env up/run/down/show/logs/migrate/queue/resolve/check`
     presets/prci/             # migrated PRCI definitions (11 defs, 1301 presets)
     presets/nested-example.yaml  # nested-provider example (§3.9)
     examples/nested/          # get-vm.sh / drop-vm.sh (vm.backend: command examples)

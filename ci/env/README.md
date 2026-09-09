@@ -13,6 +13,7 @@ freeipa-env logs ENV.YAML    categorize and retrieve collected logs
 freeipa-env migrate PRCI.YAML  generate presets from a PRCI definition
 freeipa-env queue run QUEUE.YAML --runner USER@HOST [...]   # run a queue
 freeipa-env queue generate PRCI.YAML -o QUEUE.YAML          # PRCI-order queue
+freeipa-env check [PRESETS ...]                             # validate presets (no containers)
 ```
 
 Common options: `--workdir DIR` (state/logs dir, default `./<env-name>.env`),
@@ -299,6 +300,31 @@ dequeue) — the same shape as a PRCI run queue spread over a pool of VMs.
 `--keep-on-failure` skips `down` on a failed job so the environment stays
 on the runner for `freeipa-env logs --refresh`-style triage (remember to
 `down` manually before reusing the runner's capacity).
+
+## Preset validation (`check`)
+
+`freeipa-env check [PRESETS ...]` validates preset files **without**
+spawning containers or touching the network — the CI gate for the 1300+
+presets (migrated PRCI, Azure, nested). With no arguments it checks every
+`*.yaml` under `ci/env/presets/` (plus the top-level presets); pass explicit
+files or directories to narrow the scope. Each preset must parse as an
+`EnvSpec` and pass the provider's read-only sanity checks:
+
+* `provider: podman` — every containerized host resolves an image, and a
+  channel-style name is a *known* build channel (`freeipa-current/next/
+  previous`); a bare name that is neither a channel nor an image reference
+  is flagged as a likely typo.
+* `provider: nested` — the `vm:` block builds a known VM backend and
+  `inner` names a known provider.
+* `provider: external` — every host carries an address.
+
+One line is printed per failing preset, then a summary; the exit code is 0
+iff every preset is sound and no path is missing. Wire it into the PR gate
+so a preset edit can't silently break a queue:
+
+```
+freeipa-env check   # from ci/env; checks all presets, exits non-zero on any problem
+```
 
 ## Notes
 

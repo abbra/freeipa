@@ -411,6 +411,21 @@ VM and the whole validated podman flow runs there.
   locally → deprovisioned via the command backend → state cleared). Full
   nested lifecycle validated; host left clean (0 containers).
 
+## K. Preset validation (`freeipa-env check`)
+
+Goal: CI-gate the 1300+ presets (migrated PRCI, Azure, nested) without
+spawning anything. A preset change must not silently break a queue.
+
+- [x] K1: `freeipa_env/checker.py` — `check_spec()` (per-provider read-only
+  sanity: podman image/channels, nested backend + inner, external addresses),
+  `check_file()` (YAML + EnvSpec + checks), `discover()` / `check_paths()`
+  (default: all presets under `ci/env/presets`).
+- [x] K2: `freeipa-env check [paths ...]` subcommand — prints one line per
+  failing preset + a summary; exit 0 iff every preset is sound and no path
+  is missing. Validated: all 1319 presets pass; negative fixtures (bad YAML,
+  unknown channel, unknown vm backend, missing master, external w/o address)
+  are all flagged; good podman/nested/explicit-image presets pass.
+
 ## Known limitations / follow-ups
 
 - **Repo pinning**: the validation image was built against a rolling F44
