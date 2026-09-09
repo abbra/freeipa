@@ -83,13 +83,13 @@ class TestingFarmClient:
         """
         while True:
             req = self.get(request_id)
-            state = req.get('state', '?')
+            state = req.get('state') or '?'
             line = (f'== tf: state {state} '
-                    f'(overall {req.get("result", {}).get("overall", "-")})')
+                    f'(overall {(req.get("result") or {}).get("overall", "-")})')
             if log:
                 log(line)
             if state in TERMINAL_STATES:
-                return state, req.get('result', {}).get('overall'), \
+                return state, (req.get('result') or {}).get('overall'), \
                     (req.get('run') or {}).get('artifacts')
             if time.monotonic() >= deadline:
                 return None, None, (req.get('run') or {}).get('artifacts')
@@ -121,7 +121,6 @@ def build_tf_request(cfg, job, timeout_s, srpm=None):
         'arch': cfg.get('arch') or DEFAULT_ARCH,
         'os': {'compose': cfg.get('compose') or DEFAULT_COMPOSE},
         'variables': variables,
-        'tmt': {'extra_args': {'prepare': ['--continue']}},
         'settings': {'pipeline': {'skip_guest_setup': True}},
     }
     body = {
