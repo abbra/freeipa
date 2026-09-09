@@ -295,7 +295,10 @@ class Supervisor:
                                    'note')) + '\n')
         n_pass = sum(1 for r in rows if r['status'] == 'PASS')
         n_fail = len(rows) - n_pass
-        resolved = getattr(self, '_resolved', {})
+        # drop runners with no resolved images (e.g. nested providers defer
+        # resolution to the provisioned VM) so they don't emit empty tables
+        resolved = {r: b for r, b in getattr(self, '_resolved', {}).items()
+                    if b}
         with open(os.path.join(self.outdir, 'summary.md'), 'w') as f:
             f.write(f'# Queue {self.queue.name}: {n_pass} passed, '
                     f'{n_fail} failed, {len(rows)} total\n\n')
