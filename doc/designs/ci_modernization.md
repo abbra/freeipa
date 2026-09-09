@@ -232,6 +232,15 @@ What this kills: the per-PR "install 100+ RPMs inside the VM/agent" step of
 Azure and the PRCI build→test RPM copy dance; image builds become ~1 min on
 top of a cached base instead of ~15–20 min per job.
 
+The IPA RPMs that go into `full` have two sources. The **delivered** path
+consumes RPMs a build farm produced (`build.sh --rpms` + `--sha`); the
+**self-build** lane (`build.sh --srpm`, §3.10) compiles them from an SRPM
+inside a dedicated `freeipa-ci/build:<dist>` image (base + every `Build
+Requires`) on the same host that bakes `full`. The self-build lane makes the
+repo-pinning problem above unrepresentable: build and test resolve against
+one distro repo snapshot, so a delivered RPM's dependency (samba) can no
+longer drift out of resolution.
+
 ## 3. Environment provisioner (`freeipa-env`)
 
 This is the heart of the design: **the controllable way to spawn IPA
@@ -561,6 +570,62 @@ existing supervisor on a **control-node runner** (a CI node that has the
 cloud API creds + ssh). Each job provisions its own VM(s) in `up` and
 drops them in `down` — the queue order and FIFO scheduling are unchanged;
 only where the env's VMs come from differs.
+
+### 3.10 Build the IPA RPMs ourselves
+
+By default the pipeline consumes IPA RPMs that a build farm produced and
+baked into a `freeipa-ci/full` image. A delivered RPM's distro
+dependencies are recorded against the *farm's* repo snapshot at build
+time; when that snapshot rotates (samba 4.24.5 → 4.24.6, §2 known
+limitations) the old RPM's `Requires` can stop resolving and the test
+image build breaks for reasons unrelated to the IPA change under test.
+
+The self-build lane closes that class: the IPA binary RPMs are compiled
+from the **same git snapshot**, in a dedicated build image, on the same
+host that bakes the test image — so build and test share one distro repo
+snapshot and a delivered RPM can no longer drift out of resolution.
+
+**Lane.**
+
+1. *Control node*: `ci/scripts/make-srpms.sh` autogens + configures the
+   checkout (same configure triplet as `makerpms.sh`) and runs `make
+   srpms`, producing `dist/srpms/freeipa-<ver>.src.rpm`. Only this step
+   needs the source tree; SRPM creation packages sources + spec, so the
+   heavy `BuildRequires` are not installed here.
+2. *Ship*: the SRPM reaches the host that runs the environment — locally
+   (single machine) or rsynced by the supervisor to each runner (queues).
+3. *Build + bake*: `ci/images/build.sh --srpm <path>` compiles the SRPM
+   inside `freeipa-ci/build:<dist>` — a dedicated image = base + every
+   `BuildRequires` from `freeipa.spec.in`, baked **once per dist** (not
+   `dnf builddep` per build) — collects the fresh binary RPMs, bakes
+   `freeipa-ci/full:<dist>` from them, and tags it with the channel
+   (`freeipa-ci/full:<channel>`).
+
+The SRPM is built with `rpmbuild --nocheck --rebuild`. `--rebuild` is the
+idiomatic verb for "build binary RPMs from a source package": it unpacks
+the SRPM (spec into `SPECS/`, sources into `SOURCES/`) into the build root
+and builds from there — `rpmbuild -ba` would instead demand a specfile,
+which the runner does not have. `--nocheck` skips the spec's `%check`,
+which runs the full `make check` unit-test suite: CI runs tests in its own
+`run` lane, so the build lane must not pay for them (and it keeps the
+whole unit-test toolchain out of the build image).
+
+**Freshness / force.** A channel image already present on the host is left
+untouched; only missing channels are built (a full IPA build + bake can
+take a while). Force with `build.force` in the env file, `freeipa-env
+ensure --build`, or by removing the image. An env file without a `build:`
+block and a queue run without `--srpm` are unaffected — they consume
+delivered / `podman load`-ed images exactly as before.
+
+**Provider wiring.** `PodmanProvider.up()` calls `ensure_images()` *before*
+`resolve_images()`: for each abstract channel the preset references, if the
+concrete image is missing (or forced) and `build.srpm` is set, it runs the
+same `build.sh --srpm` command the queue path uses, then resolution
+succeeds. The external provider is a no-op (external hosts run their own
+IPA); the nested provider defers the build to the inner `up` on the VM, as
+it defers resolution. A single shared helper
+(`imagemake.build_sh_argv`) produces the identical `build.sh` argv for the
+local and remote paths.
 
 ## 4. Orchestrator
 

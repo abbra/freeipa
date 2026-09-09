@@ -42,6 +42,12 @@ class ExternalProvider:
         references in the preset are ignored by this provider."""
         return {}
 
+    def ensure_images(self, force=None):
+        """No-op: external hosts run their own IPA, so there is no local
+        channel image to build (design §3.10). Present so callers can invoke
+        it uniformly across providers."""
+        return {}
+
     def _ssh_args(self, h):
         args = ['ssh',
                 '-o', 'BatchMode=yes',

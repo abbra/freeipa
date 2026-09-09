@@ -42,14 +42,14 @@ class NestedProvider:
         return (self.spec.vm or {}).get(key, default)
 
     def _remote_ci(self):
-        return self._cfg('remote_ci', '/root/freeipa-ci/ci')
+        return self._cfg('remote_ci', '~/freeipa-ci/ci')
 
     def _remote_env(self):
         return os.path.join(self._remote_ci(), 'env')
 
     def _remote_workdir(self):
         return self._cfg('remote_workdir',
-                         f'/root/ciwork/{self.spec.name}')
+                         f'~/ciwork/{self.spec.name}')
 
     # -------------------------------------------------------------- inner spec
     def _inner_doc(self):
@@ -109,9 +109,9 @@ class NestedProvider:
     # --------------------------------------------------------------- remote op
     def _remote_cmd(self, state, verb):
         env = self._remote_env()
-        return (f'cd {shlex.quote(env)} && ./freeipa-env {verb} '
-                f'{shlex.quote(self._inner_abs(state))} '
-                f'--workdir {shlex.quote(state["remote_workdir"])}')
+        return (f'cd {self._rpath(env)} && ./freeipa-env {verb} '
+                f'{self._rpath(self._inner_abs(state))} '
+                f'--workdir {self._rpath(state["remote_workdir"])}')
 
     def _ssh_stream(self, vm, cmd, logname, timeout=None):
         os.makedirs(self.logdir, exist_ok=True)
@@ -129,7 +129,7 @@ class NestedProvider:
               f'({local_ci} -> {remote_ci_parent})')
         rsync_to(vm, local_ci, remote_ci_parent)
         state_rwd = self._remote_workdir()
-        ssh_run(vm, f'mkdir -p {shlex.quote(state_rwd)}', check=True)
+        ssh_run(vm, f'mkdir -p {self._rpath(state_rwd)}', check=True)
         inner_local = os.path.join(self.workdir, 'inner-env.yaml')
         rsync_to(vm, inner_local,
                  os.path.join(state_rwd, 'inner-env.yaml'))
@@ -249,6 +249,13 @@ class NestedProvider:
         print(f'== nested provider: image resolution deferred to the '
               f'provisioned VM at `up` time (backend: '
               f'{self.backend.describe()})')
+        return {}
+
+    def ensure_images(self, force=None):
+        # the VM does not exist yet; the inner provider builds the channel
+        # image on the VM during `up` (mirrors resolve_images deferral).
+        print(f'== nested provider: image build deferred to the provisioned '
+              f'VM at `up` time (backend: {self.backend.describe()})')
         return {}
 
     def collect_logs(self):

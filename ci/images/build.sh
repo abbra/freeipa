@@ -3,10 +3,17 @@
 #
 # Usage:
 #   ci/images/build.sh --rpms /path/to/rpms --sha 962ac6d0e [options]
+#   ci/images/build.sh --srpm /path/to/dist/srpms [options]
 #
 # Options:
 #   --rpms DIR        Directory containing IPA dev-build RPMs (x86_64 +
 #                     noarch, any layout).
+#   --srpm PATH       Either a path to a single freeipa-*.src.rpm or a
+#                     directory containing them (e.g. dist/srpms from
+#                     `make srpms`). Builds the IPA binary RPMs ourselves
+#                     inside the dedicated freeipa-ci/build image (base + all
+#                     BuildRequires), then bakes the full image from them.
+#                     Mutually exclusive with --rpms.
 #   --sha SHORT_SHA   Git SHA of the IPA build to select from --rpms
 #                     (matches the 'git<sha>' version fragment). Omit to
 #                     pick the newest per package.
@@ -26,9 +33,14 @@
 # Example (validation host):
 #   ci/images/build.sh --rpms /root/rpmbuild/RPMS --sha 962ac6d0e \
 #       --exclude freeipa-server-trust-ad --exclude freeipa-client-samba
+#
+# Build the IPA RPMs ourselves from a `make srpms` SRPM (control node ships
+# the SRPM to the runner; the runner bakes the channel image from it):
+#   ci/images/build.sh --srpm /root/freeipa/dist/srpms --channel current
 set -euo pipefail
 
 RPMS=
+SRPM=
 SHA=
 DIST=44
 TAG=freeipa-ci
@@ -42,6 +54,7 @@ DISTARCH=x86_64
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --rpms) RPMS="$2"; shift 2 ;;
+        --srpm) SRPM="$2"; shift 2 ;;
         --sha) SHA="$2"; shift 2 ;;
         --dist) DIST="$2"; shift 2 ;;
         --channel) CHANNEL="$2"; shift 2 ;;
@@ -54,7 +67,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[[ -n "$RPMS" ]] || { echo "--rpms is required" >&2; exit 2; }
+if [[ -n "$RPMS" && -n "$SRPM" ]]; then
+    echo "--rpms and --srpm are mutually exclusive" >&2; exit 2
+fi
+[[ -n "$RPMS" || -n "$SRPM" ]] || { echo "--rpms or --srpm is required" >&2; exit 2; }
 command -v "$TOOL" >/dev/null || { echo "$TOOL not found" >&2; exit 2; }
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -66,10 +82,14 @@ FULL_IMAGE="$TAG/full:$DIST"
 SHA_TAG=""
 [[ -n "$SHA" ]] && SHA_TAG="$DIST-$SHA"
 
-echo "==> Building base image $BASE_IMAGE"
-"$TOOL" build -f "$SCRIPT_DIR/base/Dockerfile" -t "$BASE_IMAGE" "$SCRIPT_DIR/base"
+if [[ "${BASE:-0}" != "1" ]]; then
+    echo "==> Building base image $BASE_IMAGE"
+    "$TOOL" build -f "$SCRIPT_DIR/base/Dockerfile" -t "$BASE_IMAGE" "$SCRIPT_DIR/base"
+fi
 
 # --- select the IPA RPM set (newest per package, scoped to --sha) ----------
+# Delivered-RPM path only; --srpm builds the binary RPMs itself (below).
+if [[ -n "$RPMS" ]]; then
 mkdir -p "$WORK/rpms"
 EXCLUDES_NEWLINE="$(printf '%s\n' "${EXCLUDES[@]}")"
 export EXCLUDES_NEWLINE
@@ -116,6 +136,62 @@ for pkg in sorted(candidates):
     print(f'{pkg}: {fname}', file=sys.stderr)
 print(f'selected {len(candidates)} packages', file=sys.stderr)
 PYEOF
+
+fi
+
+# --- "build the IPA RPMs ourselves" lane: SRPM -> binary RPMs ---------------
+# Instead of consuming RPMs delivered by a build farm, compile the SRPM (from
+# `make srpms`) inside the dedicated build image, then let the full-image build
+# below install the freshly built RPMs. Build and test share one distro repo
+# snapshot per build, so a delivered-RPM dependency (e.g. samba) cannot drift
+# out of resolution in the test image.
+if [[ -n "$SRPM" ]]; then
+    case "$SRPM" in
+        *.src.rpm) SRPM_FILE="$SRPM" ;;
+        *)
+            [[ -d "$SRPM" ]] || { echo "--srpm: not a file or directory: $SRPM" >&2; exit 2; }
+            SRPM_FILE="$(find "$SRPM" -name '*.src.rpm' | sort | tail -n 1)"
+            [[ -n "$SRPM_FILE" ]] || { echo "--srpm: no .src.rpm found under $SRPM" >&2; exit 2; }
+            ;;
+    esac
+    SRPM_DIR="$(dirname "$SRPM_FILE")"
+    echo "==> Building IPA binary RPMs from $(basename "$SRPM_FILE")"
+
+    # Dedicated build image (base + BuildRequires), baked once, not per build.
+    BUILD_IMAGE="$TAG/build:$DIST"
+    if [[ "${BASE:-0}" != "1" ]] && ! "$TOOL" image inspect "$BUILD_IMAGE" >/dev/null 2>&1; then
+        echo "==> Building build image $BUILD_IMAGE"
+        "$TOOL" build -f "$SCRIPT_DIR/build/Dockerfile" -t "$BUILD_IMAGE" \
+            --build-arg "BASE=$BASE_IMAGE" "$SCRIPT_DIR/build"
+    fi
+
+    TOPDIR="$WORK/rpmbuild"
+    mkdir -p "$TOPDIR"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+    # The base (hence build) image's entrypoint is systemd: without an
+    # override the rpmbuild command becomes systemd's arguments and the
+    # container boots sshd/avahi/logind instead of running the build.
+    # --rebuild unpacks the SRPM (spec -> SPECS/, sources -> SOURCES/) into
+    # _topdir and builds the binary RPMs from it. --nocheck skips the spec's
+    # %check (the full `make check` unit-test suite) -- CI runs tests in its
+    # own `run` lane, so the build lane must not pay for it on a small runner.
+    "$TOOL" run --rm \
+        --entrypoint /bin/bash \
+        -v "$SRPM_DIR":/root/build:z \
+        -v "$TOPDIR":/root/rpmbuild:z \
+        "$BUILD_IMAGE" \
+        -c "rpmbuild --define '_topdir /root/rpmbuild' --nocheck --rebuild /root/build/$(basename "$SRPM_FILE")"
+
+    mkdir -p "$WORK/rpms"
+    find "$TOPDIR/RPMS" -name '*.rpm' \
+        ! -name '*debuginfo*' ! -name '*debugsource*' \
+        -exec cp {} "$WORK/rpms/" \;
+    # Fail fast if rpmbuild produced nothing (e.g. the container misbehaved);
+    # otherwise the full-image build dies on an empty rpms/ with a confusing
+    # "Failed to access RPM /root/rpms/*.rpm" glob error.
+    [[ -n "$(ls -A "$WORK/rpms")" ]] || {
+        echo "build.sh --srpm: rpmbuild produced no RPMs in $TOPDIR/RPMS" >&2
+        exit 1; }
+fi
 
 ls "$WORK/rpms"
 

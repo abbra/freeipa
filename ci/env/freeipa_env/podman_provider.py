@@ -88,6 +88,46 @@ class PodmanProvider:
                                check=False, echo=False)
         return out.strip() if rc == 0 and out.strip() else None
 
+    def ensure_images(self, force=None):
+        """Build this spec's channel images locally when they are missing
+        (design §3.10, "build the IPA RPMs ourselves").
+
+        The control node already produced an SRPM (``ci/scripts/make-srpms.sh``)
+        and named it in the spec's ``build.srpm``; here, on this host, we
+        compile it inside the dedicated ``freeipa-ci/build`` image and bake the
+        channel ``full`` image from the resulting binary RPMs. Idempotent:
+        channels already present are skipped unless ``force`` (or
+        ``build.force`` in the spec) is set, in which case they are rebuilt.
+        Explicit (non-channel) image references are not built — they are
+        resolved by :meth:`resolve_images`. Returns {ref: (concrete, id)} for
+        the channels it touched.
+        """
+        refs = set()
+        for h in self.spec.hosts:
+            if h.is_external:
+                continue
+            ref = self.spec.podman_image(h)
+            if is_channel(ref):
+                refs.add(ref)
+        if not refs:
+            return {}
+        # nothing to build unless the spec points at an SRPM; otherwise leave
+        # resolution to resolve_images (which raises its usual "build it"
+        # error for a missing channel).
+        if not (self.spec.build or {}).get('srpm'):
+            return {}
+        if force is None:
+            force = bool((self.spec.build or {}).get('force', False))
+        from .imagemake import ImageBuildError, ensure_channels
+        try:
+            result = ensure_channels(self.spec, self.workdir, sorted(refs),
+                                     tool=self.tool, force=force)
+        except ImageBuildError as e:
+            raise PodmanError(str(e))
+        for ref, (concrete, img_id) in result.items():
+            print(f'== image ensured: {ref} -> {concrete} ({img_id[:12]})')
+        return result
+
     def resolve_images(self):
         """Resolve the spec's image references to concrete local images.
 
@@ -409,6 +449,9 @@ class PodmanProvider:
     # ------------------------------------------------------------------ ops
     def up(self):
         os.makedirs(self.logdir, exist_ok=True)
+        # build the spec's channel images ourselves (design §3.10) before
+        # resolving them; a no-op when the spec has no build.srpm.
+        self.ensure_images()
         self.resolve_images()
         # the config file must exist before containers mount it
         open(self.config_path, 'a').close()

@@ -1,0 +1,7 @@
+summary: Provision a FreeIPA env and run its job recipe
+description: |
+    Runs on a Testing Farm guest. Builds the channel image from an SRPM
+    when one is supplied, then drives the same freeipa-env up/run/down flow
+    a local or ssh queue job would. Exits with the run step's status.
+test: bash $TMT_TREE/ci/tmt/tests/freeipa-env/tf-runner.sh
+duration: 2h

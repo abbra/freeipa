@@ -1,20 +1,33 @@
-"""Queue supervisor: run an ordered preset queue on pre-allocated runners.
+"""Queue supervisor: run an ordered preset queue on runners.
 
-A *runner* is a pre-allocated host with ssh + podman + systemd (e.g. one
-of the lab VMs), addressed as ``user@host``. The supervisor:
+A *runner* is a host that can execute jobs (``podman`` + systemd plus a
+copy of the repo's ``ci/`` tree). Three transports (runner.py):
+``user@host[:port]`` (ssh, pre-allocated), ``local`` (the control node),
+and ``testing-farm`` (one TF API request per job; the guest runs the
+tmt plan in ``ci/tmt``).
 
-  1. checks every runner (ssh reachability + podman),
-  2. rsyncs the local ``ci/`` tree to ``--remote-ci`` (default
-     ``/root/freeipa-ci/ci``) on each runner,
-  3. asks each runner's provider to resolve every preset's build-channel
-     image references (``freeipa-env resolve``; fail fast, and the
-     resolved concrete images are recorded in the summary),
-  4. schedules the queue: each runner pulls jobs from the front of the
-     list, one at a time. A job is ``freeipa-env up`` -> ``run`` ->
+The supervisor:
+
+  1. checks every runner (reachability + podman / API token),
+  2. syncs the local ``ci/`` tree to ``--remote-ci`` (default
+     ``~/freeipa-ci/ci``, expanded per user; Testing Farm clones the
+     repo itself),
+  3. when ``--srpm`` is given, ships it to each host runner and builds
+     the queue's channel images there from it (freshness model: present
+     images are left untouched), or records the SRPM URL for the TF
+     guest to download;
+  4. asks each host runner's provider to resolve every preset's
+     build-channel image references (``freeipa-env resolve``; fail fast,
+     and the resolved concrete images are recorded in the summary);
+  5. schedules the queue: each runner pulls jobs from the front of the
+     list, one at a time. A host job is ``freeipa-env up`` -> ``run`` ->
      ``down`` (down is skipped on failure with ``--keep-on-failure``),
-     under a per-job remote ``timeout``; each job's full output is
-     captured to a transcript in the out dir,
-  5. writes ``summary.tsv`` / ``summary.md`` and prints a final table.
+     under a per-job ``timeout``; each job's full output is captured to
+     a transcript in the out dir,
+  6. writes ``summary.tsv`` / ``summary.md`` and prints a final table.
+
+Remote paths are ``~/...`` by default — no runner is assumed to be root;
+for a root ssh user ``~`` is exactly the historical ``/root/...``.
 
 Ordering: with one runner the jobs run exactly in queue order; with N
 runners each runner's subsequence preserves queue order (FIFO dequeue) —
@@ -23,116 +36,14 @@ the same semantics as a PRCI run queue spread over a pool of VMs.
 
 import os
 import shlex
-import subprocess
 import threading
 import time
 
-from .queue import ENVROOT
-
-REPO_CI_DIR = os.path.dirname(ENVROOT)  # ci/
+from .runner import REPO_CI_DIR, RunnerTransportError
 
 
 class SupervisorError(Exception):
     pass
-
-
-class Runner:
-    def __init__(self, spec, ssh_key=None):
-        self.spec = spec  # user@host
-        self.ssh_key = ssh_key
-        self._base = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15',
-                      '-o', 'ServerAliveInterval=20', '-o', 'ServerAliveCountMax=3']
-        if ssh_key:
-            self._base += ['-i', ssh_key]
-        self._base += [spec]
-
-    def ssh(self, cmd, timeout=600):
-        """Run a shell command on the runner; returns (rc, combined_out)."""
-        p = subprocess.run(self._base + [cmd],
-                           capture_output=True, text=True, timeout=timeout)
-        out = p.stdout or ''
-        if p.stderr:
-            out += ('\n' if out else '') + p.stderr
-        return p.returncode, out
-
-    def check(self):
-        rc, out = self.ssh(
-            "command -v podman >/dev/null 2>&1 && "
-            "podman --version | head -1 || { echo 'podman not found'; exit 1; }",
-            timeout=45)
-        if rc != 0:
-            raise SupervisorError(f'runner {self.spec}: {out.strip()}')
-        return out.strip()
-
-    def bootstrap(self, remote_ci):
-        """rsync the local ci/ tree to the runner."""
-        args = ['rsync', '-az', '--delete']
-        if self.ssh_key:
-            args += ['-e', 'ssh -i ' + shlex.quote(self.ssh_key) +
-                     ' -o BatchMode=yes -o ConnectTimeout=15']
-        args += [REPO_CI_DIR + '/', f'{self.spec}:{remote_ci}/']
-        p = subprocess.run(args, capture_output=True, text=True)
-        if p.returncode != 0:
-            raise SupervisorError(
-                f'runner {self.spec}: rsync failed: {p.stderr.strip()}')
-
-    def resolve_images(self, remote_ci, preset_rels, timeout=600):
-        """Ask the runner's provider (via `freeipa-env resolve`) to
-        resolve the presets' build-channel image references. Remote
-        output: '== <preset>' header lines, then '<ref> <concrete> <id>'
-        lines. Stops at the first preset that fails to resolve."""
-        cli = f'{remote_ci}/env/freeipa-env'
-        ps = ' '.join(shlex.quote(p) for p in preset_rels)
-        cmd = (f'for p in {ps}; do '
-               f'printf \'== %s\\n\' "$p" && cd {remote_ci}/env && '
-               f'{cli} resolve "$p" || exit 1; done')
-        return self.ssh(cmd, timeout=timeout)
-
-    def run_job(self, job, remote_ci, jobs_dir, timeout_s,
-                keep_on_failure):
-        """up -> run -> down one job on the runner; result['lines'] holds
-        the transcript."""
-        cli = f'{remote_ci}/env/freeipa-env'
-        envfile = f'{remote_ci}/env/{job.preset_rel}'
-        wd = f'{jobs_dir}/{job.key}'
-        lines = []
-        t0 = time.monotonic()
-        result = {'job': job, 'runner': self.spec, 'status': 'FAIL',
-                  'duration': 0.0, 'workdir': wd,
-                  'up_rc': None, 'run_rc': None, 'down_rc': None}
-
-        def step(name, cmd, timed=True):
-            full = (f'timeout -k 120 {timeout_s} bash -c '
-                    + shlex.quote(cmd)) if timed else cmd
-            lines.append(f'== {name}: {full}')
-            rc, out = self.ssh(full, timeout=timeout_s + 300)
-            lines.append(out)
-            return rc
-
-        result['up_rc'] = step(
-            'up', f'cd {remote_ci} && {cli} up {envfile} --workdir {wd}')
-        if result['up_rc'] != 0:
-            # best-effort cleanup of the partially created environment
-            result['down_rc'] = step(
-                'down (cleanup after up failure)',
-                f'cd {remote_ci} && {cli} down {envfile} --workdir {wd}',
-                timed=False)
-            result['duration'] = time.monotonic() - t0
-            result['lines'] = lines
-            return result
-        result['run_rc'] = step(
-            'run', f'cd {remote_ci} && {cli} run {envfile} --workdir {wd}')
-        if keep_on_failure and result['run_rc'] != 0:
-            lines.append(f'== down: SKIPPED (--keep-on-failure; workdir {wd} '
-                         'left on the runner for triage)')
-        else:
-            result['down_rc'] = step(
-                'down', f'cd {remote_ci} && {cli} down {envfile} --workdir {wd}',
-                timed=False)
-        result['duration'] = time.monotonic() - t0
-        result['status'] = 'PASS' if result['run_rc'] == 0 else 'FAIL'
-        result['lines'] = lines
-        return result
 
 
 def _fmt_dur(secs):
@@ -144,8 +55,9 @@ def _fmt_dur(secs):
 
 class Supervisor:
     def __init__(self, queue, runners, outdir, job_timeout=14400,
-                 keep_on_failure=False, remote_ci='/root/freeipa-ci/ci',
-                 jobs_dir='/root/jobs', bootstrap=True):
+                 keep_on_failure=False, remote_ci='~/freeipa-ci/ci',
+                 jobs_dir='~/jobs', bootstrap=True, srpm=None,
+                 srpm_dir=None, image_timeout=9000):
         self.queue = queue
         self.runners = runners
         self.outdir = outdir
@@ -154,6 +66,14 @@ class Supervisor:
         self.remote_ci = remote_ci
         self.jobs_dir = jobs_dir
         self.bootstrap = bootstrap
+        # build-our-own-RPMs lane (design §3.10): an SRPM produced on the
+        # control node (ci/scripts/make-srpms.sh) is shipped to each host
+        # runner and used to build the queue's channel images there before
+        # any job starts; for the TF runner it is recorded as an HTTP(S)
+        # URL the guest downloads.
+        self.srpm = srpm
+        self.srpm_dir = srpm_dir
+        self.image_timeout = image_timeout
         self._lock = threading.Lock()
         self._results = []
         self._logf = None
@@ -207,15 +127,47 @@ class Supervisor:
             self._log(f'[{r.spec}] ok: {r.check()}')
         if self.bootstrap:
             for r in self.runners:
-                self._log(f'[{r.spec}] rsyncing {REPO_CI_DIR}/ -> '
-                          f'{r.spec}:{self.remote_ci}/')
+                if r.kind == 'testing-farm':
+                    self._log(f'[{r.spec}] bootstrap: not needed (the TF '
+                              'pipeline clones the repo itself)')
+                    continue
+                self._log(f'[{r.spec}] syncing {REPO_CI_DIR}/ -> '
+                          f'{self.remote_ci}/')
                 r.bootstrap(self.remote_ci)
-        # image resolution is a provider task: ask each runner to resolve
-        # every distinct preset's build channels against its local image
-        # store (fail fast before any job starts).
+        if self.srpm:
+            for r in self.runners:
+                if r.kind == 'testing-farm':
+                    r.ship_file(self.srpm, self.srpm_dir)  # records the URL
+                    self._log(f'[{r.spec}] SRPM URL recorded for the TF guest')
+                    self._log(f'[{r.spec}] channel images: built by the TF '
+                              'guest at job time (no prebuild)')
+                    continue
+                self._ship_srpm(r)
+                self._log(f'[{r.spec}] shipped SRPM -> {self.srpm_dir}/')
+                r.build_channels(self._remote_srpm(self.srpm_dir),
+                                 self.srpm_dir, self._channels_needed(),
+                                 self.remote_ci, self.image_timeout,
+                                 log=self._runner_log(r))
+        # image resolution is a provider task: ask each host runner to
+        # resolve every distinct preset's build channels against its local
+        # image store (fail fast before any job starts). Channels the SRPM
+        # preflight just built now resolve; any still-missing channel fails
+        # here. The TF guest resolves at job time instead.
+        self._resolve_all()
+
+    def _runner_log(self, r):
+        def log(msg):
+            self._log(f'[{r.spec}] {msg}')
+        return log
+
+    def _resolve_all(self):
         self._resolved = {}
         presets = sorted({j.preset_rel for j in self.queue.jobs})
         for r in self.runners:
+            if r.kind == 'testing-farm':
+                self._log(f'[{r.spec}] image resolution: deferred to the '
+                          'TF guest (job time)')
+                continue
             rc, out = r.resolve_images(self.remote_ci, presets)
             if rc != 0:
                 headers = [l for l in out.splitlines()
@@ -233,6 +185,42 @@ class Supervisor:
             for ref, (concrete, img_id) in self._resolved[r.spec].items():
                 self._log(f'[{r.spec}] image {ref} -> {concrete} '
                           f'({img_id[:12]})')
+
+    # -- build our own RPMs (design §3.10) ----------------------------
+    def _channels_needed(self):
+        """Distinct abstract channel names referenced by the queue's presets
+        (short form: ``current`` / ``next`` / ``previous``); empty if the
+        presets only pin explicit image references."""
+        from .envspec import EnvSpec
+        from .image import channel_name
+        names = set()
+        for job in self.queue.jobs:
+            try:
+                spec = EnvSpec.from_file(job.path)
+            except Exception:
+                continue  # _validate_presets already surfaced bad files
+            for h in spec.hosts:
+                ref = spec.podman_image(h)
+                cname = channel_name(ref)
+                if cname:
+                    names.add(cname)
+        return sorted(names)
+
+    def _remote_srpm(self, srpm_dir):
+        """Runner-side path of the shipped SRPM (a file or a dir holding
+        one). ``srpm_dir`` may be ``~/...``; the ssh remote shell expands
+        it (the local runner does it in its own methods)."""
+        base = os.path.basename((self.srpm or '').rstrip('/'))
+        if base.endswith('.src.rpm'):
+            return f'{srpm_dir}/{base}'
+        return srpm_dir
+
+    def _ship_srpm(self, r):
+        """Ship the control-node SRPM (file or dir) to the runner."""
+        src = self.srpm
+        if os.path.isdir(src):
+            src += '/'
+        r.ship_file(src, self.srpm_dir)
 
     # -- scheduling ---------------------------------------------------
     def run(self):

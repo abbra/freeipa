@@ -10,6 +10,8 @@ freeipa-env run  ENV.YAML    run the test workflow (install, tests, uninstall)
 freeipa-env down ENV.YAML    collect journal/logs, then tear down
 freeipa-env show ENV.YAML    print environment state
 freeipa-env logs ENV.YAML    categorize and retrieve collected logs
+freeipa-env resolve ENV.YAML   resolve image refs against the local store (read-only)
+freeipa-env ensure ENV.YAML    build the env's channel images from build.srpm, if missing
 freeipa-env migrate PRCI.YAML  generate presets from a PRCI definition
 freeipa-env queue run QUEUE.YAML --runner USER@HOST [...]   # run a queue
 freeipa-env queue generate PRCI.YAML -o QUEUE.YAML          # PRCI-order queue
@@ -300,6 +302,76 @@ dequeue) — the same shape as a PRCI run queue spread over a pool of VMs.
 `--keep-on-failure` skips `down` on a failed job so the environment stays
 on the runner for `freeipa-env logs --refresh`-style triage (remember to
 `down` manually before reusing the runner's capacity).
+
+## Build the IPA RPMs ourselves
+
+By default `freeipa-env` consumes IPA RPMs that some build farm produced and
+baked into a `freeipa-ci/full` image, which you then distribute. A
+delivered RPM's distro dependencies (e.g. samba) can outlive its snapshot: a
+newer samba lands in the repo, the old IPA RPM's `Requires` no longer
+resolves, and the test image build breaks for reasons unrelated to the IPA
+change under test. The self-build lane removes that failure class: the IPA
+binary RPMs are compiled **from the same git snapshot** inside a dedicated
+build image on the same host that bakes the test image, so build and test
+share one distro repo snapshot (design §3.10).
+
+The lane, end to end:
+
+1. **Control node** — `ci/scripts/make-srpms.sh` autogens + configures the
+   checkout and runs `make srpms`, producing
+   `dist/srpms/freeipa-<ver>.src.rpm`. This is the only step that needs the
+   IPA source tree; it mirrors `makerpms.sh` (same configure triplet), so
+   the SRPM records the same host/layout a local `make rpms` would.
+2. **Ship** — the SRPM reaches the host that runs the environment: locally
+   (single machine) or rsynced by the supervisor to each runner (queues).
+3. **Build + bake** — `ci/images/build.sh --srpm <path>` compiles the SRPM
+   inside the dedicated `freeipa-ci/build:<dist>` image (the base image plus
+   every `BuildRequires` from the spec, baked once per dist — not `dnf
+   builddep` per build) with `rpmbuild --nocheck --rebuild` (`--nocheck`
+   skips the spec's `%check` unit-test suite, which CI runs in its own
+   `run` lane), collects the fresh binary RPMs, bakes
+   `freeipa-ci/full:<dist>` from them, and tags it with the channel.
+
+Three entry points, one underlying command:
+
+- **Single machine** — put a `build:` block on the env file; `up` builds any
+  missing channel image before it resolves (and `freeipa-env ensure` does
+  just that half):
+
+  ```yaml
+  name: base-xmlrpc
+  provider: podman
+  image: freeipa-current
+  build:
+    srpm: dist/srpms/freeipa-16.0.0-0.20260101gitabc1234.src.rpm
+    # force: true    # rebuild even if the channel image is already present
+  hosts:
+    - {role: master, name: master1}
+  ```
+
+  ```
+  freeipa-env ensure ENV.YAML          # build the missing channel images
+  freeipa-env ensure ENV.YAML --build  # force a rebuild
+  ```
+
+- **Queue** — pass the SRPM (a file or the `dist/srpms/` dir) to `queue run`;
+  the supervisor ships it to each runner and builds any channel image the
+  runner is missing, before any job starts:
+
+  ```
+  freeipa-env queue run ci/queues/gating.yaml \
+      --runner root@192.168.122.215 \
+      --srpm dist/srpms \
+      [--srpm-dir /root/freeipa-ci/srpm] [--image-timeout 9000]
+  ```
+
+**Freshness model.** A channel image already present on the host is left
+untouched; only missing channels are built (a full IPA build + image bake
+can take a while). Force a rebuild with `build.force` in the env file,
+`freeipa-env ensure --build`, or by removing the channel image. A queue run
+without `--srpm` behaves exactly as before (delivered / `podman load`-ed
+images, no build), and an env file without a `build:` block is unaffected by
+`up` or `ensure`.
 
 ## Preset validation (`check`)
 

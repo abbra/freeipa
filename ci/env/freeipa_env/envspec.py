@@ -11,6 +11,11 @@ to build them:
   image: freeipa-current         # abstract build channel (podman provider);
                                  # resolved to the concrete image by the
                                  # provider at up time; per-host override
+  build:                         # build the IPA RPMs ourselves (podman provider)
+    srpm: ~/freeipa/dist/srpms       # .src.rpm or dir of them (make srpms);
+                                     # a leading ~ is expanded against the
+                                     # local user's home at parse time
+    force: false                   # rebuild the channel image even if present
   dns_forwarder: 8.8.8.8         # resolv.conf for non-controller hosts and
                                  # the installer's --forwarder default
   hosts:
@@ -29,6 +34,8 @@ to build them:
     deselect: [test_x::y]
     args: []                     # extra ipa-run-tests args
 """
+
+import os
 
 from dataclasses import dataclass, field
 from typing import Optional
@@ -101,6 +108,10 @@ class EnvSpec:
     hosts: list = field(default_factory=list)
     resources: dict = field(default_factory=dict)
     run: Optional[RunSpec] = None
+    # build the IPA RPMs ourselves (design doc §3.10): the podman provider
+    # compiles the SRPM (make srpms) in the freeipa-ci/build image and bakes
+    # the channel full image from the result. {srpm: path, force: bool}
+    build: Optional[dict] = None
     # nested provider (design doc §3.9): get a VM through a backend, then
     # run the inner provider (default podman) inside it
     inner: Optional[str] = None
@@ -132,6 +143,19 @@ class EnvSpec:
         if not any(h.role == 'master' for h in spec.hosts):
             raise EnvSpecError('env needs a master host')
         spec.run = RunSpec.from_dict(d.get('run'))
+        if spec.build is not None:
+            if not isinstance(spec.build, dict):
+                raise EnvSpecError('build: must be a mapping')
+            known = {'srpm', 'force'}
+            unknown = set(spec.build) - known
+            if unknown:
+                raise EnvSpecError(f'build: unknown keys {sorted(unknown)}')
+            if not spec.build.get('srpm'):
+                raise EnvSpecError('build: srpm (path to .src.rpm or dir) '
+                                   'is required')
+            # the SRPM path is consumed on the control node as an argv
+            # element (no shell), so expand a leading ~ here
+            spec.build['srpm'] = os.path.expanduser(spec.build['srpm'])
         if spec.provider not in ('podman', 'external', 'nested'):
             raise EnvSpecError(f'provider must be podman|external|nested, '
                                f'got {spec.provider!r}')

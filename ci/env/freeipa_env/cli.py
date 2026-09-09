@@ -4,6 +4,7 @@
 category for CI issue triage; see loganalyze.py."""
 
 import argparse
+import json
 import os
 import re
 import shlex
@@ -111,6 +112,30 @@ def cmd_resolve(args):
               'the provisioned VM)')
         return 0
     for ref, (concrete, img_id) in resolved.items():
+        print(f'{ref} {concrete} {img_id}')
+    return 0
+
+
+def cmd_ensure(args):
+    """Build the preset's channel images ourselves (design §3.10) when they
+    are missing on this host — a provider task, the build-side counterpart
+    of `resolve`. Consumes the spec's `build.srpm` (the SRPM the control node
+    produced with ci/scripts/make-srpms.sh); absent channels are built in the
+    dedicated build image and baked into the channel `full` image. Present
+    channels are left alone unless `--build` (or `build.force`) is set.
+    Prints one line per channel: `<ref> <concrete> <image_id>`."""
+    spec = load_spec(args.env)
+    workdir = args.workdir or default_workdir(spec)
+    os.makedirs(workdir, exist_ok=True)
+    prov = make_provider(spec, workdir, args)
+    force = getattr(args, 'build', False) or None
+    ensured = prov.ensure_images(force=force)
+    if not ensured:
+        print('no channel images to build locally (the provider builds at '
+              '`up` time on the provisioned host, e.g. a nested provider '
+              'builds on the VM; or the spec has no build.srpm)')
+        return 0
+    for ref, (concrete, img_id) in ensured.items():
         print(f'{ref} {concrete} {img_id}')
     return 0
 
@@ -279,7 +304,8 @@ def cmd_queue(args):
         return 0
 
     from .queue import QueueSpec
-    from .supervisor import Supervisor, SupervisorError, Runner
+    from .supervisor import Supervisor, SupervisorError
+    from .runner import make_runner, RunnerTransportError
     try:
         q = QueueSpec.from_file(args.queue_file)
     except (ValueError, OSError) as e:
@@ -295,6 +321,9 @@ def cmd_queue(args):
         print('error: no jobs left after filtering', file=sys.stderr)
         return 2
     q.jobs = jobs
+    tf_cfg = _tf_config(args)
+    if tf_cfg is None:
+        return 2
     if args.dry_run:
         print(f'queue {q.name}: {len(jobs)} job(s) over '
               f'{len(args.runner)} runner(s): '
@@ -303,18 +332,93 @@ def cmd_queue(args):
             note = f'  # {j.note}' if j.note else ''
             missing = '' if os.path.isfile(j.path) else '  [MISSING PRESET]'
             print(f'{i:3d}. {j.key:45s} {j.preset_rel}{note}{missing}')
+        if any(s.strip() == 'testing-farm' for s in args.runner):
+            from .testingfarm import build_tf_request
+            if not tf_cfg.get('token'):
+                print('(testing-farm: no token configured; the request '
+                      'JSON below is what would be submitted)')
+            srpm = getattr(args, 'srpm', None)
+            for j in jobs:
+                print(f'\n== testing-farm request for {j.key} ==')
+                print(json.dumps(
+                    build_tf_request(tf_cfg, j, args.job_timeout,
+                                     srpm=srpm),
+                    indent=2))
         return 0
     outdir = args.outdir or os.path.join(os.getcwd(), f'{q.name}.queue')
-    runners = [Runner(s, ssh_key=args.ssh_key) for s in args.runner]
+    try:
+        runners = [make_runner(s, ssh_key=args.ssh_key, tf_cfg=tf_cfg)
+                   for s in args.runner]
+    except RunnerTransportError as e:
+        print(f'error: {e}', file=sys.stderr)
+        return 2
+    srpm = getattr(args, 'srpm', None)
+    has_tf = any(s.strip() == 'testing-farm' for s in args.runner)
+    if srpm and not has_tf and not os.path.exists(srpm):
+        print(f'error: --srpm path does not exist: {srpm}', file=sys.stderr)
+        return 2
+    srpm_dir = getattr(args, 'srpm_dir', None) or os.path.join(
+        os.path.dirname(args.remote_ci.rstrip('/')), 'srpm')
     sup = Supervisor(q, runners, outdir, job_timeout=args.job_timeout,
                      keep_on_failure=args.keep_on_failure,
                      remote_ci=args.remote_ci, jobs_dir=args.jobs_dir,
-                     bootstrap=not args.no_bootstrap)
+                     bootstrap=not args.no_bootstrap, srpm=srpm,
+                     srpm_dir=srpm_dir,
+                     image_timeout=getattr(args, 'image_timeout', 9000))
     try:
         return sup.run()
     except SupervisorError as e:
         print(f'error: {e}', file=sys.stderr)
         return 1
+
+
+def _git_value(args, fallback=None):
+    """git plumbing value for the current checkout (best effort)."""
+    import subprocess
+    try:
+        p = subprocess.run(['git'] + args, capture_output=True, text=True,
+                           timeout=10)
+        return p.stdout.strip() or fallback
+    except (OSError, subprocess.TimeoutExpired):
+        return fallback
+
+
+def _tf_config(args):
+    """The TF cfg dict for `queue run` ({} when no TF runner is requested;
+    None after printing an error)."""
+    if not any(s.strip() == 'testing-farm' for s in args.runner):
+        return {}
+    token = getattr(args, 'tf_token', None) or \
+        os.environ.get('TESTING_FARM_API_TOKEN')
+    if not token:
+        print('error: testing-farm runner: no API token (pass --tf-token '
+              'or set TESTING_FARM_API_TOKEN)', file=sys.stderr)
+        return None
+    repo_url = getattr(args, 'tf_repo_url', None) or \
+        _git_value(['config', 'remote.origin.url'])
+    if not repo_url:
+        print('error: testing-farm runner: no repo URL (pass '
+              '--tf-repo-url; this checkout has no origin remote)',
+              file=sys.stderr)
+        return None
+    cfg = {
+        'token': token,
+        'url': getattr(args, 'tf_url', None),
+        'repo_url': repo_url,
+        'ref': getattr(args, 'tf_ref', None) or
+        _git_value(['rev-parse', 'HEAD']) or 'HEAD',
+        'arch': getattr(args, 'tf_arch', None),
+        'compose': getattr(args, 'tf_compose', None),
+        'plan': getattr(args, 'tf_plan', None),
+    }
+    for kv in getattr(args, 'tf_variable', []):
+        k, _, v = kv.partition('=')
+        if not k:
+            print(f'error: --tf-variable needs KEY=VALUE: {kv!r}',
+                  file=sys.stderr)
+            return None
+        cfg.setdefault('extra_variables', {})[k] = v
+    return cfg
 
 
 def main(argv=None):
@@ -356,6 +460,17 @@ def main(argv=None):
              "images (a provider task; prints '<ref> <concrete> <id>')")
     add_common(sp)
     sp.set_defaults(fn=cmd_resolve)
+
+    sp = sub.add_parser(
+        'ensure',
+        help="build the preset's channel images from build.srpm on this "
+             "host when missing (a provider task; the build-side "
+             "counterpart of resolve)")
+    add_common(sp)
+    sp.add_argument('--build', action='store_true',
+                    help='rebuild the channel images even if they are '
+                         'already present (else only absent ones are built)')
+    sp.set_defaults(fn=cmd_ensure)
 
     sp = sub.add_parser('run', help='run the test workflow in the env')
     add_common(sp)
@@ -422,15 +537,20 @@ def main(argv=None):
                     '(ssh + podman + systemd)')
     qrun.add_argument('queue_file', help='queue YAML (ci/queues/*.yaml)')
     qrun.add_argument('--runner', action='append', required=True,
-                      metavar='USER@HOST',
-                      help='runner host (repeatable; one job at a time per '
-                           'runner, jobs dequeued in queue order)')
+                      metavar='RUNNER',
+                      help='runner (repeatable; one job at a time per '
+                           'runner, jobs dequeued in queue order). Spec: '
+                           'user@host[:port] = ssh runner; "local" = the '
+                           'control node (no ssh); "testing-farm" = one TF '
+                           'request per job')
     qrun.add_argument('--jobs', action='append', metavar='NAME',
                       help='substring filter on the job key (repeatable)')
     qrun.add_argument('--limit', type=int, default=None,
                       help='run at most N jobs')
     qrun.add_argument('--dry-run', action='store_true',
-                      help='print the planned queue and exit')
+                      help='print the planned queue (and, for the '
+                           'testing-farm runner, the request JSON per job) '
+                           'and exit')
     qrun.add_argument('--keep-on-failure', action='store_true',
                       help='skip `down` when a job fails (env stays on the '
                            'runner for triage)')
@@ -439,13 +559,56 @@ def main(argv=None):
                            '(default 14400 = 4h)')
     qrun.add_argument('--outdir', default=None,
                       help='local artifacts dir (default ./<queue>.queue)')
-    qrun.add_argument('--remote-ci', default='/root/freeipa-ci/ci',
-                      help='remote ci/ tree location on each runner')
-    qrun.add_argument('--jobs-dir', default='/root/jobs',
-                      help='remote per-job workdir parent (default /root/jobs)')
+    qrun.add_argument('--remote-ci', default='~/freeipa-ci/ci',
+                      help='ci/ tree location on each runner; ~ expands '
+                           'to the runner user\'s home (default '
+                           '~/freeipa-ci/ci)')
+    qrun.add_argument('--jobs-dir', default='~/jobs',
+                      help='per-job workdir parent on each runner; ~ '
+                           'expands to the runner user\'s home (default '
+                           '~/jobs)')
     qrun.add_argument('--ssh-key', default=None, help='ssh identity file')
     qrun.add_argument('--no-bootstrap', action='store_true',
-                      help='do not rsync the ci/ tree to the runners')
+                      help='do not sync the ci/ tree to the runners '
+                           '(the testing-farm runner always clones the '
+                           'repo itself)')
+    qrun.add_argument('--srpm', default=None, metavar='PATH',
+                      help='SRPM (or its dist/srpms/ dir) produced by '
+                           'ci/scripts/make-srpms.sh; shipped to each runner '
+                           'and used to build the queue channel images that '
+                           'are missing there (design §3.10, "build the '
+                           'IPA RPMs ourselves"). With the testing-farm '
+                           'runner this must be an HTTP(S) URL: the guest '
+                           'downloads it at job time.')
+    qrun.add_argument('--srpm-dir', default=None, metavar='PATH',
+                      help='remote dir on each runner to ship the SRPM into '
+                           '(default: <dirname --remote-ci>/srpm)')
+    qrun.add_argument('--image-timeout', type=int, default=9000,
+                      help='per-channel-image remote build timeout in '
+                           'seconds (default 9000 = 2.5h)')
+    # Testing Farm options (only used with --runner testing-farm)
+    qrun.add_argument('--tf-token', default=None,
+                      help='Testing Farm API token (default: env '
+                           'TESTING_FARM_API_TOKEN)')
+    qrun.add_argument('--tf-url', default='https://api.testing-farm.io',
+                      help='Testing Farm API base URL')
+    qrun.add_argument('--tf-repo-url', default=None,
+                      help='git URL of this repo for the TF guest to clone '
+                           '(default: the origin remote of this checkout)')
+    qrun.add_argument('--tf-ref', default=None,
+                      help='git ref for the TF guest (default: the HEAD '
+                           'commit of this checkout)')
+    qrun.add_argument('--tf-arch', default='x86_64',
+                      help='TF guest architecture (default x86_64)')
+    qrun.add_argument('--tf-compose', default='Fedora-44',
+                      help='TF guest OS compose (default Fedora-44)')
+    qrun.add_argument('--tf-plan', default='/ci/tmt/plans/freeipa-env',
+                      help='tmt plan (node) name under the repo root '
+                           '(default /ci/tmt/plans/freeipa-env)')
+    qrun.add_argument('--tf-variable', action='append', default=[],
+                      metavar='KEY=VALUE',
+                      help='extra environment variable for the TF guest '
+                           '(repeatable)')
     qrun.set_defaults(fn=cmd_queue)
     qgen = qsub.add_parser(
         'generate', help='generate a queue from a PRCI definition '

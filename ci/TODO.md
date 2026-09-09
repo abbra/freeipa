@@ -426,6 +426,46 @@ spawning anything. A preset change must not silently break a queue.
   unknown channel, unknown vm backend, missing master, external w/o address)
   are all flagged; good podman/nested/explicit-image presets pass.
 
+## L. Build the IPA RPMs ourselves
+
+Goal: stop depending on RPMs delivered by a build farm. Compile the IPA
+binary RPMs from the same git snapshot in a dedicated build image on the
+same host that bakes the test image, so build and test share one distro
+repo snapshot and a delivered RPM's dependency (samba) can no longer drift
+out of resolution (design §3.10; see also the §2 repo-pinning limitation
+below — the self-build lane makes it unrepresentable).
+
+- [x] L1: `ci/scripts/make-srpms.sh` — control-node helper: submodule init,
+  autoreconf if needed, configure (same triplet as makerpms.sh), `make
+  srpms`; prints the absolute `dist/srpms/*.src.rpm`.
+- [x] L2: `ci/images/build/Dockerfile` — `freeipa-ci/build:<dist>` = base +
+  toolchain + every `BuildRequires` from freeipa.spec.in (x86_64 full
+  server), baked once per dist; and `ci/images/build.sh --srpm <path>` —
+  `rpmbuild --nocheck --rebuild` the SRPM in that container, collect the
+  binary RPMs, and bake `freeipa-ci/full:<dist>` from them (tagged with the
+  channel; mutually exclusive
+  with `--rpms`).
+- [x] L3: `freeipa_env/imagemake.py` + envspec `build:` block — the
+  provider glue: `ensure_channels()` ensures each abstract channel's full
+  image is present (builds the absent / forced ones from `build.srpm` via
+  the shared `build_sh_argv`), `PodmanProvider.up()` calls it before
+  resolution, `freeipa-env ensure ENV.YAML [--build]` does just the build
+  half. `image.channel_name()` exposes the short channel for build.sh.
+- [x] L4: supervisor `--srpm` — `queue run --srpm <file|dir>` ships the
+  SRPM to each runner and builds any channel image the runner is missing
+  (freshness model) before resolution; fail fast on a build failure.
+  Env files without `build.srpm` / queue runs without `--srpm` are
+  unchanged.
+- [x] L5: end-to-end smoke on 192.168.122.215 (2026-09-09) — built the
+  build image (every F44 package name resolves; needed `rpm-build`,
+  `gettext`/`gettext-devel`, `xmlrpc-c-devel` added), ran
+  `build.sh --srpm <srpm> --channel current`: `rpmbuild --nocheck
+  --rebuild` produced 46 binary RPMs (12 noarch + 34 x86_64) and the
+  full image `freeipa-ci/full:current` (== `full:44`) was baked from
+  them. A/B against the delivered-RPM image of the same commit
+  (`full:44-b1af1d8bb`): identical freeipa-server version, identical
+  systemd unit set; both boot to `multi-user.target` with sshd/avahi up.
+
 ## Known limitations / follow-ups
 
 - **Repo pinning**: the validation image was built against a rolling F44

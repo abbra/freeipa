@@ -35,6 +35,15 @@ def channel_tag(ref):
     return CHANNELS.get(ref, ref)
 
 
+def channel_name(ref):
+    """Abstract channel name -> short channel name (``current`` / ``next`` /
+    ``previous``), the value ``ci/images/build.sh --channel NAME`` takes.
+    Returns ``None`` if ``ref`` is not a known abstract channel."""
+    if ref in CHANNELS:
+        return ref.split('-', 1)[1]
+    return None
+
+
 def channel_from_prefix(prefix):
     """Map a PRCI job prefix to an abstract channel name.
 
