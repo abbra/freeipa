@@ -303,6 +303,77 @@ dequeue) — the same shape as a PRCI run queue spread over a pool of VMs.
 on the runner for `freeipa-env logs --refresh`-style triage (remember to
 `down` manually before reusing the runner's capacity).
 
+## Runner transports (`--runner`)
+
+A *runner* is a host that can execute a queued job (podman + systemd + a
+copy of the repo's `ci/` tree). Each `--runner SPEC` names one transport:
+
+| spec | transport | how jobs run |
+|---|---|---|
+| `user@host[:port]` (default) | **ssh** | a pre-allocated runner reached over key-based ssh; the `ci/` tree is rsynced there and `up`/`run`/`down` execute remotely |
+| `local` | **local** | the control node is the runner; no ssh, the same job flow runs as local subprocesses (needs `podman` on the control node) |
+| `testing-farm` | **TF** | no ssh, no pre-allocated host: each job becomes one **Testing Farm** request that provisions its own guest |
+
+All three share one job recipe (`up` → `run` → `down`, under a per-job
+timeout; `down` is unbounded and must complete), so queue semantics and the
+`summary.tsv`/`summary.md` + per-job transcript shapes are transport-neutral.
+
+**Runner-style paths are de-rooted.** Remote/local job paths are written
+`~/...` (unquoted), so the *remote* shell expands them against the ssh user's
+home — for a non-root user that keeps the tree out of `/` (the default
+`--remote-ci ~/freeipa-ci/ci`, `--jobs-dir ~/freeipa-jobs` work unchanged for
+any user). The local runner expands `~/...` against the local user's home.
+
+### Testing Farm transport
+
+`--runner testing-farm` sends each queued job to the public
+[Testing Farm](https://docs.testing-farm.io/) API as one request. There is no
+pre-allocated host and no root on any machine you control: TF provisions a
+fresh Fedora guest, checks out the repo **itself**, and runs the tmt plan in
+`ci/tmt` on it. A job **PASSes** only when the TF request completes with an
+overall `passed` result.
+
+Required: an API token — pass `--tf-token TOKEN` or set the
+`TESTING_FARM_API_TOKEN` environment variable. The repo the guest clones is
+`--tf-repo-url` (default: the checkout's `remote.origin.url`) at
+`--tf-ref` (default: the checkout's `HEAD`); both should point at a
+**publicly pushed** commit, since TF clones over the network. Other knobs:
+`--tf-url` (API base), `--tf-arch` (default `x86_64`), `--tf-compose`
+(default `Fedora-44`), `--tf-plan` (tmt plan, default
+`/ci/tmt/plans/freeipa-env`), and `--tf-variable KEY=VALUE` (repeatable, extra
+variables for the request).
+
+**The guest builds the SRPM itself — no pre-supplied SRPM.** The tmt plan's
+`prepare` step (`how: install`) places `git`, `podman`, the autotools
+toolchain and every `BuildRequires` of `freeipa.spec.in` on the guest (the
+[synta](https://pagure.io/synta) pattern). TF's pipeline only syncs the fmf
+tree to the guest as a plain file copy (no `.git`, no submodule contents),
+so the tmt test clones the repo itself first — `git clone --recursive` +
+`git checkout` of `--tf-repo-url`/`--tf-ref` — then produces `freeipa`'s
+SRPM on the guest: `autoreconf -i`, `./configure` with the spec's
+rpm-equivalent flags, and `make srpms`. It then bakes the preset's channel
+image from that SRPM with `ci/images/build.sh --srpm`, and finally drives the
+same `freeipa-env up` → `run` → `down` recipe a local or ssh job would,
+exiting with the `run` step's status. Pass `--srpm <URL>` only to override
+with a prebuilt SRPM (it must be an HTTP(S) URL the guest can fetch).
+
+```
+freeipa-env queue run ci/queues/gating.yaml \
+    --runner testing-farm --jobs test_kerberos_flags \
+    --tf-token $TESTING_FARM_API_TOKEN \
+    --tf-repo-url https://github.com/abbra/freeipa.git \
+    --tf-ref modrnize-ci \
+    --job-timeout 21600            # the guest builds the SRPM + image, so
+                                   # allow the full build flow (default 4 h)
+```
+
+The supervisor polls the request to a terminal state under `--job-timeout`
+(default 14400 = 4 h) and cancels it if the deadline is reached; a full
+on-guest build (SRPM + binary RPMs + image + a 3-host integration run) needs
+a larger watchdog, so raise it for TF runs. `--dry-run` with a `testing-farm`
+runner prints the exact request JSON that would be submitted (a token is
+still required, but nothing is actually sent).
+
 ## Build the IPA RPMs ourselves
 
 By default `freeipa-env` consumes IPA RPMs that some build farm produced and

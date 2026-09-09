@@ -627,6 +627,71 @@ it defers resolution. A single shared helper
 (`imagemake.build_sh_argv`) produces the identical `build.sh` argv for the
 local and remote paths.
 
+### 3.11 Runner transports & Testing Farm
+
+The queue supervisor (§3.8) was originally tied to a pool of pre-allocated
+runner hosts reached over ssh. That is the *default* transport, but the
+runner is now a transport behind a small interface
+(`freeipa_env/runner.py`, mirroring the vmbackend pattern), and a queue can
+mix any of three:
+
+* **`user@host[:port]`** — a pre-allocated runner over key-based ssh; the
+  `ci/` tree is rsynced there and the `up`/`run`/`down` recipe executes
+  remotely. The historical case.
+* **`local`** — the control node is the runner: no ssh, the same recipe runs
+  as local subprocesses. For running a queue on a machine that already has
+  podman + systemd + the images.
+* **`testing-farm`** — no ssh and no pre-allocated host: each job becomes one
+  request to the public [Testing Farm](https://docs.testing-farm.io/) API,
+  which provisions a fresh Fedora guest, clones the repo itself, and runs the
+  tmt plan in `ci/tmt` on it.
+
+All transports share one job recipe (`up` → `run` → `down`, under a per-job
+timeout; `down` unbounded and mandatory), so queue semantics and the
+transcript/summary shapes are transport-neutral. Remote and local paths are
+written `~/...` (unquoted), so the *remote* shell de-roots them against the
+ssh user's home — a non-root runner user keeps the tree out of `/` with no
+config change.
+
+**The Testing Farm lane self-suffices — it does not consume delivered
+artifacts.** A TF guest is a blank Fedora VM, so the request must carry
+everything the job needs and produce every artifact itself. The plan
+(`ci/tmt/plans/freeipa-env.fmf`) declares a `prepare` step (`how: install`)
+that places `git`, `podman`, the autotools toolchain and every `BuildRequires`
+of `freeipa.spec.in` on the guest — the same pattern synta uses to make
+guest-side builds work on TF. The tmt test
+(`ci/tmt/tests/freeipa-env/tf-runner.sh`) then:
+
+1. derives the preset's build channel from its `image: freeipa-<channel>`
+   line and the dist from its `dist:` line (default 44);
+2. **builds freeipa's SRPM on the guest** from a fresh clone — TF's
+   pipeline syncs the fmf tree to the guest as a plain file copy (no
+   `.git`, and no submodule contents either), so the request passes the
+   repo URL and ref as `FREEIPA_REPO_URL`/`FREEIPA_REPO_REF` variables and
+   the test script runs `git clone --recursive` + `git checkout` on the
+   guest, then `autoreconf -i`, `./configure` with the spec's
+   rpm-equivalent flags (the same triplet `makerpms.sh` uses), and
+   `make srpms` — so no pre-supplied SRPM or build farm is involved (an
+   explicit `--srpm <http-url>` is an override, not the default). The
+   recursive clone matters: the `install/freeipa-webui` submodule is
+   walked by `dist-hook` (its `npm run build` output is packed into the
+   dist tarball that becomes the SRPM's `Source0`).
+3. bakes the channel image from that SRPM with the same
+   `ci/images/build.sh --srpm` lane as the self-build path (§3.10) — the
+   dedicated `freeipa-ci/build` container compiles the binary RPMs, and the
+   `freeipa-ci/full:<dist>` image is tagged `freeipa-ci/full:<channel>`;
+4. drives the identical `freeipa-env up` → `run` → `down` recipe a local or
+   ssh job would, and exits with the `run` step's status.
+
+The supervisor submits the request (`POST /v0.1/requests`), polls it to a
+terminal state under `--job-timeout` (default 4 h; a full on-guest build —
+SRPM, binary RPMs, image bake, and the integration run — legitimately needs
+more, e.g. 6 h), and cancels it at the deadline. Job PASS ⇔ request
+`complete` with overall `passed`; TF artifacts (console, guest event log,
+tmt log) are where failures are diagnosed. This is the "no real API, no
+runner pool, no root anywhere we control" transport: the guest is ephemeral,
+and the only persistent state is the artifacts URL.
+
 ## 4. Orchestrator
 
 A small Python service (single deployment; SQLite→Postgres as it grows):

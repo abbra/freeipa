@@ -466,6 +466,74 @@ below — the self-build lane makes it unrepresentable).
   (`full:44-b1af1d8bb`): identical freeipa-server version, identical
   systemd unit set; both boot to `multi-user.target` with sshd/avahi up.
 
+## M. Runner transports + Testing Farm
+
+Goal: decouple the queue supervisor from a pre-allocated ssh runner pool. A
+runner is now a transport (`freeipa_env/runner.py`): `user@host[:port]`
+(ssh, the default), `local` (the control node), or `testing-farm` (each job
+is one public Testing Farm request that provisions its own guest and builds
+everything on it — no ssh, no root on any host we control). Design §3.11.
+
+- [x] M1: `freeipa_env/runner.py` — `Runner` interface + `SshRunner`
+  (extracted from the supervisor's ssh path), `LocalRunner` (local
+  subprocesses + `~/...` expansion), `make_runner(spec)` dispatch
+  (`local` / `testing-farm` / `user@host[:port]`); the transport-neutral
+  `up` → `run` → `down` recipe + shared remote-channel build
+  (`_build_channels_on`).
+- [x] M2: `supervisor.py` — takes runner objects instead of building ssh
+  argv; bootstrap/resolve/run/summary work per runner kind; runner-style
+  `~/...` paths de-rooted for non-root users.
+- [x] M3: `freeipa_env/testingfarm.py` — `TestingFarmClient` (stdlib
+  urllib: submit/get/cancel/wait over `api.testing-farm.io` v0.1) +
+  `TestingFarmRunner.run_job` (one request per job; poll to a terminal
+  state under `--job-timeout`, cancel at the deadline; PASS ⇔ `complete`
+  + overall `passed`; artifacts URL in the transcript).
+- [x] M4: `cli.py` `queue run --runner` accepts the three transports;
+  `--tf-token`/`TESTING_FARM_API_TOKEN`, `--tf-url`, `--tf-repo-url`
+  (default `remote.origin.url`), `--tf-ref` (default `HEAD`), `--tf-arch`,
+  `--tf-compose`, `--tf-plan`, `--tf-variable K=V`; `--dry-run` prints the
+  per-job request JSON.
+- [x] M5: `ci/tmt/` + `./.fmf` — the fmf root, the
+  `freeipa-env` plan (discover `^/ci/tmt/tests/`, `prepare: how: install`
+  of `git` + `podman` + `curl` + the autotools toolchain + every
+  `BuildRequires` of freeipa.spec.in, `execute: how: tmt` — the synta
+  pattern) and the `freeipa-env` test (`tf-runner.sh`, duration 6h).
+- [x] M6: `tf-runner.sh` — on-guest full flow: channel + dist from the
+  preset; when no `FREEIPA_SRPM_URL` is given the guest clones the repo
+  itself (`git clone --recursive` + `git checkout` of
+  `FREEIPA_REPO_URL`/`FREEIPA_REPO_REF`, passed as request variables —
+  TF's pipeline syncs the fmf tree to the guest as a plain file copy, no
+  `.git` and no submodule contents) and builds the SRPM there
+  (`autoreconf -i`, `./configure` with the spec's rpm flags, `make
+  srpms`); channel image via `ci/images/build.sh --srpm`; then the same
+  `freeipa-env up` → `run` → `down` recipe; exit with `run`'s status.
+- [x] M7: control-node verification: `bash -n` on the guest script,
+  `tmt plans lint` clean, `tmt run discover` selects the test,
+  `--dry-run` request JSON correct (channel `freeipa-current`, dist 44,
+  plan, no `FREEIPA_SRPM_URL`).
+- [x] M8: e2e on public Testing Farm (2026-09-09): real requests against
+  the `github-abbra` `modrnize-ci` branch for the `test_kerberos_flags`
+  gating job. Submission 1 errored: `tmt.extra_args.prepare:
+  ['--continue']` is not a valid tmt option and aborted the plan; fixed,
+  plus a poller crash (TF returns `"result": null` before completion).
+  Submission 2 failed in 0.4s: `FATAL: no .git in TMT_TREE` — TF's
+  gluetool pipeline rsyncs only the `git ls-files`-tracked tree to the
+  guest with `.git` excluded, so it has no `.git` and no submodule
+  contents; the on-guest build cannot run on it. Fixed by passing
+  `FREEIPA_REPO_URL`/`FREEIPA_REPO_REF` to the guest and cloning on the
+  guest (`8238e6a21`); the request submitted after that fix is the one
+  tracked here. Submission 3 (`a2f1f2a3`) then proved the on-guest
+  recipe: recursive clone (with the `install/freeipa-webui` submodule),
+  `autoreconf -i`, `./configure`, `make srpms`, and the base-image bake
+  all succeeded on the guest, and it failed at the build image —
+  `ci/images/build/Dockerfile` was hidden by the in-tree `build/`
+  gitignore rule, so the file-copy tree had no `ci/images/build/`
+  context. Fixed by tracking the Dockerfile under a targeted negation
+  (`f57b8fff8`). Submission 4 (`adedf10a`) then PASSED in 21:53: the
+  guest built the SRPM, baked `freeipa-ci/build:44` +
+  `freeipa-ci/full:current`, brought up the 3-host env, and
+  `test_kerberos_flags` passed (test time 1074s).
+
 ## Known limitations / follow-ups
 
 - **Repo pinning**: the validation image was built against a rolling F44
