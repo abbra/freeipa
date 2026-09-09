@@ -120,9 +120,16 @@ ARGS=(build -f "$WORK/Dockerfile" -t "$FULL_IMAGE" --build-arg "BASE=$BASE_IMAGE
 [[ -n "$PINS" ]] && ARGS+=(--build-arg "PIN_SPECS=$PINS")
 "$TOOL" "${ARGS[@]}"
 
+# Image tag contract:
+#   <tag>/full:<dist>-<sha>  immutable per-build tag (provenance)
+#   <tag>/full:<dist>        rolling "currently built" pointer, re-pointed
+#                            by every build. Presets reference ONLY the
+#                            rolling tag; the podman provider resolves it
+#                            to the concrete image at up time
+#                            (freeipa-env resolve).
 if [[ -n "$SHA_TAG" ]]; then
     "$TOOL" tag "$FULL_IMAGE" "$TAG/full:$SHA_TAG"
-    echo "==> Tagged $TAG/full:$SHA_TAG"
+    echo "==> Tagged $TAG/full:$SHA_TAG (rolling $FULL_IMAGE = newest build)"
 fi
 
-echo "==> Done: $FULL_IMAGE$([[ -n $SHA_TAG ]] && echo " (also $TAG/full:$SHA_TAG)")"
+echo "==> Done: $FULL_IMAGE (rolling)${SHA_TAG:+ and $TAG/full:$SHA_TAG}"

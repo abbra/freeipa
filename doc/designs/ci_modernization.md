@@ -180,7 +180,15 @@ freeipa-ci/fedora-base:44                 # systemd, openssh, dnf cache warm,
                                           # debuginfo, python3 + pytest toolchain
   └── freeipa-ci/server:44-<sha>          # + all server RPMs from this commit
         └── freeipa-ci/full:44-<sha>      # + client RPMs (most envs want both)
+              (also tagged freeipa-ci/full:44 — the rolling tag)
 ```
+
+The `<dist>-<sha>` tag is the immutable provenance tag; the plain `<dist>`
+tag is the rolling **currently-built** pointer re-pointed by every build.
+Presets reference only the rolling tag; **resolving it to a concrete
+image is a provider task** (the podman provider resolves it against the
+local image store at `up` time; the external provider ignores it —
+external hosts run their own IPA).
 
 * Base is rebuilt weekly / on dist upgrade; server/full are thin (one `rpm -i`
   layer on top, `dnf install --downloadonly` of the PR RPMs from the build
@@ -228,7 +236,7 @@ domain: ipa.test
 provider: podman         # podman (default): created env | external: attached,
                          # pre-created elsewhere (all hosts need `address`)
 dist: f44
-image: freeipa-ci/full:44-a1b2c3d
+image: freeipa-ci/full:44        # rolling tag; resolved by the provider
 domain_level: 1
 fips: false            # userspace FIPS, per existing fips.py
 ipv6: true
@@ -441,12 +449,14 @@ runners (ssh + podman + systemd hosts).
   definition, each in the definition's job order (generated with
   `freeipa-env queue generate <def>.yaml`). A queue is an ordered `jobs:`
   list of preset paths (relative to `ci/env/`), a directory entry
-  expanding to all its presets sorted, or per-job dicts with notes. The
-  image a job runs is read from the preset itself.
+  expanding to all its presets sorted, or per-job dicts with notes. Each
+  preset carries only the logical image reference.
 * **Supervisor** (`freeipa-env queue run <queue> --runner user@host …`):
   validates every preset, checks each runner, rsyncs the `ci/` tree, and
-  verifies every required image is present (fail fast with the missing
-  list). Scheduling is a shared FIFO: each runner pulls jobs from the
+  asks each runner's provider to resolve every distinct preset's image
+  references (remote `freeipa-env resolve`; fail fast on a missing image
+  before any job starts; resolutions recorded per runner in
+  `summary.md`). Scheduling is a shared FIFO: each runner pulls jobs from the
   front of the list, one at a time — `up` → `run` → `down` under a per-job
   remote timeout, per-job workdir, per-job transcript. Results land in
   `summary.tsv` / `summary.md` + `queue.log`; exit code 0 iff all passed.

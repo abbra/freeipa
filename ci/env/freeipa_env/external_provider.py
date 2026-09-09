@@ -37,6 +37,11 @@ class ExternalProvider:
         os.makedirs(self.logdir, exist_ok=True)
         self.ok = True
 
+    def resolve_images(self):
+        """External hosts run their own IPA (dev build, RPMs, ...); image
+        references in the preset are ignored by this provider."""
+        return {}
+
     def _ssh_args(self, h):
         args = ['ssh',
                 '-o', 'BatchMode=yes',

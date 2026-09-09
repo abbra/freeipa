@@ -92,6 +92,23 @@ def cmd_show(args):
     return 0
 
 
+def cmd_resolve(args):
+    """Resolve the preset's logical image references to the concrete
+    local images — a provider task (presets never pin a build).
+    Prints one line per image: `<ref> <concrete> <image_id>`. Exit 0 iff
+    every reference resolves."""
+    spec = load_spec(args.env)
+    workdir = args.workdir or default_workdir(spec)
+    prov = make_provider(spec, workdir, args)
+    resolved = prov.resolve_images()
+    if not resolved:
+        print('no image references (external provider: hosts run their own IPA)')
+        return 0
+    for ref, (concrete, img_id) in resolved.items():
+        print(f'{ref} {concrete} {img_id}')
+    return 0
+
+
 def cmd_migrate(args):
     """Generate freeipa-env presets from a PRCI definition file."""
     from .prci import migrate
@@ -305,6 +322,13 @@ def main(argv=None):
     sp = sub.add_parser('show', help='show environment state')
     add_common(sp)
     sp.set_defaults(fn=cmd_show)
+
+    sp = sub.add_parser(
+        'resolve',
+        help="resolve the preset's image references to concrete local "
+             "images (a provider task; prints '<ref> <concrete> <id>')")
+    add_common(sp)
+    sp.set_defaults(fn=cmd_resolve)
 
     sp = sub.add_parser('run', help='run the test workflow in the env')
     add_common(sp)

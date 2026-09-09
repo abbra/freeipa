@@ -54,6 +54,8 @@ class PodmanProvider:
             proc = subprocess.run(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 timeout=timeout, env={**os.environ, **(env or {})})
+        except FileNotFoundError as e:
+            raise PodmanError(f'{self.tool} not found: {e}')
         finally:
             if log:
                 lf.close()
@@ -75,6 +77,46 @@ class PodmanProvider:
     def _exec_rc(self, name, cmd, **kw):
         rc, _ = self._exec(name, cmd, check=False, **kw)
         return rc
+
+    # --------------------------------------------------------------- images
+    def _image_id(self, ref):
+        """Local image id for ref, or None if not present."""
+        rc, out = self._podman(['image', 'inspect', ref,
+                                '--format', '{{.Id}}'],
+                               check=False, echo=False)
+        return out.strip() if rc == 0 and out.strip() else None
+
+    def resolve_images(self):
+        """Resolve the spec's logical image references to concrete local
+        images. Presets carry a rolling reference (e.g.
+        freeipa-ci/full:44 = the newest full image for dist 44 — the tag
+        ci/images/build.sh re-points at every build); the provider, not
+        the preset, decides which concrete image that means on this
+        host. Read-only. Returns {ref: (concrete_tag, image_id)}."""
+        resolved = {}
+        for h in self.spec.hosts:
+            if h.is_external:
+                continue
+            ref = self.spec.podman_image(h)
+            if ref in resolved:
+                continue
+            img_id = self._image_id(ref)
+            if not img_id:
+                raise PodmanError(
+                    f'image {ref} not found on this host; build it with '
+                    f'ci/images/build.sh (or load the saved image tarball) '
+                    f'and re-run')
+            rc, out = self._podman(['image', 'inspect', img_id,
+                                    '--format',
+                                    '{{range .RepoTags}}{{.}} {{end}}'],
+                                   echo=False)
+            tags = out.split()
+            # most specific tag on the same image = longest (commit tags
+            # like 44-<sha> outrun the rolling 44)
+            concrete = max(tags, key=len) if tags else ref
+            resolved[ref] = (concrete, img_id)
+            print(f'== image: {ref} -> {concrete} ({img_id[:12]})')
+        return resolved
 
     # ------------------------------------------------------------- containers
     def _network_args(self):
@@ -342,6 +384,7 @@ class PodmanProvider:
     # ------------------------------------------------------------------ ops
     def up(self):
         os.makedirs(self.logdir, exist_ok=True)
+        self.resolve_images()
         # the config file must exist before containers mount it
         open(self.config_path, 'a').close()
         self._create_network()

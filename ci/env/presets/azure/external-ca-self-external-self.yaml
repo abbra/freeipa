@@ -2,7 +2,7 @@
 name: azure-external-ca-self-external-self
 domain: ipa.test
 dist: 44
-image: freeipa-ci/full:44-b1af1d8bb
+image: freeipa-ci/full:44
 hosts:
   - {role: master, name: master1}
 run:

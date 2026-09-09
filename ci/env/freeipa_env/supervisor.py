@@ -6,7 +6,9 @@ of the lab VMs), addressed as ``user@host``. The supervisor:
   1. checks every runner (ssh reachability + podman),
   2. rsyncs the local ``ci/`` tree to ``--remote-ci`` (default
      ``/root/freeipa-ci/ci``) on each runner,
-  3. verifies every image the queue needs is present on every runner,
+  3. asks each runner's provider to resolve every preset's logical image
+     references (``freeipa-env resolve``; fail fast, and the resolved
+     concrete images are recorded in the summary),
   4. schedules the queue: each runner pulls jobs from the front of the
      list, one at a time. A job is ``freeipa-env up`` -> ``run`` ->
      ``down`` (down is skipped on failure with ``--keep-on-failure``),
@@ -74,10 +76,17 @@ class Runner:
             raise SupervisorError(
                 f'runner {self.spec}: rsync failed: {p.stderr.strip()}')
 
-    def has_image(self, image):
-        rc, _ = self.ssh(f'podman image inspect {shlex.quote(image)} '
-                         '>/dev/null 2>&1')
-        return rc == 0
+    def resolve_images(self, remote_ci, preset_rels, timeout=600):
+        """Ask the runner's provider (via `freeipa-env resolve`) to
+        resolve the presets' logical image references. Remote output:
+        '== <preset>' header lines, then '<ref> <concrete> <id>' lines.
+        Stops at the first preset that fails to resolve."""
+        cli = f'{remote_ci}/env/freeipa-env'
+        ps = ' '.join(shlex.quote(p) for p in preset_rels)
+        cmd = (f'for p in {ps}; do '
+               f'printf \'== %s\\n\' "$p" && cd {remote_ci}/env && '
+               f'{cli} resolve "$p" || exit 1; done')
+        return self.ssh(cmd, timeout=timeout)
 
     def run_job(self, job, remote_ci, jobs_dir, timeout_s,
                 keep_on_failure):
@@ -159,24 +168,36 @@ class Supervisor:
                 self._logf.flush()
 
     # -- setup --------------------------------------------------------
-    def _images(self):
-        """Images required by the queue (read from the presets)."""
+    def _validate_presets(self):
+        """Parse every preset in the queue up front (fail fast on a bad
+        file or spec); image references are resolved later, on the
+        runners, by the provider."""
         from .envspec import EnvSpec, EnvSpecError
-        imgs = set()
         for job in self.queue.jobs:
             if not os.path.isfile(job.path):
                 raise SupervisorError(
                     f'preset not found: {job.path} '
                     f'(queue {self.queue.path})')
             try:
-                spec = EnvSpec.from_file(job.path)
+                EnvSpec.from_file(job.path)
             except EnvSpecError as e:
                 raise SupervisorError(f'{job.preset_rel}: {e}')
-            imgs.add(spec.image)
-        return sorted(i for i in imgs if i)
+
+    @staticmethod
+    def _parse_resolve(out):
+        """Parse '<ref> <concrete> <id>' lines -> {ref: (concrete, id)} (dedup)."""
+        by_ref = {}
+        for line in out.splitlines():
+            line = line.strip()
+            if line.startswith('== '):
+                continue
+            parts = line.split()
+            if len(parts) == 3:
+                by_ref.setdefault(parts[0], (parts[1], parts[2]))
+        return by_ref
 
     def setup(self):
-        self._images()  # validates every preset up front
+        self._validate_presets()
         os.makedirs(os.path.join(self.outdir, 'transcripts'), exist_ok=True)
         self._logf = open(os.path.join(self.outdir, 'queue.log'), 'a')
         self._log(f'queue {self.queue.name}: {len(self.queue.jobs)} job(s), '
@@ -189,18 +210,29 @@ class Supervisor:
                 self._log(f'[{r.spec}] rsyncing {REPO_CI_DIR}/ -> '
                           f'{r.spec}:{self.remote_ci}/')
                 r.bootstrap(self.remote_ci)
-        missing = {}
-        for img in self._images():
-            for r in self.runners:
-                if not r.has_image(img):
-                    missing.setdefault(r.spec, []).append(img)
-        if missing:
-            for spec, imgs in missing.items():
-                self._log(f'[{spec}] MISSING IMAGE: {", ".join(imgs)}')
-            raise SupervisorError(
-                'required images missing on one or more runners '
-                '(build/pull them there first, e.g. podman pull or '
-                '`podman load` of a saved tarball)')
+        # image resolution is a provider task: ask each runner to resolve
+        # every distinct preset's logical references against its local
+        # image store (fail fast before any job starts).
+        self._resolved = {}
+        presets = sorted({j.preset_rel for j in self.queue.jobs})
+        for r in self.runners:
+            rc, out = r.resolve_images(self.remote_ci, presets)
+            if rc != 0:
+                headers = [l for l in out.splitlines()
+                           if l.startswith('== ')]
+                which = headers[-1][3:] if headers else '?'
+                err = [l for l in out.splitlines()
+                       if l.strip() and not l.startswith('== ')]
+                self._log(f'[{r.spec}] IMAGE RESOLUTION FAILED: {which}')
+                raise SupervisorError(
+                    f'runner {r.spec}: cannot resolve images for '
+                    f'{which}: {(err[-1] if err else "").strip()}\n'
+                    f'(build the image there first: ci/images/build.sh, '
+                    f'or `podman load` a saved tarball)')
+            self._resolved[r.spec] = self._parse_resolve(out)
+            for ref, (concrete, img_id) in self._resolved[r.spec].items():
+                self._log(f'[{r.spec}] image {ref} -> {concrete} '
+                          f'({img_id[:12]})')
 
     # -- scheduling ---------------------------------------------------
     def run(self):
@@ -263,9 +295,23 @@ class Supervisor:
                                    'note')) + '\n')
         n_pass = sum(1 for r in rows if r['status'] == 'PASS')
         n_fail = len(rows) - n_pass
+        resolved = getattr(self, '_resolved', {})
         with open(os.path.join(self.outdir, 'summary.md'), 'w') as f:
             f.write(f'# Queue {self.queue.name}: {n_pass} passed, '
                     f'{n_fail} failed, {len(rows)} total\n\n')
+            if resolved:
+                f.write('## Resolved images\n\n')
+                f.write('Presets carry logical references; each runner\'s '
+                        'provider resolved them against its local image '
+                        'store.\n\n')
+                for rspec, by_ref in resolved.items():
+                    f.write(f'### {rspec}\n\n')
+                    f.write('| logical | resolved to | image id |\n')
+                    f.write('|---|---|---|\n')
+                    for ref, (concrete, img_id) in by_ref.items():
+                        f.write(f'| {ref} | {concrete} | `{img_id[:12]}` |\n')
+                    f.write('\n')
+            f.write('## Jobs\n\n')
             f.write('| # | job | runner | status | duration | workdir |\n')
             f.write('|---|-----|--------|--------|----------|---------|\n')
             for r in rows:

@@ -8,7 +8,9 @@ to build them:
   domain: ipa.test
   domain_level: 1
   dist: 44                       # fedora dist (podman provider)
-  image: freeipa-ci/full:44      # image (podman provider; per-host override)
+  image: freeipa-ci/full:44      # logical image reference (podman provider);
+                                 # resolved to the concrete image by the
+                                 # provider at up time; per-host override
   dns_forwarder: 8.8.8.8         # resolv.conf for non-controller hosts and
                                  # the installer's --forwarder default
   hosts:

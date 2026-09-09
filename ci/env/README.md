@@ -26,7 +26,8 @@ name: base-xmlrpc
 provider: podman            # or: external (pre-created systems)
 domain: ipa.test
 dist: 44
-image: freeipa-ci/full:44
+image: freeipa-ci/full:44   # logical reference; the provider resolves the
+                            # concrete image (per-host image: overrides)
 hosts:
   - {role: master, name: master1}
   - {role: client, name: client1}
@@ -197,8 +198,17 @@ for PRCI's per-PR job scheduling. Queue files live in `ci/queues/`:
 
 Queue format: an ordered `jobs:` list of preset paths (relative to
 `ci/env/`), a directory entry (trailing `/`) expanding to all presets in
-it sorted, or per-job dicts (`preset`/`dir` + `note`). The image each job
-runs is read from the preset itself.
+it sorted, or per-job dicts (`preset`/`dir` + `note`).
+
+**Image references are logical.** A preset never pins a build —
+`image: freeipa-ci/full:44` means *the newest full image for dist 44*
+(the rolling tag `ci/images/build.sh` re-points at every build; the exact
+build stays available under `freeipa-ci/full:44-<sha>` for provenance).
+Resolving that reference to a concrete image on a given host is a
+**provider task**: the podman provider resolves it at `up` time against
+the local image store (and `freeipa-env resolve ENV.YAML` does just that
+one thing, printing `<ref> <concrete> <image_id>`); the external provider
+ignores it — external hosts run their own IPA.
 
 ```
 freeipa-env queue run ci/queues/gating.yaml \
@@ -212,8 +222,10 @@ The supervisor, per run:
 1. validates every preset (parse + existence),
 2. checks each runner (ssh + podman) and rsyncs the local `ci/` tree to
    `--remote-ci` (default `/root/freeipa-ci/ci`),
-3. verifies every image the queue needs is present on every runner
-   (fail fast with the missing list),
+3. asks each runner's provider to resolve every distinct preset's image
+   references (remote `freeipa-env resolve`; fail fast on a missing
+   image, before any job starts; resolutions are recorded per runner in
+   `summary.md`),
 4. schedules: each runner pulls the next job from the front of the list,
    one job at a time — `up` → `run` → `down`, under a per-job remote
    `timeout` (default 4 h), workdir `/root/jobs/<job-key>` per job.

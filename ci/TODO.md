@@ -304,6 +304,40 @@ ordered preset queues driven by a supervisor over pre-allocated runners
   (6:40 + 7:38), full artifacts per job on the runner, summary +
   transcripts locally.
 
+## H. Logical image references + provider resolution
+
+Goal: presets must not pin a build. They carry a **logical image
+reference** (`image: freeipa-ci/full:44` = *the newest full image for
+dist 44* — the rolling tag `ci/images/build.sh` re-points at every
+build; the exact build stays under `freeipa-ci/full:44-<sha>` for
+provenance). Presets stay provider-agnostic: **resolving the reference
+to a concrete image is a provider task**.
+
+- [x] H1: all 1301+16 presets now use the rolling reference (azure
+  presets de-pinned from `44-b1af1d8bb` to `44`; prci presets already
+  rolling).
+- [x] H2: `PodmanProvider.resolve_images()` — read-only; for each
+  distinct host image ref, `podman image inspect` → id → all tags on
+  that id → most-specific (longest) tag; raises with a build-
+  instructions message if the ref is absent; `up()` calls it first and
+  prints `== image: <ref> -> <concrete> (<short id>)`. `External
+  Provider.resolve_images()` → {} (external hosts run their own IPA;
+  image refs ignored).
+- [x] H3: `freeipa-env resolve ENV.YAML` — provider verb that performs
+  just the resolution; prints `<ref> <concrete> <image_id>` lines,
+  exit 0 iff every reference resolves (external: `no image references`).
+  `_podman()` now raises `PodmanError` (not a traceback) when the tool
+  binary is missing.
+- [x] H4: supervisor preflight — the local image list is gone; each
+  runner is asked to resolve every distinct preset's refs via remote
+  `freeipa-env resolve` (one ssh round trip per runner, stops at the
+  first unresolvable preset); resolutions are logged per runner and
+  recorded in `summary.md` ("Resolved images" tables, logical →
+  concrete → id).
+- [x] H5: e2e on 192.168.122.215: preflight logs `image
+  freeipa-ci/full:44 -> localhost/freeipa-ci/full:44-b1af1d8bb
+  (db266cd23ffd)`; 2-job queue (kerberos-flags + netgroup) **2/2 PASS**.
+
 ## Known limitations / follow-ups
 
 - **Repo pinning**: the validation image was built against a rolling F44
