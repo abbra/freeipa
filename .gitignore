@@ -43,6 +43,8 @@ missing
 stamp-h1
 libtool
 build/
+# the CI build-image Dockerfile is not in-tree build output
+!ci/images/build/
 compile
 test-driver
 freeipa-*.tar.gz
