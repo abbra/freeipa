@@ -8,3 +8,4 @@ description: |
     the run step's status.
 test: bash $TMT_TREE/ci/tmt/tests/freeipa-env/tf-runner.sh
 duration: 6h
+result: custom
