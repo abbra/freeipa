@@ -533,6 +533,27 @@ everything on it — no ssh, no root on any host we control). Design §3.11.
   guest built the SRPM, baked `freeipa-ci/build:44` +
   `freeipa-ci/full:current`, brought up the 3-host env, and
   `test_kerberos_flags` passed (test time 1074s).
+- [x] M9: per-stage results + artifact exposure on TF (2026-09-09): the
+  `freeipa-env` tmt test now declares `result: custom` (tmt 1.77+), so the
+  outcome is read from `$TMT_TEST_DATA/results.yaml` instead of the exit
+  code. A new `ci/tmt/tests/freeipa-env/stage-lib.sh` (sourced by
+  `tf-runner.sh`) records each stage of the job (`srpm-build`,
+  `image-build`, `env-up`, `test-run`, `env-down`) with its own live
+  console log (tee'd, so long stages stay live on the console), then
+  writes one results.yaml entry per stage plus a parent entry for the whole
+  test. After the recipe the job workdir artifacts (run console,
+  `nosetests.xml`, collected per-host logs) are copied to
+  `$TMT_TEST_DATA/artifacts/`. Because TF uploads the whole tmt workdir,
+  `results.xml` now shows each stage as its own `<testcase>` with a
+  downloadable log, and the job artifacts are downloadable under
+  `.../data/artifacts/`. A results.yaml is also written from an EXIT trap
+  on early death (bad preset / failing `up`), so a failed run still surfaces
+  per-stage results. Schema details baked in (verified against tmt 1.77.0):
+  notes single-quoted (an unquoted colon makes YAML parse a dict and
+  hard-fails validation), timestamps carry fractional seconds, durations are
+  `HH:MM:SS`. Verified end-to-end: request `42e4c6a3` (branch `modrnize-ci`
+  @ `480bc1f46`) PASSED in 23:28 with all 6 testcases present (parent +
+  5 stages, each `passed`) and every stage log + artifact resolving.
 
 ## Known limitations / follow-ups
 

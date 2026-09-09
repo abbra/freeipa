@@ -357,6 +357,16 @@ same `freeipa-env up` → `run` → `down` recipe a local or ssh job would,
 exiting with the `run` step's status. Pass `--srpm <URL>` only to override
 with a prebuilt SRPM (it must be an HTTP(S) URL the guest can fetch).
 
+**Per-stage results + downloadable job artifacts.** The tmt test declares
+`result: custom`, so the runner reports the job as one tmt result per stage
+(`srpm-build`, `image-build`, `env-up`, `test-run`, `env-down`) plus a
+parent result for the whole test, each with its own console log. After the
+recipe the job workdir artifacts (the run console, `nosetests.xml`, the
+collected per-host logs) are copied into the tmt test data dir. Testing
+Farm uploads the whole tmt workdir with the request, so in `results.xml`
+every stage shows up as its own testcase (with a per-stage log link) and
+the job artifacts are downloadable under `.../data/artifacts/`.
+
 ```
 freeipa-env queue run ci/queues/gating.yaml \
     --runner testing-farm --jobs test_kerberos_flags \
