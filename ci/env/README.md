@@ -367,6 +367,21 @@ Farm uploads the whole tmt workdir with the request, so in `results.xml`
 every stage shows up as its own testcase (with a per-stage log link) and
 the job artifacts are downloadable under `.../data/artifacts/`.
 
+**Analyze a TF job's artifacts with `logs`.** `freeipa-env tf-logs <request-id>`
+downloads a finished request's job artifacts (the run console, `nosetests.xml`,
+the per-host daemon logs and tarballs) into a local workdir in the same layout
+a local/ssh job uses, then runs the usual `logs` machinery over them — no env
+file needed. The request id is the one printed in the `queue run` transcript
+(or from the TF API). `--category`/`--pattern`/`--json`/`--host` work exactly as
+for `logs`; `--workdir DIR` picks where the artifacts are stored (default
+`./tf-<request-id>.env`) and re-running against the same dir reuses the
+downloaded files.
+
+```
+freeipa-env tf-logs <request-id> --tf-token $TESTING_FARM_API_TOKEN
+freeipa-env tf-logs <request-id> --category tests --category run --lines 20
+```
+
 ```
 freeipa-env queue run ci/queues/gating.yaml \
     --runner testing-farm --jobs test_kerberos_flags \

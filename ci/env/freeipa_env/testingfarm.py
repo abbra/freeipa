@@ -23,6 +23,8 @@ builds the channel image itself). A local SRPM path is rejected up front.
 """
 
 import json
+import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -94,6 +96,79 @@ class TestingFarmClient:
             if time.monotonic() >= deadline:
                 return None, None, (req.get('run') or {}).get('artifacts')
             time.sleep(interval)
+
+
+# --- artifacts -----------------------------------------------------------
+
+_DATA_DIR_RE = re.compile(r'/ci/tmt/tests/freeipa-env-\d+/data/?$')
+
+
+def data_dir(url):
+    """True when ``url`` points at a tmt test data dir (…/freeipa-env-N/data).
+    ``results.xml`` links both the data dir and its parent dir with
+    trailing slashes, and every file under the dir as a file URL; only the
+    file URLs are fetchable artifacts."""
+    return bool(_DATA_DIR_RE.search((url or '').rstrip('/')))
+
+
+def fetch_artifacts(request_id, workdir, token, url=DEFAULT_URL,
+                    timeout=120, log=None, include_consoles=True):
+    """Download a finished TF request's job artifacts into ``workdir`` in the
+    local freeipa-env workdir layout (``workdir/logs/…``) so
+    ``freeipa-env logs`` can parse them like a local/ssh job.
+
+    The guest copies its job workdir's ``logs/`` tree into the tmt test data
+    dir as ``artifacts/`` (see tf-runner.sh), and Testing Farm lists every
+    uploaded file in the request's ``results.xml`` — so the file set (and the
+    unpredictable ``work-…`` dir prefix) is read straight from the XML. Each
+    ``…/data/artifacts/<rel>`` file is fetched to ``workdir/logs/<rel>``;
+    the per-stage console logs are fetched to ``workdir/stages/`` (opt-out
+    via ``include_consoles``). Returns the count of files written.
+    """
+    client = TestingFarmClient(token, url=url, timeout=timeout)
+    req = client.get(request_id)
+    xunit = (req.get('result') or {}).get('xunit_url')
+    if not xunit:
+        raise TfApiError(
+            f'request {request_id}: no results.xml yet (state '
+            f'{req.get("state") or "?"})')
+    with urllib.request.urlopen(xunit, timeout=timeout) as r:
+        xml = r.read().decode('utf-8', 'replace')
+    hrefs = re.findall(r'href="([^"]+)"', xml)
+
+    # results.xml lists some file hrefs more than once (the main results
+    # list and the per-stage testcase log links); fetch each URL once.
+    seen = set()
+
+    def fetch(u, dest):
+        if u in seen:
+            return False
+        seen.add(u)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with urllib.request.urlopen(u, timeout=timeout) as r, open(dest, 'wb') as f:
+            f.write(r.read())
+        return True
+
+    n = 0
+    for h in hrefs:
+        if not h.startswith('http') or data_dir(h):
+            continue
+        if '/artifacts/' in h:
+            rel = h.split('/artifacts/', 1)[1].lstrip('/')
+            if not rel:
+                continue
+            if fetch(h, os.path.join(workdir, 'logs', rel)):
+                n += 1
+                if log:
+                    log(f'  logs/{rel}')
+        elif include_consoles and '/freeipa-env-1/data/' in h:
+            base = os.path.basename(h.rstrip('/'))
+            if base.endswith('.log'):
+                if fetch(h, os.path.join(workdir, 'stages', base)):
+                    n += 1
+                    if log:
+                        log(f'  stages/{base}')
+    return n
 
 
 def build_tf_request(cfg, job, timeout_s, srpm=None):

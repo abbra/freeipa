@@ -554,6 +554,25 @@ everything on it — no ssh, no root on any host we control). Design §3.11.
   `HH:MM:SS`. Verified end-to-end: request `42e4c6a3` (branch `modrnize-ci`
   @ `480bc1f46`) PASSED in 23:28 with all 6 testcases present (parent +
   5 stages, each `passed`) and every stage log + artifact resolving.
+- [x] M10: download a TF job's artifacts and parse them with the `logs`
+  machinery (2026-09-10): `freeipa-env tf-logs <request-id>` fetches a
+  finished request's job artifacts into a local workdir and runs the same
+  categorizer as `logs` — no env file needed. The file set is read from the
+  request's `results.xml` (Testing Farm lists every uploaded file there, so
+  the unpredictable `work-…` dir prefix and the dynamic per-host names need
+  no listing endpoint or hardcoded paths): each `…/data/artifacts/<rel>` file
+  is downloaded to `<workdir>/logs/<rel>` (the exact local job-workdir layout
+  `LogStore` already parses) and the per-stage console logs to
+  `<workdir>/stages/`. Duplicate hrefs in the XML are de-duplicated. The
+  per-category views, `--pattern`, `--json`, `--host`, per-host tarball
+  extraction and xunit parsing all work unchanged on the fetched workdir (a
+  plain `freeipa-env logs <env> --workdir <that-dir>` reuses it too).
+  Implementation: `freeipa_env/testingfarm.py` gained `data_dir()` +
+  `fetch_artifacts()`; `cli.py` gained the `tf-logs` subcommand. Verified
+  against request `42e4c6a3`: 29 unique files downloaded (per-host daemon
+  logs + tarballs for client1/master1/replica1, xunit, run console, 5 stage
+  logs) and the `logs` summary + per-category output rendered with the
+  correct hosts, xunit totals (5 tests, 0 failed) and daemon-log categories.
 
 ## Known limitations / follow-ups
 

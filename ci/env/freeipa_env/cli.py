@@ -230,6 +230,63 @@ def cmd_logs(args):
     return 0
 
 
+def cmd_tf_logs(args):
+    """Fetch a finished Testing Farm request's job artifacts into a local
+    workdir and parse them with the same ``logs`` machinery a local/ssh job
+    uses (categories, pattern, json, per-host)."""
+    from .loganalyze import (LogStore, CATEGORIES, CATEGORY_NAMES,
+                             render_list, render_json, show_categories,
+                             DEFAULT_LINES, DEFAULT_TAIL)
+    from .testingfarm import fetch_artifacts, TfApiError
+
+    token = args.tf_token or os.environ.get('TESTING_FARM_API_TOKEN')
+    if not token:
+        print('error: no TF API token (pass --tf-token or set '
+              'TESTING_FARM_API_TOKEN)', file=sys.stderr)
+        return 2
+    workdir = args.workdir
+    if not workdir:
+        stem = re.sub(r'[^A-Za-z0-9._-]+', '-', args.request_id).strip('-')
+        workdir = os.path.join(os.getcwd(), f'tf-{stem}.env')
+    try:
+        n = fetch_artifacts(
+            args.request_id, workdir, token,
+            url=args.tf_url or 'https://api.testing-farm.io',
+            include_consoles=not args.no_consoles,
+            log=lambda l: print(l, file=sys.stderr))
+    except TfApiError as e:
+        print(f'error: {e}', file=sys.stderr)
+        return 1
+    if n == 0:
+        print(f'error: no job artifacts in request {args.request_id} '
+              '(the job may have died before `down`, or has not finished)',
+              file=sys.stderr)
+        return 1
+    print(f'== fetched {n} artifact file(s) into {workdir}', file=sys.stderr)
+    print(f'== workdir: {workdir}', file=sys.stderr)
+
+    # reuse the `logs` parsing path exactly
+    if args.pattern:
+        try:
+            args.pattern_compiled = re.compile(args.pattern)
+        except re.error as e:
+            print(f'error: invalid --pattern: {e}', file=sys.stderr)
+            return 2
+    else:
+        args.pattern_compiled = None
+    store = LogStore(workdir)
+    cats = args.category or []
+    if args.list or not cats:
+        if args.json:
+            render_json(store)
+        else:
+            render_list(store)
+    if cats:
+        rc = show_categories(store, cats, args)
+        return rc or 0
+    return 0
+
+
 def cmd_run(args):
     spec = load_spec(args.env)
     workdir = args.workdir or default_workdir(spec)
@@ -498,7 +555,7 @@ def main(argv=None):
     sp.add_argument('--lines', type=int, default=DEFAULT_LINES,
                     help=f'max matched lines per file (default {DEFAULT_LINES})')
     sp.add_argument('--tail', type=int, default=DEFAULT_TAIL,
-                    help=f'tail lines to show per file (default {DEFAULT_TAIL}, '
+                         help=f'tail lines to show per file (default {DEFAULT_TAIL}, '
                          f'0 disables)')
     sp.add_argument('--all', action='store_true',
                     help='print whole files unfiltered')
@@ -509,8 +566,49 @@ def main(argv=None):
     sp.set_defaults(fn=cmd_logs)
 
     sp = sub.add_parser(
+        'tf-logs',
+        help='fetch a Testing Farm request\'s job artifacts and parse them '
+             'like `logs` (no env file needed)')
+    sp.add_argument('request_id',
+                    help='Testing Farm request id (from a `queue run` '
+                         'transcript or tf_list)')
+    sp.add_argument('--workdir', default=None,
+                    help='where to store the artifacts (default '
+                         './tf-<request-id>.env; reuse it to skip the '
+                         're-download)')
+    sp.add_argument('--tf-token', default=None,
+                    help='Testing Farm API token (default: env '
+                         'TESTING_FARM_API_TOKEN)')
+    sp.add_argument('--tf-url', default=None,
+                    help='Testing Farm API base URL '
+                         '(default https://api.testing-farm.io)')
+    sp.add_argument('--no-consoles', action='store_true',
+                    help='do not fetch the per-stage console logs '
+                         '(only the job workdir artifacts under logs/)')
+    # the same parsing options as `logs`
+    sp.add_argument('--list', action='store_true',
+                    help='per-category summary (default when no --category)')
+    sp.add_argument('--category', action='append', metavar='NAME',
+                    help=f'category to print, repeatable; "all" for '
+                         f'everything; names: {", ".join(CATEGORY_NAMES)}')
+    sp.add_argument('--host', default=None,
+                    help='only this host (default: all)')
+    sp.add_argument('--pattern', default=None,
+                    help='line-match regex, overrides the category default')
+    sp.add_argument('--lines', type=int, default=DEFAULT_LINES,
+                    help=f'max matched lines per file (default {DEFAULT_LINES})')
+    sp.add_argument('--tail', type=int, default=DEFAULT_TAIL,
+                    help=f'tail lines to show per file (default {DEFAULT_TAIL}, '
+                         f'0 disables)')
+    sp.add_argument('--all', action='store_true',
+                    help='print whole files unfiltered')
+    sp.add_argument('--json', action='store_true',
+                    help='machine-readable summary (with --list)')
+    sp.set_defaults(fn=cmd_tf_logs)
+
+    sp = sub.add_parser(
         'migrate',
-        help='generate presets from a PRCI definition '
+        help='generate presets from a PRCI definition file '
              '(ipatests/prci_definitions/*.yaml)')
     sp.add_argument('definition', help='PRCI definition YAML file')
     sp.add_argument('-o', '--out', default=None,
