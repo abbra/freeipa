@@ -35,6 +35,7 @@ set -uo pipefail
 TREE="${TMT_TREE:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 CI="$TREE/ci"
 CLI="$CI/env/freeipa-env"
+export CI CLI
 
 # --- the batch: a JSON array of {key, preset_rel} (from build_tf_request) ---
 # Backward compat: a request with the old single-preset vars (no FREEIPA_JOBS)
@@ -63,6 +64,13 @@ PY
 )" || die "could not parse FREEIPA_JOBS: $FREEIPA_JOBS"
 [ -n "$JOB_LINES" ] || die "FREEIPA_JOBS parsed to an empty job list"
 
+# stage-lib.sh requires WORKDIR before sourcing. In the batch model the per
+# preset workdir only exists inside its tf-job.sh child (it derives
+# WORKDIR from JOB_WORKDIR), so the driver points its own namespace at the
+# batch home: the driver's stage logs + the batch-parent results.yaml live
+# under $STAGEDATA (the tmt test data dir) and the batch home doubles as the
+# WORKDIR stage-lib's fallback needs (per-preset jobs use their own).
+WORKDIR="$HOME/freeipa-jobs"
 # staged results machinery (driver namespace: the tmt test data dir). The
 # driver's own results.yaml is the batch parent; each preset child writes its
 # own under <key>/ (see tf-job.sh).
