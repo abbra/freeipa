@@ -145,17 +145,6 @@ def _human_size(n):
     return f'{int(n)} B'
 
 
-def _clip_output(text, head=1200, tail=4000):
-    """Bound a possibly very large per-test output block, keeping the head
-    (setup/stderr) and the tail (the traceback). Truncation is marked."""
-    text = text.replace('\r\n', '\n').rstrip('\n')
-    if len(text) <= head + tail:
-        return text
-    omitted = len(text) - head - tail
-    return (text[:head] + '\n…\n'
-            f'[… {omitted} characters elided …]\n'
-            + text[-tail:])
-
 def _xunit_totals(store):
     """Aggregate xunit totals across (content-deduped) report files."""
     tot = {'tests': 0, 'failures': 0, 'errors': 0, 'skipped': 0, 'time': 0.0}
@@ -231,7 +220,7 @@ def _tests_section(rows):
                 body += (f'<div class="msg">{_esc(_clip_line(msg))}</div>')
             if text:
                 body += ('<div class="fail-detail"><pre>'
-                         + _esc(_clip_text_tail(text)) + '</pre></div>')
+                         + _esc(text) + '</pre></div>')
             if not msg and not text:
                 body = '<div class="note">no captured detail</div>'
             detail = (f'<tr><td colspan="4"><div class="fail-detail">'
@@ -246,16 +235,6 @@ def _tests_section(rows):
             '<tr><th>module</th><th>test</th><th>result</th>'
             '<th class="num">time</th></tr>'
             + ''.join(trs) + '</table></section>')
-
-
-def _clip_text_tail(text, tail=60):
-    """Keep the head and the (longer) tail of a traceback; the tail carries
-    the actual assertion/error."""
-    lines = [l.rstrip() for l in text.splitlines()]
-    if len(lines) <= tail + 2:
-        return text
-    head = lines[0]
-    return head + '\n' + '…\n' + '\n'.join(lines[-tail:])
 
 
 def _category_section(cat, store):
@@ -337,7 +316,7 @@ def _ptest_section(store):
         if pe is not None:
             log = pe.get('log') or ''
             if log and log.strip():
-                out_html.append('<pre>' + _esc(_clip_output(log)) + '</pre>')
+                out_html.append('<pre>' + _esc(log) + '</pre>')
             else:
                 out_html.append('<div class="note">no captured output</div>')
             dur = pe.get('duration')

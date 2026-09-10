@@ -25,10 +25,14 @@
 #      host maps each preset back to its own local workdir.
 #
 # The test is declared `result: custom` in main.fmf: tmt (1.77+) takes the
-# outcome from $TMT_TEST_DATA/results.yaml (the batch parent) plus each
-# preset's $TMT_TEST_DATA/<key>/results.yaml (its own stages). The staged
-# machinery in stage-lib.sh records the stages with live logs; TF uploads the
-# whole tmt workdir, so every stage and artifact shows up in results.xml.
+# outcome from $TMT_TEST_DATA/results.yaml alone (tmt never reads the
+# per-preset <key>/results.yaml files). Each preset's stages are therefore
+# MERGED into that single main file as namespaced entries /<key>/<stage>
+# (rendered <test>/<key>/<stage>), appended after the batch '/' parent --
+# see the merge loop near the end. The host report reads the per-key
+# <key>/results.yaml directly. The staged machinery in stage-lib.sh records
+# the stages with live logs; TF uploads the whole tmt workdir, so every
+# stage and artifact shows up in results.xml.
 #
 set -uo pipefail
 
@@ -266,6 +270,22 @@ else
 fi
 RUN_RC="$WORST_RC"
 write_results
+
+# --- merge each preset's namespaced stage fragment into the MAIN file ------
+# tmt only reads $TMT_TEST_DATA/results.yaml (this file). write_results just
+# wrote the batch '/' parent; now append every preset's stage entries, which
+# tf-job.sh already finalized (via write_stage_fragment) in data-dir-relative
+# form: names /<key>/<stage> -> tmt renders <test>/<key>/<stage>, and log:
+# paths keyed by the post-reparent locations. Concatenating a YAML list onto
+# a YAML list yields one valid list, so tmt/TF shows the per-preset +
+# per-stage split. The host report reads the per-key <key>/results.yaml
+# directly (unchanged), so this only feeds tmt/TF.
+for f in "$STAGEDATA"/*/stages.yaml; do
+    [ -f "$f" ] || continue
+    cat "$f" >> "$RESULTS_FILE"
+    echo "== merged stage fragment $f into $RESULTS_FILE"
+done
+
 rm -f "$STAGEDATA/.results-pending"
 echo "== results: $RESULTS_FILE"
 echo "== batch finished, worst job rc $WORST_RC"

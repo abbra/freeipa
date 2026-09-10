@@ -70,7 +70,9 @@ if [ "${STAGE_RC[env-up]}" -ne 0 ]; then
     stage_record "${PIPESTATUS[0]}"
     [ "${STAGE_RC[env-down]}" -eq 0 ] || \
         stage_set warn "cleanup down rc ${STAGE_RC[env-down]} after up failure"
-    write_results; rm -f "$STAGEDATA/.results-pending"
+    write_results
+    write_stage_fragment "$JOBKEY" "$STAGEDATA/stages.yaml"
+    rm -f "$STAGEDATA/.results-pending"
     exit 1
 fi
 
@@ -102,10 +104,28 @@ fi
 # --- collect this preset's artifacts into its own staged dir ---------------
 cp -f "$STAGEDATA/test-run.log" "$STAGEDATA/run.log" 2>/dev/null || true
 if [ -d "$WORKDIR/logs" ]; then
+    # Publish the small top-level loose files individually, but pack the
+    # bulky per-host log tree (logs/collected/, thousands of files) into a
+    # single tarball so the TF artifact server stores ONE file per preset
+    # instead of thousands of loose /var/log/* entries. The host's
+    # fetch_artifacts unpacks the tarball back into <key>/logs/.
     mkdir -p "$STAGEDATA/artifacts"
-    cp -rf "$WORKDIR/logs/." "$STAGEDATA/artifacts/" 2>/dev/null \
-        && echo "== collected $WORKDIR/logs -> $STAGEDATA/artifacts/" \
-        || echo "WARN: could not copy $WORKDIR/logs"
+    loose=0
+    for f in "$WORKDIR/logs"/*; do
+        [ -e "$f" ] || continue
+        case "$(basename "$f")" in
+            collected) continue ;;   # packed below as a tarball
+        esac
+        cp -rf "$f" "$STAGEDATA/artifacts/" && loose=$((loose + 1)) \
+            || echo "WARN: could not copy $f"
+    done
+    if [ -d "$WORKDIR/logs/collected" ]; then
+        tar -czf "$STAGEDATA/artifacts/collected-logs.tar.gz" \
+            -C "$WORKDIR/logs" collected 2>/dev/null \
+            && echo "== packed $WORKDIR/logs/collected -> collected-logs.tar.gz" \
+            || echo "WARN: could not tar $WORKDIR/logs/collected"
+    fi
+    echo "== collected $loose loose file(s) + collected-logs.tar.gz from $WORKDIR/logs"
 fi
 if [ -f "$WORKDIR/nosetests.xml" ]; then
     mkdir -p "$STAGEDATA/artifacts"
@@ -113,6 +133,7 @@ if [ -f "$WORKDIR/nosetests.xml" ]; then
 fi
 
 write_results
+write_stage_fragment "$JOBKEY" "$STAGEDATA/stages.yaml"
 rm -f "$STAGEDATA/.results-pending"
 echo "== tf-job $JOBKEY finished with exit code $RUN_RC"
 exit "$RUN_RC"

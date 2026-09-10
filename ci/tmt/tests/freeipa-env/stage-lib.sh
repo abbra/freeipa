@@ -105,11 +105,79 @@ stage_set() {
 # start/end/duration/context from the invocation). Stage entries are named
 # /<stage>: tmt prefixes every non-'/' name with the test name, producing
 # <test>/<stage>.
+
+# data_rel_log KEY RELPATH: make a data-dir-relative log path from a path
+# that is relative to a preset's STAGEDATA ($TMT_TEST_DATA/KEY). The driver
+# reparents <KEY>/artifacts/ -> artifacts/KEY/, so an artifacts/ path gains
+# the key after "artifacts/"; a plain stage log lives at KEY/<name>.log.
+data_rel_log() {
+    local key="$1" p="$2"
+    case "$p" in
+        artifacts/*) printf 'artifacts/%s/%s' "$key" "${p#artifacts/}" ;;
+        *)           printf '%s/%s' "$key" "$p" ;;
+    esac
+}
+
+# emit_stage_entry NAME RESULT NOTE START END LOG...: print ONE YAML stage
+# entry (name /NAME) to stdout. NAME is the (possibly already-namespaced,
+# e.g. "key/env-up") path segment after the leading '/'. START/END are epoch
+# seconds (empty -> times omitted). LOG... are the log: list items, already
+# data-dir-relative. Shared by write_results (a preset's own file) and
+# write_stage_fragment (the driver's namespaced consolidation), so there is
+# one place that owns the stage-entry schema.
+emit_stage_entry() {
+    local name="$1" res="$2" note="$3" t="$4" e="$5"
+    shift 5
+    local d l
+    printf -- '- name: /%s\n  result: %s\n  note:\n' "$name" "$res"
+    yaml_note "$note"
+    if [ -n "$t" ] && [ -n "$e" ] && [ "$e" -ge "$t" ]; then
+        d=$((e - t))
+        printf "  start-time: '%s'\n  end-time: '%s'\n  duration: %02d:%02d:%02d\n" \
+            "$(iso "$t")" "$(iso "$e")" $((d / 3600)) $((d % 3600 / 60)) $((d % 60))
+    fi
+    printf '  log:\n'
+    for l in "$@"; do printf '    - %s\n' "$l"; done
+}
+
+# write_stage_fragment KEY OUTFILE: emit this preset's stage entries (only,
+# NOT the parent '/') to OUTFILE, namespaced so the driver can concatenate
+# them straight into the main results.yaml tmt reads. Each entry's name is
+# /KEY/<stage> (tmt renders it <test>/KEY/<stage>) and each log: path is
+# data-dir-relative via data_rel_log, so the driver needs no rewriting. The
+# artifacts/ log path records the POST-reparent location (artifacts/KEY/),
+# which exists by the time tmt lists it; the presence check uses the
+# PRE-reparent location ($STAGEDATA/artifacts/), valid while this runs.
+write_stage_fragment() {
+    local key="$1" out="$2"
+    local i t e rc res logs
+    {
+        for i in env-up test-run env-down; do
+            case " $STAGE_SEEN " in
+                *" $i "*) ;;
+                *) continue ;;
+            esac
+            rc="${STAGE_RC[$i]:-}"
+            res="${STAGE_RES[$i]:-}"
+            [ -n "$res" ] || {
+                [ -n "$rc" ] && [ "$rc" -eq 0 ] && res=pass
+                [ -n "$res" ] || res=fail
+            }
+            logs="$(data_rel_log "$key" "$i.log")"
+            if [ "$i" = test-run ] && [ -f "$STAGEDATA/artifacts/nosetests.xml" ]; then
+                logs="$logs $(data_rel_log "$key" artifacts/nosetests.xml)"
+            fi
+            emit_stage_entry "$key/$i" "$res" "${STAGE_NOTE[$i]:-rc ${rc:-?}}" \
+                "${STAGE_START[$i]:-}" "${STAGE_END[$i]:-}" $logs
+        done
+    } > "$out"
+}
+
 write_results() {
     [ -n "$RESULTS_WRITTEN" ] && return 0
     RESULTS_WRITTEN=1
     local out="$STAGEDATA/.results.tmp"
-    local i t e d rc res
+    local i rc res logs
     {
         # parent entry: the test itself
         printf -- '- name: /\n  result: %s\n  note:\n' "$OVERALL"
@@ -138,18 +206,11 @@ write_results() {
                 [ -n "$rc" ] && [ "$rc" -eq 0 ] && res=pass
                 [ -n "$res" ] || res=fail
             }
-            printf -- '- name: /%s\n  result: %s\n  note:\n' "$i" "$res"
-            yaml_note "${STAGE_NOTE[$i]:-rc ${rc:-?}}"
-            t="${STAGE_START[$i]:-}"; e="${STAGE_END[$i]:-}"
-            if [ -n "$t" ] && [ -n "$e" ] && [ "$e" -ge "$t" ]; then
-                d=$((e - t))
-                printf "  start-time: '%s'\n  end-time: '%s'\n  duration: %02d:%02d:%02d\n" \
-                    "$(iso "$t")" "$(iso "$e")" $((d / 3600)) $((d % 3600 / 60)) $((d % 60))
-            fi
-            printf '  log:\n    - %s.log\n' "$i"
-            if [ "$i" = test-run ] && [ -f "$STAGEDATA/artifacts/nosetests.xml" ]; then
-                printf '    - artifacts/nosetests.xml\n'
-            fi
+            logs="$i.log"
+            [ "$i" = test-run ] && [ -f "$STAGEDATA/artifacts/nosetests.xml" ] && \
+                logs="$logs artifacts/nosetests.xml"
+            emit_stage_entry "$i" "$res" "${STAGE_NOTE[$i]:-rc ${rc:-?}}" \
+                "${STAGE_START[$i]:-}" "${STAGE_END[$i]:-}" $logs
         done
     } > "$out" && mv "$out" "$RESULTS_FILE"
 }

@@ -35,6 +35,7 @@ the host maps it into each preset's own workdir, so the normal
 import json
 import os
 import re
+import tarfile
 import time
 import urllib.error
 import urllib.request
@@ -161,6 +162,37 @@ def _fetch_once(url, dest, timeout, seen):
         f.write(r.read())
     return True
 
+def _extract_tarball(url, dest_dir, timeout, seen, log=None):
+    """Download a ``.tar.gz`` href and extract it INTO ``dest_dir`` (so the
+    archive's own top-level entries land there), then remove the archive.
+
+    The guest packs its bulky per-host log tree (``logs/collected/``) into a
+    single ``collected-logs.tar.gz`` per preset instead of publishing thousands
+    of loose files; this restores that tree into ``workdir/<key>/logs/`` so
+    ``freeipa-env logs``/``report`` see it exactly as a local job would.
+    True when the archive was extracted.
+    """
+    if url in seen:
+        return False
+    seen.add(url)
+    tmp = dest_dir + '.tmp.tgz'
+    os.makedirs(dest_dir, exist_ok=True)
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r, \
+                open(tmp, 'wb') as f:
+            f.write(r.read())
+        with tarfile.open(tmp, 'r:gz') as tf:
+            # 'data' filter (3.12+) blocks absolute paths, device nodes and
+            # link targets escaping the tree; the guest only packs plain files.
+            try:
+                tf.extractall(path=dest_dir, filter='data')
+            except TypeError:
+                tf.extractall(path=dest_dir)
+        return True
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
 
 def fetch_artifacts(request_id, workdir, token, url=DEFAULT_URL,
                     timeout=120, log=None, include_consoles=True):
@@ -230,7 +262,18 @@ def fetch_artifacts(request_id, workdir, token, url=DEFAULT_URL,
             if batched:
                 head, _, rest = art.partition('/')
                 if head in keys and rest:
-                    fetch(h, os.path.join(workdir, head, 'logs', rest), head)
+                    if rest.endswith('.tar.gz'):
+                        # the packed per-host log tree: extract into the
+                        # preset's logs/ (restores logs/collected/…); the
+                        # archive's top-level entry is "collected/".
+                        if _extract_tarball(h, os.path.join(workdir, head,
+                                                            'logs'), timeout,
+                                            seen, log):
+                            count(head)
+                            if log:
+                                log(f'  extracted {rest} (in {head}/)')
+                    else:
+                        fetch(h, os.path.join(workdir, head, 'logs', rest), head)
             else:
                 fetch(h, os.path.join(workdir, 'logs', art), '')
         elif include_consoles and base_name.endswith('.log'):
