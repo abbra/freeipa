@@ -48,20 +48,25 @@ echo "== tf-job: staged results -> $STAGEDATA"
 command -v podman >/dev/null 2>&1 || die "podman not found on the guest"
 
 # --- the up -> run -> down recipe (identical to a local/ssh job) ------------
+# The CLI resolves its preset argument against the CWD, so we cd to $CI but
+# must pass the absolute preset path ($ENFFILE = $CI/env/$ENFPRESET) — the
+# same convention the local/ssh runner uses (runner.py: envfile =
+# {remote_ci}/env/{preset_rel}). Passing the bare $ENFPRESET here would
+# resolve against $CI (no presets/ under it) and fail with FileNotFoundError.
 cd "$CI" || die "cannot cd to $CI"
 
-echo "== up: $CLI up $ENFPRESET --workdir $WORKDIR"
+echo "== up: $CLI up $ENFFILE --workdir $WORKDIR"
 stage_begin env-up
-"$CLI" up "$ENFPRESET" --workdir "$WORKDIR" 2>&1 | tee "$STAGEDATA/env-up.log"
+"$CLI" up "$ENFFILE" --workdir "$WORKDIR" 2>&1 | tee "$STAGEDATA/env-up.log"
 stage_record "${PIPESTATUS[0]}"
 if [ "${STAGE_RC[env-up]}" -ne 0 ]; then
     FATAL_NOTE="env up failed (rc ${STAGE_RC[env-up]})"
     OVERALL=fail
     STAGE_END[env-up]=$(date +%s)
     # best-effort cleanup so the guest does not leak containers
-    echo "== down (cleanup after up failure): $CLI down $ENFPRESET --workdir $WORKDIR"
+    echo "== down (cleanup after up failure): $CLI down $ENFFILE --workdir $WORKDIR"
     stage_begin env-down
-    "$CLI" down "$ENFPRESET" --workdir "$WORKDIR" 2>&1 | tee "$STAGEDATA/env-down.log"
+    "$CLI" down "$ENFFILE" --workdir "$WORKDIR" 2>&1 | tee "$STAGEDATA/env-down.log"
     stage_record "${PIPESTATUS[0]}"
     [ "${STAGE_RC[env-down]}" -eq 0 ] || \
         stage_set warn "cleanup down rc ${STAGE_RC[env-down]} after up failure"
@@ -69,15 +74,15 @@ if [ "${STAGE_RC[env-up]}" -ne 0 ]; then
     exit 1
 fi
 
-echo "== run: $CLI run $ENFPRESET --workdir $WORKDIR"
-stage_run test-run "$CLI" run "$ENFPRESET" --workdir "$WORKDIR"
+echo "== run: $CLI run $ENFFILE --workdir $WORKDIR"
+stage_run test-run "$CLI" run "$ENFFILE" --workdir "$WORKDIR"
 RUN_RC=$?
 [ "$RUN_RC" -eq 0 ] || OVERALL=fail
 
 # best-effort teardown; a clean down also collects the workdir logs
-echo "== down: $CLI down $ENFPRESET --workdir $WORKDIR"
+echo "== down: $CLI down $ENFFILE --workdir $WORKDIR"
 stage_begin env-down
-"$CLI" down "$ENFPRESET" --workdir "$WORKDIR" 2>&1 | tee "$STAGEDATA/env-down.log"
+"$CLI" down "$ENFFILE" --workdir "$WORKDIR" 2>&1 | tee "$STAGEDATA/env-down.log"
 stage_record "${PIPESTATUS[0]}"
 [ "${STAGE_RC[env-down]}" -eq 0 ] || \
     stage_set warn "down rc ${STAGE_RC[env-down]} (best effort; does not mask the run result)"
