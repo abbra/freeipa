@@ -638,7 +638,12 @@ everything on it — no ssh, no root on any host we control). Design §3.11.
   `fail` when the run step fails). After all presets the driver reparents
   each preset's `artifacts/` to `$TMT_TEST_DATA/artifacts/<key>/` and
   writes a batch-parent `results.yaml`; the guest's overall result is the
-  worst per-preset result. Host side: `testingfarm.py`
+  worst per-preset result. The driver feeds the job list to its loop from a
+  dedicated fd 3 (the child's stdin is pinned to `/dev/null`): if the list
+  lived on fd 0, each `tf-job.sh` child (and its podman/ssh/tmt subprocesses)
+  would inherit it and drain the remaining lines, so every preset after the
+  first was silently skipped while the batch still reported `passed` (caught
+  and fixed on a real request). Host side: `testingfarm.py`
   `TestingFarmRunner.run_batch()` submits the single request, waits, and
   `fetch_artifacts()` now returns a `{key: n_files}` mapping — the
   `…/data/<key>/…` subtrees (a key is any dir carrying its own
@@ -662,7 +667,13 @@ everything on it — no ssh, no root on any host we control). Design §3.11.
   deliberately `/artifacts/`-hosting data host) and the legacy path,
   `--dry-run` emitting one request with both presets, and a real 2-preset
   TF request (azure `netgroup` + `simple-replication`) that built the SRPM
-  + `freeipa-ci/full:current` once and ran both presets in the same guest.
+  + `freeipa-ci/full:current` **once**, then ran **both** presets in the
+  same guest (both `<key>/results.yaml` staged; each preset's `env-up` /
+  `test-run` / `env-down` = pass; `worst rc 0` → `overall=passed`), and
+  `tf-logs <id> --html` produced **one `results.html` per preset**. The
+  pre-fd-3 build had already built everything (one SRPM + one channel image)
+  but its "pass" was a false pass — only `azure-netgroup` ran — so the
+  two-job proof and the fd-3 fix came from re-submitting the same queue.
 
 ## Known limitations / follow-ups
 

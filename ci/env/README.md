@@ -418,6 +418,10 @@ id is the one printed in the `queue run` transcript (or from the TF API).
 `./tf-<request-id>.env`) and re-running against the same dir reuses the
 downloaded files.
 
+A batched request was validated end-to-end: the guest built the SRPM and
+channel image once, ran each queued preset in sequence, and `tf-logs --html`
+produced one `results.html` per preset alongside the batch parent.
+
 ```
 freeipa-env tf-logs <request-id>
 freeipa-env tf-logs <request-id> --category tests --category run --lines 20
