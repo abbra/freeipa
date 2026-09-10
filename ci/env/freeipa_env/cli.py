@@ -285,7 +285,7 @@ def cmd_tf_logs(args):
         stem = re.sub(r'[^A-Za-z0-9._-]+', '-', args.request_id).strip('-')
         workdir = os.path.join(os.getcwd(), f'tf-{stem}.env')
     try:
-        n = fetch_artifacts(
+        per_key = fetch_artifacts(
             args.request_id, workdir, token,
             url=args.tf_url or 'https://api.testing-farm.io',
             include_consoles=not args.no_consoles,
@@ -293,13 +293,30 @@ def cmd_tf_logs(args):
     except TfApiError as e:
         print(f'error: {e}', file=sys.stderr)
         return 1
-    if n == 0:
+    if not per_key or not any(per_key.values()):
         print(f'error: no job artifacts in request {args.request_id} '
               '(the job may have died before `down`, or has not finished)',
               file=sys.stderr)
         return 1
-    print(f'== fetched {n} artifact file(s) into {workdir}', file=sys.stderr)
-    print(f'== workdir: {workdir}', file=sys.stderr)
+    total = sum(per_key.values())
+    print(f'== fetched {total} artifact file(s) into {workdir}',
+          file=sys.stderr)
+    # A batch request (M13) fetched one subtree per preset; each preset is a
+    # reportable workdir of its own. A legacy single-job request maps the ''
+    # key to the workdir itself.
+    subdirs = []
+    for key in sorted(per_key):
+        d = workdir if key == '' else os.path.join(workdir, key)
+        if per_key[key]:
+            subdirs.append((key, d))
+    for key, d in subdirs:
+        label = f'{key}: {workdir}' if key == '' else f'{key}: {d}'
+        print(f'== workdir {label} ({per_key[key]} file(s))', file=sys.stderr)
+        print(f'   report: freeipa-env report {d} --html {d}/results.html',
+              file=sys.stderr)
+    if any(key != '' for key, _ in subdirs):
+        print(f'== batch request: one report per preset above',
+              file=sys.stderr)
 
     # reuse the `logs` parsing path exactly
     if args.pattern:
@@ -312,8 +329,13 @@ def cmd_tf_logs(args):
         args.pattern_compiled = None
     store = LogStore(workdir)
     if args.html:
-        _emit_html(store, args.html,
-                   meta={'request_id': args.request_id})
+        # A batch request yields one report per preset (per-key workdir); a
+        # legacy single-job request is one report for the workdir itself.
+        dirs = ([workdir] if not any(k for k, _ in subdirs)
+                else [d for _k, d in subdirs])
+        for d in dirs:
+            _emit_html(LogStore(d), 'auto',
+                       meta={'request_id': args.request_id})
         return 0
     cats = args.category or []
     if args.list or not cats:
@@ -435,10 +457,27 @@ def cmd_queue(args):
                 print('(testing-farm: no token configured; the request '
                       'JSON below is what would be submitted)')
             srpm = getattr(args, 'srpm', None)
-            for j in jobs:
-                print(f'\n== testing-farm request for {j.key} ==')
+            # The supervisor dequeues round-robin over the runners; a TF
+            # runner submits its whole subsequence as ONE batched request
+            # (build the SRPM/channel images once, reuse across presets).
+            # With a single TF runner that is the entire queue. Preview each
+            # TF runner's subsequence as one request (deterministic
+            # round-robin; exact for the single-runner case).
+            runner_list = list(args.runner)
+            tf_idx = [i for i, s in enumerate(runner_list)
+                      if s.strip() == 'testing-farm']
+            per_runner = {i: [] for i in tf_idx}
+            for n, j in enumerate(jobs):
+                r = n % len(runner_list)
+                if r in per_runner:
+                    per_runner[r].append(j)
+            for i in tf_idx:
+                sub = per_runner[i]
+                print(f'\n== testing-farm batch request '
+                      f'({len(sub)} job(s): '
+                      + ', '.join(j.key for j in sub) + ') ==')
                 print(json.dumps(
-                    build_tf_request(tf_cfg, j, args.job_timeout,
+                    build_tf_request(tf_cfg, sub, args.job_timeout,
                                      srpm=srpm),
                     indent=2))
         return 0
@@ -702,19 +741,21 @@ def main(argv=None):
     qrun.add_argument('queue_file', help='queue YAML (ci/queues/*.yaml)')
     qrun.add_argument('--runner', action='append', required=True,
                       metavar='RUNNER',
-                      help='runner (repeatable; one job at a time per '
-                           'runner, jobs dequeued in queue order). Spec: '
-                           'user@host[:port] = ssh runner; "local" = the '
-                           'control node (no ssh); "testing-farm" = one TF '
-                           'request per job')
+                      help='runner (repeatable; jobs dequeued in queue '
+                           'order). Spec: user@host[:port] = ssh runner '
+                           '(one job at a time); "local" = the control '
+                           'node (no ssh); "testing-farm" = the runner\'s '
+                           'whole subsequence becomes ONE TF request (build '
+                           'the SRPM/channel images once, reuse across '
+                           'presets)')
     qrun.add_argument('--jobs', action='append', metavar='NAME',
                       help='substring filter on the job key (repeatable)')
     qrun.add_argument('--limit', type=int, default=None,
                       help='run at most N jobs')
     qrun.add_argument('--dry-run', action='store_true',
                       help='print the planned queue (and, for the '
-                           'testing-farm runner, the request JSON per job) '
-                           'and exit')
+                           'testing-farm runner, the batched request JSON '
+                           'for each runner\'s subsequence) and exit')
     qrun.add_argument('--keep-on-failure', action='store_true',
                       help='skip `down` when a job fails (env stays on the '
                            'runner for triage)')

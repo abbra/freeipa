@@ -1,10 +1,11 @@
 # Staged-results machinery for the freeipa-env tmt test.
 #
-# Sourced by tf-runner.sh (and by the local tmt smoke test). The caller must
-# define WORKDIR before sourcing; the machinery then records each stage of
-# the job (console tee'd live to <stage>.log under STAGEDATA) and writes
-# $TMT_TEST_DATA/results.yaml, which tmt (1.77+, `result: custom` in
-# main.fmf) turns into per-stage testcases with downloadable logs.
+# Sourced by tf-runner.sh (the batch driver) and tf-job.sh (the per-preset
+# child), and by the local tmt smoke test. The caller must define WORKDIR
+# before sourcing; the machinery then records each stage (console tee'd live
+# to <stage>.log under STAGEDATA) and writes RESULTS_FILE, which tmt (1.77+,
+# `result: custom` in main.fmf) turns into per-stage testcases with
+# downloadable logs.
 #
 # Schema notes (tmt/schemas/results.yaml, verified against tmt 1.77.0):
 #  - note entries must be YAML-quoted strings (an unquoted colon makes
@@ -16,13 +17,16 @@
 
 : "${WORKDIR:?stage-lib.sh: WORKDIR must be set before sourcing}"
 
-# Stage logs, results.yaml and the job artifacts live under $TMT_TEST_DATA,
-# the directory tmt uploads with the workdir. Outside tmt (local debugging)
-# fall back to a workdir-local dir; the flow still runs, tmt just gets no
-# custom results.
-STAGEDATA="${TMT_TEST_DATA:-$WORKDIR/tmt-stage}"
+# STAGEDATA: where the stage logs + collected artifacts live. The driver uses
+# the tmt test data dir (uploaded by tmt); a per-job child points this at a
+# per-key subdir so its live logs never collide with the driver's or with
+# another job's. Outside tmt (local debugging) fall back to a workdir-local
+# dir; the flow still runs, tmt just gets no custom results.
+STAGEDATA="${STAGE_DATA_DIR:-${TMT_TEST_DATA:-$WORKDIR/tmt-stage}}"
 mkdir -p "$STAGEDATA"
-RESULTS_FILE="$STAGEDATA/results.yaml"
+# RESULTS_FILE: under tmt it sits in the data dir (STAGEDATA); outside tmt,
+# beside the stage logs. A caller may pin an explicit path.
+RESULTS_FILE="${RESULTS_FILE:-$STAGEDATA/results.yaml}"
 
 declare -A STAGE_RC STAGE_RES STAGE_START STAGE_END STAGE_NOTE
 STAGE_SEEN=""                       # space-separated started stage names

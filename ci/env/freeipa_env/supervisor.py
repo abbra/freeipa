@@ -4,7 +4,9 @@ A *runner* is a host that can execute jobs (``podman`` + systemd plus a
 copy of the repo's ``ci/`` tree). Three transports (runner.py):
 ``user@host[:port]`` (ssh, pre-allocated), ``local`` (the control node),
 and ``testing-farm`` (one TF API request per job; the guest runs the
-tmt plan in ``ci/tmt``).
+testing-farm: a runner's whole job subsequence becomes ONE TF request,
+the guest builds the SRPM + channel images once and runs every preset
+in the batch through the tmt plan in ``ci/tmt``).
 
 The supervisor:
 
@@ -236,6 +238,25 @@ class Supervisor:
         return self._summary()
 
     def _worker(self, r):
+        # A Testing Farm runner submits its WHOLE remaining subsequence as
+        # ONE request (build the SRPM + channel images once, reuse them
+        # across the batch's presets); host runners dequeue one job at a
+        # time.
+        if r.kind == 'testing-farm':
+            with self._lock:
+                if self._idx >= len(self._jobs):
+                    return
+                start = self._idx
+                batch = self._jobs[start:]
+                self._idx = len(self._jobs)
+            self._log(f'[{r.spec}] START batch of {len(batch)} job(s) '
+                      f'({start + 1}..{len(self._jobs)}): '
+                      + ', '.join(j.key for j in batch))
+            results = r.run_batch(batch, self.remote_ci, self.jobs_dir,
+                                  self.job_timeout, self.keep_on_failure)
+            for i, (job, res) in enumerate(zip(batch, results), start):
+                self._emit(r, i, job, res)
+            return
         while True:
             with self._lock:
                 if self._idx >= len(self._jobs):
@@ -247,16 +268,21 @@ class Supervisor:
                       f'{job.key} ({job.preset_rel})')
             res = r.run_job(job, self.remote_ci, self.jobs_dir,
                             self.job_timeout, self.keep_on_failure)
-            tpath = os.path.join(
-                self.outdir, 'transcripts',
-                f'{job.key}.{r.spec.replace("@", "_").replace(".", "_")}.log')
-            with open(tpath, 'w') as f:
-                f.write('\n'.join(res['lines']) + '\n')
-            self._log(f'[{r.spec}] {res["status"].upper()} {job.key} in '
-                      f'{_fmt_dur(res["duration"])} '
-                      f'(workdir {res["workdir"]})')
-            with self._lock:
-                self._results.append((i, job, r.spec, res))
+            self._emit(r, i, job, res)
+
+    def _emit(self, r, i, job, res):
+        """Write one job's transcript + summary row (transcripts keep the
+        per-job key so a TF batch still yields one transcript per preset)."""
+        tpath = os.path.join(
+            self.outdir, 'transcripts',
+            f'{job.key}.{r.spec.replace("@", "_").replace(".", "_")}.log')
+        with open(tpath, 'w') as f:
+            f.write('\n'.join(res['lines']) + '\n')
+        self._log(f'[{r.spec}] {res["status"].upper()} {job.key} in '
+                  f'{_fmt_dur(res["duration"])} '
+                  f'(workdir {res["workdir"]})')
+        with self._lock:
+            self._results.append((i, job, r.spec, res))
 
     # -- reporting ----------------------------------------------------
     def _summary(self):

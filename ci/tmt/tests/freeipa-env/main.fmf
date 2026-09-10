@@ -3,9 +3,10 @@ description: |
     Runs on a Testing Farm guest. The plan's prepare step installs the
     BuildRequires of freeipa.spec.in, so when no SRPM URL is supplied the
     test builds freeipa's SRPM directly on the guest from the checked-out
-    repo, bakes the preset's channel image from it, and then drives the same
-    freeipa-env up/run/down flow a local or ssh queue job would. Exits with
-    the run step's status.
+    repo, bakes the batch's channel images from it ONCE, and then runs every
+    preset in the batch (FREEIPA_JOBS) through the same freeipa-env
+    up/run/down flow a local or ssh queue job would, reusing the SRPM and
+    channel images across presets. Exits with the worst per-job run status.
 test: bash $TMT_TREE/ci/tmt/tests/freeipa-env/tf-runner.sh
-duration: 6h
+duration: 12h
 result: custom

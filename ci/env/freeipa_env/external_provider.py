@@ -17,6 +17,7 @@ import os
 import shlex
 import socket
 import subprocess
+import tarfile
 
 CHECK_PORTS = [22, 53, 88, 389, 636]
 
@@ -194,6 +195,39 @@ class ExternalProvider:
                     print(f'   {h.name}: log collection skipped ({e})')
                     if os.path.exists(tmp):
                         os.unlink(tmp)
+            # the framework collects every host's per-test logs into the
+            # controller's $IPA_TESTS_LOGSDIR (=/root/ipa-env/logs); fetch
+            # that tree once from the master so the `per-test` category and
+            # the HTML report can surface it (the daemon tarballs above do
+            # not include it).
+            ctrl = self.spec.master
+            host_dir = os.path.join(dest, ctrl.name)
+            os.makedirs(host_dir, exist_ok=True)
+            tree = os.path.join(host_dir, 'ipa-env')
+            tmp = tree + '.partial'
+            try:
+                cmd = self._ssh_args(ctrl) + ['-T',
+                    'tar --ignore-failed-read -czf - -C /root ipa-env '
+                    '2>/dev/null']
+                with open(tmp, 'wb') as f:
+                    subprocess.run(cmd, stdout=f,
+                                   stderr=subprocess.DEVNULL, timeout=600)
+                if os.path.getsize(tmp) > 0:
+                    with tarfile.open(tmp, 'r:gz') as tf:
+                        try:
+                            tf.extractall(host_dir, filter='data')
+                        except TypeError:      # older python, no filter kw
+                            tf.extractall(host_dir)
+                    print(f'== {ctrl.name}: per-test framework logs -> {tree}')
+                else:
+                    print(f'   {ctrl.name}: no per-test framework logs '
+                          f'(/root/ipa-env absent or empty)')
+            except (ExternalError, subprocess.TimeoutExpired, OSError,
+                    tarfile.TarError) as e:
+                print(f'   {ctrl.name}: per-test log fetch skipped ({e})')
+            finally:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
         print(f'== environment {self.spec.name}: logs collected, '
               f'hosts left running (external)')
 

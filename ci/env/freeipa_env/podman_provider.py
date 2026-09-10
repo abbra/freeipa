@@ -534,26 +534,32 @@ class PodmanProvider:
                 pass
             # daemon logs: Azure-parity tarball
             self._exec_rc(name, self._DAEMON_LOG_TAR.format(n=h.name))
-            if self._exec_rc(name, f'[ -s /tmp/{h.name}-logs.tar.gz ]'):
-                continue
-            try:
-                self._podman(
-                    ['cp', f'{name}:/tmp/{h.name}-logs.tar.gz',
-                     os.path.join(host_dir, f'{h.name}-logs.tar.gz')],
-                    check=False, echo=False)
-            except PodmanError:
-                pass
-            # framework per-test logs + workflow tarballs (run-base-tests.sh)
-            for path, dst in [('/root/ipa-env', 'ipa-env'),
-                              ('/root/nosetests.xml', 'nosetests.xml')]:
-                if self._exec_rc(name, f'[ -e {path} ]'):
-                    continue
+            if self._exec_rc(name, f'[ -s /tmp/{h.name}-logs.tar.gz ]') == 0:
                 try:
-                    self._podman(['cp', f'{name}:{path}',
-                                  os.path.join(host_dir, dst)],
-                                 check=False, echo=False)
+                    self._podman(
+                        ['cp', f'{name}:/tmp/{h.name}-logs.tar.gz',
+                         os.path.join(host_dir, f'{h.name}-logs.tar.gz')],
+                        check=False, echo=False)
                 except PodmanError:
                     pass
+            # the workflow tarballs (run-base-tests.sh) are written by the
+            # controller host only; the per-test framework tree lives in
+            # /root/ipa-env/logs, fetched once after the loop from the master
+            # (it is present on the other hosts only as a shared volume).
+
+        master = self.spec.master
+        if master and not master.is_external:
+            mname = self.spec.container_name(master)
+            if self._exec_rc(mname, '[ -d /root/ipa-env ]') == 0:
+                self._podman(
+                    ['cp', f'{mname}:/root/ipa-env',
+                     os.path.join(dest, master.name, 'ipa-env')],
+                    check=False, echo=False)
+            if self._exec_rc(mname, '[ -e /root/nosetests.xml ]') == 0:
+                self._podman(
+                    ['cp', f'{mname}:/root/nosetests.xml',
+                     os.path.join(dest, master.name, 'nosetests.xml')],
+                    check=False, echo=False)
 
     # ------------------------------------------------------------------ run
     def copy_to_controller(self, local, remote):

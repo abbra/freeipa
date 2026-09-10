@@ -20,6 +20,9 @@ Categories (each carries a default line filter, overridable with
 --pattern):
 
     tests      JUnit: totals + failed tests grouped by module
+    per-test   framework per-test logs: install+uninstall logs + journal
+               collected per test (one dir per test nodeid under
+               collected/<master>/ipa-env/logs)
     run        streamed install/test/uninstall console
     install    ipaserver-install.log
     uninstall  ipaserver-uninstall.log
@@ -74,7 +77,7 @@ _EXCLUDE_PREFIXES = (
 class Category:
     def __init__(self, name, desc, prefixes=(), filere=None, match='',
                  journal=False, console=False, xunit=False,
-                 case_sensitive=True, workflow=False):
+                 case_sensitive=True, workflow=False, ptest=False):
         self.name = name
         self.desc = desc
         self.prefixes = prefixes          # coarse relpath prefixes
@@ -84,6 +87,7 @@ class Category:
         self.journal = journal
         self.console = console
         self.xunit = xunit
+        self.ptest = ptest                 # per-test framework log tree
         # workflow: also (and primarily) search the run-base-tests.sh
         # workflow tarballs, de-duplicating identical snapshots by content
         self.workflow = workflow
@@ -92,6 +96,13 @@ class Category:
 CATEGORIES = [
     Category('tests', 'JUnit report: failed/errored tests, grouped by module',
              xunit=True),
+    Category('per-test',
+             'framework per-test logs: install+uninstall logs + journal '
+             'collected per test into ipa-env/logs',
+             match=r'(?i)(\b(ERROR|CRITICAL|FATAL|SEVERE)\b|Traceback'
+                   r'|\bException\b|- (ERR|CRIT|FATAL) -|\[error\]|\[crit\]'
+                   r'|Failed to )',
+             ptest=True),
     Category('run', 'Run console: streamed install/test/uninstall output',
              console=True,
              match=r'(FAILED|Traceback|exit code|'
@@ -181,6 +192,59 @@ class LogStore:
                                       'nosetests.xml'))
         cands = [c for c in cands if os.path.isfile(c)]
         return self._dedupe_by_content(cands)
+
+    # ------------------------------------------------------- per-test framework logs
+    def ptest_base(self, host):
+        """The framework's per-test log tree for a host: the run's
+        ``--logfile-dir`` (/root/ipa-env/logs), fetched from the controller
+        at ``down``. One sub-dir per test nodeid (+ ``-install`` /
+        ``-uninstall``), each holding a per-host dir of collected logs."""
+        return os.path.join(self.collected, host, 'ipa-env', 'logs')
+
+    def ptest_groups(self):
+        """Group the per-test dirs by logical test.
+
+        Returns ``{testname: [entry, ...]}`` where ``testname`` is the
+        framework's mangled nodeid (the ``-install`` / ``-uninstall``
+        suffix stripped) and each entry is a dict with ``host``, ``phase``
+        ('' / 'install' / 'uninstall'), ``dir`` and ``path``.
+        """
+        groups = {}
+        for h in self.hosts:
+            base = self.ptest_base(h)
+            if not os.path.isdir(base):
+                continue
+            for d in os.listdir(base):
+                dp = os.path.join(base, d)
+                if not os.path.isdir(dp):
+                    continue
+                if d.endswith('-install'):
+                    test, phase = d[:-len('-install')], 'install'
+                elif d.endswith('-uninstall'):
+                    test, phase = d[:-len('-uninstall')], 'uninstall'
+                else:
+                    test, phase = d, ''
+                groups.setdefault(test, []).append(
+                    {'host': h, 'phase': phase, 'dir': d, 'path': dp})
+        return groups
+
+    def ptest_tests(self):
+        """Logical per-test names (mangled nodeid), sorted."""
+        return sorted(self.ptest_groups())
+
+    def ptest_entry_files(self, entry):
+        """The collected log files under one per-test/host dir (flat walk;
+        the top-level ``journal`` plus the nested ``var/log/...`` files),
+        sorted by path for stable output."""
+        path = entry['path']
+        out = []
+        for root, _dirs, names in os.walk(path):
+            for n in sorted(names):
+                if n.endswith(('.tar', '.tar.xz', '.tgz', '.gz',
+                               '.tar.bz2', '.xz')):
+                    continue
+                out.append(os.path.join(root, n))
+        return sorted(out)
 
     def journal_paths(self, host):
         """Prefers the journal fetched at collection time; falls back to
@@ -280,6 +344,10 @@ class LogStore:
     def category_files(self, cat, host):
         """Source files for one host (shared sources like run.log are
         returned as-is; callers use category_sources for the full list)."""
+        if cat.ptest:
+            # per-test logs are walked per test (ptest_entry_files), not as
+            # a flat file set
+            return []
         if cat.xunit:
             return self.xunit_paths()
         if cat.journal:
@@ -325,6 +393,8 @@ class LogStore:
     def category_sources(self, cat, hosts=None):
         """All source files of a category, de-duplicated."""
         hosts = hosts or self.hosts
+        if cat.ptest:
+            return []
         if cat.xunit:
             return self.xunit_paths()
         if cat.console:
@@ -517,6 +587,56 @@ def overall_status(store, stages):
         return 'pass', f'{tests} test(s) passed'
     return 'unknown', 'no results.yaml and no xunit report'
 
+# worst-status precedence for the per-test -> xunit join
+_PTEST_RANK = {'fail': 3, 'error': 3, 'skipped': 2, 'pass': 1}
+
+
+def ptest_status(testname, tcs):
+    """Join a per-test dir name to its xunit status.
+
+    ``testname`` is the framework's mangled nodeid (the ``-install`` /
+    ``-uninstall`` suffix, if any, is stripped here); its last two
+    ``-``-separated tokens are the (class or module) short name and the
+    method name. For a module-level (function) test the class token is the
+    ``module.py`` file name, so a trailing ``.py`` is dropped before
+    comparing against the xunit classname's last token.
+    ``tcs`` is the ``xunit_testcases`` list; the worst status across the
+    matching row(s) is returned, or ``'?'`` when nothing matches (the xunit
+    may be absent, or the test deselected/parameterized so the name shifts).
+    """
+    base = testname
+    for suf in ('-install', '-uninstall'):
+        if base.endswith(suf):
+            base = base[:-len(suf)]
+    parts = base.split('-')
+    if len(parts) < 2:
+        return '?'
+    cls, name = parts[-2], parts[-1]
+    if cls.endswith('.py'):
+        cls = cls[:-3]
+    worst = 0
+    for tc in tcs:
+        if tc['name'] != name or tc['classname'].split('.')[-1] != cls:
+            continue
+        worst = max(worst, _PTEST_RANK.get(tc['status'], 0))
+    for s, r in _PTEST_RANK.items():
+        if r == worst:
+            return s
+    return '?'
+
+
+def ptest_stats(store, cat):
+    """(file count, matched-line count) across every per-test log file."""
+    sources = matched = 0
+    groups = store.ptest_groups()
+    for test in groups:
+        for e in groups[test]:
+            for f in store.ptest_entry_files(e):
+                sources += 1
+                _t, m, _x = scan_file(f, cat.match)
+                matched += len(m)
+    return sources, matched
+
 # ---------------------------------------------------------------------------
 # rendering
 # ---------------------------------------------------------------------------
@@ -565,6 +685,8 @@ def render_list(store):
         sources, matched = 0, 0
         if cat.xunit:
             sources, matched = len(xpaths), xunit_failures
+        elif cat.ptest:
+            sources, matched = ptest_stats(store, cat)
         else:
             for f in store.category_sources(cat):
                 sources += 1
@@ -600,6 +722,12 @@ def render_json(store):
         if cat.xunit:
             matched = sum(x.get('failures', 0) + x.get('errors', 0)
                           for x in data['xunit'] if isinstance(x, dict))
+        elif cat.ptest:
+            sources, matched = ptest_stats(store, cat)
+            data['categories'][cat.name] = {
+                'sources': sources, 'matched': matched,
+                'tests': len(store.ptest_tests()), 'desc': cat.desc}
+            continue
         else:
             for f in store.category_sources(cat):
                 _total, m, _t = scan_file(f, cat.match)
@@ -723,6 +851,49 @@ def _show_file_category(store, cat, args):
             _show_file(store, f, cat, args, root)
 
 
+def _ptest_rows(store):
+    """The xunit rows (content-deduped files) used for the status join."""
+    tcs = []
+    for xp in store.xunit_paths():
+        try:
+            tcs.extend(xunit_testcases(xp))
+        except (ET.ParseError, OSError):
+            continue
+    return tcs
+
+
+def _show_ptest(store, cat, args):
+    print(f'== category: per-test — {cat.desc}')
+    groups = store.ptest_groups()
+    if not groups:
+        print('  no per-test framework logs collected')
+        return
+    tcs = _ptest_rows(store)
+    host_filter = args.host
+    if host_filter and host_filter not in store.hosts:
+        print(f'  unknown host {host_filter!r} '
+              f'(available: {", ".join(store.hosts)})')
+        return
+    for test in sorted(groups):
+        entries = groups[test]
+        if host_filter:
+            entries = [e for e in entries if e['host'] == host_filter]
+            if not entries:
+                continue
+        status = ptest_status(test, tcs)
+        tag = f' [{status}]' if status != '?' else ''
+        print(f'  {test}{tag}')
+        for e in entries:
+            ph = f' ({e["phase"]})' if e['phase'] else ''
+            print(f'    host {e["host"]}{ph}:')
+            files = store.ptest_entry_files(e)
+            if not files:
+                print('      (no files)')
+                continue
+            for f in files:
+                _show_file(store, f, cat, args, e['path'])
+
+
 def show_categories(store, catnames, args):
     names = CATEGORY_NAMES
     for name in catnames:
@@ -736,6 +907,8 @@ def show_categories(store, catnames, args):
         for cat in cats:
             if cat.xunit:
                 _show_xunit(store, cat, args)
+            elif cat.ptest:
+                _show_ptest(store, cat, args)
             else:
                 _show_file_category(store, cat, args)
             print()

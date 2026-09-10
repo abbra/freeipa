@@ -598,11 +598,71 @@ everything on it — no ssh, no root on any host we control). Design §3.11.
   + `load_results()` + `overall_status()`; `testingfarm.py` fetches
   `results.yaml`; `cli.py` gained the `report` subcommand + `--html` on
   `logs`/`tf-logs`. Deliberately coarser than PRCI's in-image pytest-html
-  report (no per-test captured stdout, and the framework `--logfile-dir`
-  per-test logs are not surfaced — see the report footer). Verified on TF
+  report (no per-test captured stdout, which still needs pytest-html in
+  the image; the framework `--logfile-dir` per-test logs are surfaced by
+  M12 below). Verified on TF
   request `42e4c6a3`: 5/5 tests pass, 528.9s, 3 hosts, 6 stage rows, and a
   synthetic fail/error/skip xunit renders the detail rows + overall `fail`;
   the terminal `logs`/`--json`/`--category` output is unchanged.
+
+- [x] M12: collect and surface the framework's per-test log trees (2026-09-10):
+  every `down`/`collect_logs` now fetches the controller's
+  `ipa-env/logs` tree (the framework's `--logfile-dir`, one dir per test
+  nodeid, each with a per-host install/uninstall log + journal) into
+  `<workdir>/logs/collected/<master>/ipa-env/logs`. `freeipa_env/loganalyze.py`
+  gained a `per-test` category + `LogStore.ptest_*()` discovery + a
+  `ptest_status()` xunit join (mangled nodeid -> (class, method), worst
+  status across the match, `?` when unmatched) and a `_show_ptest` terminal
+  renderer; `htmlreport.py` gained a `Per-test logs` section (one collapsed
+  block per test with an xunit-status badge and per-host/phase matched lines).
+  The M11 report footer note that per-test logs were "not surfaced" is now
+  retired. Provider work: `podman_provider.py` `collect_logs` copies the
+  `ipa-env` tree from the controller only (decoupled from the daemon-tarball
+  guard), and `external_provider.py` `down` gained a `run`-style fetch of the
+  same tree. No image change; local/ssh/TF alike, and retroactive for an
+  already-fetched workdir that carries the tree.
+
+- [x] M13: batch the queue into one Testing Farm request per runner
+  subsequence (2026-09-10): instead of one TF request per job, a single
+  guest provisions once, builds the SRPM + every needed channel image
+  **once**, and runs N presets in sequence, reusing the baked channel
+  images for every later preset. The host sends one request whose
+  `FREEIPA_JOBS` variable is a JSON list of `{key, preset_rel}` (plus
+  `FREEIPA_WORKDIR_BASE=~/freeipa-jobs` and `FREEIPA_JOB_TIMEOUT`); the
+  on-guest driver (`tf-runner.sh`) parses it, collects the union of the
+  presets' channels, builds the SRPM (clone `FREEIPA_REPO_URL`/`REF` when
+  no `FREEIPA_SRPM_URL`) and each missing channel image once, then loops
+  a new per-preset child `tf-job.sh` (a fresh shell per preset: its own
+  `up`/`run`/`down`, `STAGE_DATA_DIR=$TMT_TEST_DATA/<key>`, its own
+  `<key>/results.yaml`, and `RUN_RC` flips the parent `/` result to
+  `fail` when the run step fails). After all presets the driver reparents
+  each preset's `artifacts/` to `$TMT_TEST_DATA/artifacts/<key>/` and
+  writes a batch-parent `results.yaml`; the guest's overall result is the
+  worst per-preset result. Host side: `testingfarm.py`
+  `TestingFarmRunner.run_batch()` submits the single request, waits, and
+  `fetch_artifacts()` now returns a `{key: n_files}` mapping — the
+  `…/data/<key>/…` subtrees (a key is any dir carrying its own
+  `<key>/results.yaml`) land in per-preset workdirs
+  `<base>/<key>/{logs,results.yaml,stages}`, the parent/legacy layout
+  maps to the base root, and artifacts resolve under
+  `<wd>/<key>/logs/<rel>`. `supervisor.py` `_worker` hands the whole
+  remaining TF subsequence to `run_batch` (ssh/local runners still run
+  one at a time); each preset is graded from its **own** `results.yaml`
+  via the existing `load_results`/`overall_status` and gets its own
+  `results.html`. `cli.py` `--dry-run` prints the single batched request
+  per TF runner subsequence, and `tf-logs <id>` / `--html` handle the
+  per-key mapping (one report per preset). A `fetch_artifacts`
+  discriminator fix (`_TMT_DATA_RE`) routes the artifact *host* URLs that
+  literally contain `/artifacts/` (the `…/testing-farm/logs/…/data/`
+  prefix) away from the data-dir / artifact-file branches — previously a
+  data-dir href was misread as an artifact file and aborted the fetch.
+  The test `duration` is raised 6h → 12h (one build + several runs).
+  Verified: `py_compile` + `bash -n` clean, a 30/30 offline fixture of
+  `TestingFarmClient`/`urlopen` covering the batched XML mapping (with a
+  deliberately `/artifacts/`-hosting data host) and the legacy path,
+  `--dry-run` emitting one request with both presets, and a real 2-preset
+  TF request (azure `netgroup` + `simple-replication`) that built the SRPM
+  + `freeipa-ci/full:current` once and ran both presets in the same guest.
 
 ## Known limitations / follow-ups
 

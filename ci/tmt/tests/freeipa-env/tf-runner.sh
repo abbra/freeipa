@@ -1,60 +1,72 @@
 #!/bin/bash
-# Run a FreeIPA env queue job on a Testing Farm guest.
+# Run a FreeIPA env queue BATCH on a Testing Farm guest (one TF request).
 #
 # Invoked by the tmt test (ci/tmt/tests/freeipa-env/main.fmf). The plan's
 # prepare step (how: install) has already placed podman, curl and every
 # BuildRequires of freeipa.spec.in on the guest, so the SRPM can be produced
-# here without any pre-supplied artifact. The request variables (see
-# freeipa_env.testingfarm.build_tf_request) carry FREEIPA_REPO_URL/REF: TF's
-# pipeline syncs the fmf tree (TMT_TREE) to the guest as a plain file copy
-# (no .git, no submodule contents), so the full flow clones the repo itself
-# on the guest. The guest runs as root, so this script:
-#   1. obtains the preset's channel image (freshness-checked, like the
-#      supervisor's remote build):
-#        * if FREEIPA_SRPM_URL is set -> download that SRPM;
-#        * otherwise (full flow)      -> build freeipa's SRPM ON THE GUEST
-#          from the repo it cloned (FREEIPA_REPO_URL@FREEIPA_REPO_REF),
-#      then bake the channel image from it (ci/images/build.sh --srpm);
-#   2. drives the same `freeipa-env` up -> run -> down recipe a local or ssh
-#      runner would, and exits with the `run` step's status.
+# here without any pre-supplied artifact.
 #
-# The test is declared `result: custom` in main.fmf: tmt (1.77+) then takes
-# the outcome from $TMT_TEST_DATA/results.yaml instead of the exit code.
-# The staged machinery in stage-lib.sh (same directory) records each stage
-# (srpm-build, image-build, env-up, test-run, env-down) with its own live
-# log, and after the recipe the job workdir artifacts (run console, xunit
-# report, collected host logs) are copied to $TMT_TEST_DATA/artifacts/.
-# Testing Farm uploads the whole tmt workdir, so every stage shows up in
-# results.xml as its own testcase with a downloadable log, and the job
-# artifacts are downloadable under .../data/artifacts/.
+# A request carries a LIST of queue jobs (FREEIPA_JOBS, a JSON array) that all
+# run in this one guest. The point: build freeipa's SRPM and the channel
+# images ONCE and reuse them across every preset in the batch, instead of the
+# old one-request-per-job model that rebuilt them for each job.
+#
+# Flow:
+#   1. parse FREEIPA_JOBS -> the list of (key, preset) jobs;
+#   2. obtain the SRPM (download FREEIPA_SRPM_URL, or build it ON the guest
+#      from the repo it cloned -- TF syncs the fmf tree as a plain file copy
+#      with no .git/submodules, so the guest clones itself when
+#      FREEIPA_REPO_URL is set). Needed only if a channel image is missing;
+#   3. build the union of the batch's channel images, each freshness-checked
+#      (a present freeipa-ci/full:<channel> is left untouched);
+#   4. run each preset's up -> run -> down recipe via tf-job.sh, which stages
+#      its own per-preset results.yaml + artifacts under the test data dir;
+#   5. reparent each preset's collected artifacts into artifacts/<key>/ so the
+#      host maps each preset back to its own local workdir.
+#
+# The test is declared `result: custom` in main.fmf: tmt (1.77+) takes the
+# outcome from $TMT_TEST_DATA/results.yaml (the batch parent) plus each
+# preset's $TMT_TEST_DATA/<key>/results.yaml (its own stages). The staged
+# machinery in stage-lib.sh records the stages with live logs; TF uploads the
+# whole tmt workdir, so every stage and artifact shows up in results.xml.
 #
 set -uo pipefail
-
-: "${FREEIPA_PRESET:?FREEIPA_PRESET is required (the preset, relative to ci/env)}"
 
 TREE="${TMT_TREE:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 CI="$TREE/ci"
 CLI="$CI/env/freeipa-env"
-ENFFILE="$CI/env/$FREEIPA_PRESET"
-JOBKEY="${FREEIPA_JOB_KEY:-$(printf '%s' "$FREEIPA_PRESET" | tr '/' '-')}"
-# the request passes a runner-style ~/... path; expand it against the guest
-# (root) home, with a default mirroring the supervisor's jobs dir.
-WORKDIR="${FREEIPA_WORKDIR:-~/freeipa-jobs/$JOBKEY}"
-WORKDIR="${WORKDIR/#\~/$HOME}"
-TIMEOUT="${FREEIPA_JOB_TIMEOUT:-14400}"
-SRPM_URL="${FREEIPA_SRPM_URL:-}"
-CHANNEL="${FREEIPA_CHANNEL:-}"
-REPO_URL="${FREEIPA_REPO_URL:-}"
-REPO_REF="${FREEIPA_REPO_REF:-HEAD}"
 
-# staged results machinery (logs under $TMT_TEST_DATA + results.yaml +
-# EXIT-trap fallback that still writes results on early death)
+# --- the batch: a JSON array of {key, preset_rel} (from build_tf_request) ---
+# Backward compat: a request with the old single-preset vars (no FREEIPA_JOBS)
+# becomes a one-job batch.
+if [ -z "${FREEIPA_JOBS:-}" ]; then
+    : "${FREEIPA_PRESET:?FREEIPA_PRESET or FREEIPA_JOBS is required}"
+    LEGACY_KEY="${FREEIPA_JOB_KEY:-$(printf '%s' "$FREEIPA_PRESET" | tr '/' '-')}"
+    FREEIPA_JOBS="$(printf '[{"key": "%s", "preset_rel": "%s"}]' \
+        "$LEGACY_KEY" "$FREEIPA_PRESET")"
+fi
+export FREEIPA_JOBS
+
+# Parse the job list into "key<TAB>preset" lines (tab- and newline-free fields).
+command -v python3 >/dev/null 2>&1 \
+    || { echo "FATAL: python3 not found on the guest" >&2; exit 1; }
+JOB_LINES="$(python3 - "$FREEIPA_JOBS" <<'PY'
+import json, sys
+jobs = json.loads(sys.argv[1])
+for j in jobs:
+    key, preset = j['key'], j['preset_rel']
+    for bad in ('\t', '\n'):
+        key = key.replace(bad, '_')
+        preset = preset.replace(bad, ' ')
+    print(f'{key}\t{preset}')
+PY
+)" || die "could not parse FREEIPA_JOBS: $FREEIPA_JOBS"
+[ -n "$JOB_LINES" ] || die "FREEIPA_JOBS parsed to an empty job list"
+
+# staged results machinery (driver namespace: the tmt test data dir). The
+# driver's own results.yaml is the batch parent; each preset child writes its
+# own under <key>/ (see tf-job.sh).
 source "$CI/tmt/tests/freeipa-env/stage-lib.sh"
-
-echo "== tf-runner: preset=$FREEIPA_PRESET workdir=$WORKDIR timeout=${TIMEOUT}s srpm=${SRPM_URL:-<none>}"
-echo "== tf-runner: staged results -> $STAGEDATA"
-
-[ -f "$ENFFILE" ] || die "preset not found: $ENFFILE (FREEIPA_PRESET=$FREEIPA_PRESET)"
 
 # podman is installed by the plan's prepare step; keep a guard so a missing
 # tool fails with a clear message instead of a cryptic `podman` not found.
@@ -63,41 +75,55 @@ echo "podman: $(podman --version 2>/dev/null | head -1)"
 [ -d /run/systemd/system ] && echo "systemd: running" \
     || echo "WARN: systemd not detected; the podman provider may time out waiting for multi-user.target"
 
-# --- resolve the channel + dist the preset needs -----------------------------
-# The channel image tag (freeipa-ci/full:<channel>) is what the preset's
-# `image: freeipa-<channel>` reference resolves to. Only the three abstract
-# channels are buildable (see freeipa_env.image.is_channel); a concrete image
-# reference or a missing line skips the build and lets `up`/`resolve` report
-# the usual "image not found; build it" error.
-if [ -z "$CHANNEL" ]; then
-    image="$(sed -nE 's/^image:[[:space:]]*//p' "$ENFFILE" | head -n1 | tr -d '[:space:]"' )"
-    case "$image" in
-        freeipa-current|freeipa-next|freeipa-previous) CHANNEL="${image#freeipa-}" ;;
-        '') echo "WARN: preset has no `image:` line; skipping the channel-image build" ;;
-        *) echo "WARN: preset image '$image' is not a known freeipa-* channel; skipping the channel-image build" ;;
+SRPM_URL="${FREEIPA_SRPM_URL:-}"
+REPO_URL="${FREEIPA_REPO_URL:-}"
+REPO_REF="${FREEIPA_REPO_REF:-HEAD}"
+GLOBAL_CHANNEL="${FREEIPA_CHANNEL:-}"
+BATCH_HOME="$HOME/freeipa-jobs"
+SRPM_DIR="$BATCH_HOME/batch-srpm"
+
+echo "== tf-runner: batch of $(printf '%s\n' "$JOB_LINES" | grep -c .) job(s); staged results -> $STAGEDATA"
+
+# --- collect the batch's channel images (union across presets) --------------
+# Only the three abstract channels are buildable (freeipa_env.image.is_channel);
+# a concrete image reference or missing `image:` line skips the build and lets
+# `up`/`resolve` report the usual "image not found; build it" error. The
+# queue-level FREEIPA_CHANNEL overrides the per-preset channel for every job.
+CHANNELS=""
+add_channel() {
+    case " $CHANNELS " in
+        *" $1 "*) ;;
+        *) CHANNELS="${CHANNELS:+$CHANNELS }$1" ;;
     esac
-fi
-DIST="$(sed -nE 's/^dist:[[:space:]]*//p' "$ENFFILE" | head -n1 | tr -d '[:space:]"' )"
-[ -n "$DIST" ] || DIST=44
+}
+while IFS=$'\t' read -r JK JPRESET; do
+    [ -n "$JPRESET" ] || continue
+    [ -f "$CI/env/$JPRESET" ] || die "preset not found: $CI/env/$JPRESET"
+    if [ -n "$GLOBAL_CHANNEL" ]; then
+        add_channel "$GLOBAL_CHANNEL"
+    else
+        image="$(sed -nE 's/^image:[[:space:]]*//p' "$CI/env/$JPRESET" | head -n1 | tr -d '[:space:]"' )"
+        case "$image" in
+            freeipa-current|freeipa-next|freeipa-previous) add_channel "${image#freeipa-}" ;;
+        esac
+    fi
+done <<EOF
+$JOB_LINES
+EOF
 
 # build_srpm_from_clone OUT_DIR
 #   Build freeipa's SRPM DIRECTLY ON THE GUEST. The plan's prepare step
 #   already installed the whole BuildRequires set + toolchain, so no build
 #   image is needed. Mirrors makerpms.sh (autoreconf + configure with the
 #   spec's rpm-equivalent flags) but only produces the SRPM (make srpms, no
-#   binaries, no %check).
-#
-#   Source: TF's pipeline syncs the fmf tree (TMT_TREE) to the guest as a
-#   plain file copy -- no .git, and no submodule contents either (the
-#   install/freeipa-webui submodule feeds the dist tarball) -- so it cannot
-#   be built from. When FREEIPA_REPO_URL is set, the guest clones the repo
-#   itself (git clone --recursive + checkout of FREEIPA_REPO_REF); otherwise
-#   TMT_TREE is used, but only if it is a real clone.
-#   (Runs in the stage_run subshell: cd/exit stay contained.)
+#   binaries, no %check). TF's pipeline syncs the fmf tree as a plain file
+#   copy (no .git, no submodule contents), so the guest clones the repo
+#   itself when FREEIPA_REPO_URL is set; otherwise TMT_TREE is used only if
+#   it is a real clone.
 build_srpm_from_clone() {
     outdir="$1"
     if [ -n "$REPO_URL" ]; then
-        SRC="$WORKDIR/src"
+        SRC="$BATCH_HOME/src"
         rm -rf "$SRC"
         echo "==> git clone --recursive $REPO_URL (ref: $REPO_REF) -> $SRC"
         git clone --recursive "$REPO_URL" "$SRC" \
@@ -144,103 +170,84 @@ build_srpm_from_clone() {
     cd "$CI" || die "cannot cd back to $CI"
 }
 
-# --- ensure the channel image (obtain an SRPM + build when needed) ----------
-# Mirrors runner._build_channels_on: a present image is left untouched; an
-# absent one is baked from an SRPM. The SRPM is either downloaded
-# (FREEIPA_SRPM_URL) or built on the guest from the clone (full flow).
-if [ -n "$CHANNEL" ]; then
-    imgref="freeipa-ci/full:$CHANNEL"
-    if podman image inspect "$imgref" >/dev/null 2>&1; then
-        echo "== channel $CHANNEL image present; leaving untouched"
-        stage_begin image-build
-        stage_set info "image $imgref already present; build skipped"
-        STAGE_END[image-build]=$(date +%s)
-    else
-        srpm_dir="$WORKDIR/srpm"
-        mkdir -p "$srpm_dir"
-        if [ -n "$SRPM_URL" ]; then
-            echo "== downloading SRPM $SRPM_URL -> $srpm_dir/"
-            stage_begin srpm-build
-            curl -fsSL -o "$srpm_dir/freeipa.src.rpm" "$SRPM_URL" 2>&1 | tee "$STAGEDATA/srpm-build.log"
-            stage_record "${PIPESTATUS[0]}"
-            [ "${STAGE_RC[srpm-build]}" -eq 0 ] || die "failed to download SRPM from $SRPM_URL"
-        else
-            if [ -n "$REPO_URL" ]; then
-                echo "== full flow: no SRPM URL; building freeipa's SRPM on the guest (cloning $REPO_URL @ $REPO_REF)"
-            else
-                echo "== full flow: no SRPM URL; building freeipa's SRPM on the guest from $TREE"
-            fi
-            stage_run srpm-build build_srpm_from_clone "$srpm_dir" \
-                || die "SRPM build on the guest failed"
-        fi
-        ls -l "$srpm_dir"
-        echo "== building channel $CHANNEL image from SRPM (dist $DIST)"
-        # build.sh builds the base + build images itself when absent
-        # (BASE is not forced), so this one call covers both the SRPM-URL
-        # path and the full-flow path.
-        stage_run image-build bash "$CI/images/build.sh" --srpm "$srpm_dir" \
-            --channel "$CHANNEL" --dist "$DIST" --tool podman \
-            || die "channel image build failed for $CHANNEL"
-        podman image inspect "$imgref" >/dev/null 2>&1 \
-            || die "build succeeded but $imgref is still missing"
+# --- ensure the SRPM + every missing channel image (build ONCE) -------------
+# The SRPM is only needed when at least one channel image is absent (a batch
+# whose images are all pre-baked skips both the SRPM build and the bake).
+MISSING=""
+for c in $CHANNELS; do
+    if ! podman image inspect "freeipa-ci/full:$c" >/dev/null 2>&1; then
+        MISSING="${MISSING:+$MISSING }$c"
     fi
+done
+if [ -n "$MISSING" ]; then
+    mkdir -p "$SRPM_DIR"
+    if [ -n "$SRPM_URL" ]; then
+        echo "== downloading SRPM $SRPM_URL -> $SRPM_DIR/"
+        curl -fsSL -o "$SRPM_DIR/freeipa.src.rpm" "$SRPM_URL" \
+            || die "failed to download SRPM from $SRPM_URL"
+    elif [ -n "$REPO_URL" ]; then
+        echo "== full flow: no SRPM URL; building freeipa's SRPM on the guest (cloning $REPO_URL @ $REPO_REF)"
+        build_srpm_from_clone "$SRPM_DIR" || die "SRPM build on the guest failed"
+    else
+        build_srpm_from_clone "$SRPM_DIR" || die "SRPM build on the guest failed"
+    fi
+    ls -l "$SRPM_DIR"
+    for c in $MISSING; do
+        echo "== building channel $c image from SRPM"
+        # build.sh builds the base + build images itself when absent, so this
+        # one call covers both the SRPM-URL and the full-flow paths; present
+        # channel images were skipped above (freshness: build once, reuse).
+        bash "$CI/images/build.sh" --srpm "$SRPM_DIR" --channel "$c" \
+            --tool podman || die "channel image build failed for $c"
+        podman image inspect "freeipa-ci/full:$c" >/dev/null 2>&1 \
+            || die "build succeeded but freeipa-ci/full:$c is still missing"
+    done
+else
+    echo "== all channel image(s) present: $(echo $CHANNELS); SRPM build skipped"
 fi
 
-# --- the up -> run -> down recipe (identical to a local/ssh job) ------------
+# --- run each preset's recipe (per-preset staged results) -------------------
 cd "$CI" || die "cannot cd to $CI"
+WORST_RC=0
+JOBS_NOTED=""
+while IFS=$'\t' read -r JK JPRESET; do
+    [ -n "$JK" ] || continue
+    echo ""
+    echo "########## job $JK: preset=$JPRESET ##########"
+    export JOBKEY="$JK" ENFPRESET="$JPRESET" \
+        JOB_WORKDIR="$BATCH_HOME/$JK"
+    bash "$CI/tmt/tests/freeipa-env/tf-job.sh"
+    rc=$?
+    [ "$rc" -gt "$WORST_RC" ] && WORST_RC=$rc
+    JOBS_NOTED="${JOBS_NOTED:+$JOBS_NOTED, }$JK=rc$rc"
+done <<EOF
+$JOB_LINES
+EOF
 
-echo "== up: $CLI up $ENFFILE --workdir $WORKDIR"
-stage_begin env-up
-"$CLI" up "$ENFFILE" --workdir "$WORKDIR" 2>&1 | tee "$STAGEDATA/env-up.log"
-stage_record "${PIPESTATUS[0]}"
-if [ "${STAGE_RC[env-up]}" -ne 0 ]; then
-    FATAL_NOTE="env up failed (rc ${STAGE_RC[env-up]})"
-    OVERALL=fail
-    STAGE_END[env-up]=$(date +%s)
-    # cleanup so the guest does not leak containers; best effort, and it
-    # becomes its own (warned) stage so it is visible in TF
-    echo "== down (cleanup after up failure): $CLI down $ENFFILE --workdir $WORKDIR"
-    stage_begin env-down
-    "$CLI" down "$ENFFILE" --workdir "$WORKDIR" 2>&1 | tee "$STAGEDATA/env-down.log"
-    stage_record "${PIPESTATUS[0]}"
-    [ "${STAGE_RC[env-down]}" -eq 0 ] || stage_set warn "cleanup down rc ${STAGE_RC[env-down]} after up failure"
-    write_results; rm -f "$STAGEDATA/.results-pending"
-    exit 1
+# --- reparent each preset's collected artifacts into artifacts/<key>/ -------
+# tf-job.sh staged them under <key>/artifacts/ (so they never collided while
+# running); the host's fetch_artifacts maps .../artifacts/<key>/<rel> back to
+# the <key> job's local workdir/logs/<rel>.
+mkdir -p "$STAGEDATA/artifacts"
+for d in "$STAGEDATA"/*/; do
+    key="$(basename "$d")"
+    [ -d "$STAGEDATA/artifacts/$key" ] && continue
+    if [ -d "$d/artifacts" ]; then
+        mv "$d/artifacts" "$STAGEDATA/artifacts/$key" \
+            && echo "== reparented $STAGEDATA/$key/artifacts -> $STAGEDATA/artifacts/$key/"
+    fi
+done
+
+# --- batch parent results ---------------------------------------------------
+[ "$WORST_RC" -eq 0 ] || OVERALL=fail
+if [ -n "$FATAL_NOTE" ]; then
+    :  # a die() already set the parent note
+else
+    FATAL_NOTE="batch: $(printf '%s\n' "$JOB_LINES" | grep -c .) job(s); $JOBS_NOTED"
 fi
-
-echo "== run: $CLI run $ENFFILE --workdir $WORKDIR"
-stage_run test-run "$CLI" run "$ENFFILE" --workdir "$WORKDIR"
-RUN_RC=$?
-[ "$RUN_RC" -eq 0 ] || OVERALL=fail
-
-# best-effort teardown: the guest is ephemeral, but a clean down also collects
-# the workdir logs; its status never masks the run result.
-echo "== down: $CLI down $ENFFILE --workdir $WORKDIR"
-stage_begin env-down
-"$CLI" down "$ENFFILE" --workdir "$WORKDIR" 2>&1 | tee "$STAGEDATA/env-down.log"
-stage_record "${PIPESTATUS[0]}"
-[ "${STAGE_RC[env-down]}" -eq 0 ] || \
-    stage_set warn "down rc ${STAGE_RC[env-down]} (best effort; does not mask the run result)"
-
-# --- collect the job artifacts into the uploaded test data dir --------------
-# The job workdir itself is NOT part of the tmt workdir TF uploads, so the
-# job's own artifacts must be copied here to be downloadable: the run console
-# (the tmt-managed output.txt only carries the outer script's stdout), the
-# xunit report, and the collected per-host logs.
-cp -f "$STAGEDATA/test-run.log" "$STAGEDATA/run.log" 2>/dev/null || true
-if [ -d "$WORKDIR/logs" ]; then
-    mkdir -p "$STAGEDATA/artifacts"
-    cp -rf "$WORKDIR/logs/." "$STAGEDATA/artifacts/" 2>/dev/null \
-        && echo "== collected $WORKDIR/logs -> $STAGEDATA/artifacts/" \
-        || echo "WARN: could not copy $WORKDIR/logs"
-fi
-if [ -f "$WORKDIR/nosetests.xml" ]; then
-    mkdir -p "$STAGEDATA/artifacts"
-    cp -f "$WORKDIR/nosetests.xml" "$STAGEDATA/artifacts/nosetests.xml"
-fi
-
+RUN_RC="$WORST_RC"
 write_results
 rm -f "$STAGEDATA/.results-pending"
 echo "== results: $RESULTS_FILE"
-echo "== run finished with exit code $RUN_RC"
-exit "$RUN_RC"
+echo "== batch finished, worst job rc $WORST_RC"
+exit "$WORST_RC"

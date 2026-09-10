@@ -11,10 +11,11 @@ machine with no network.
 
 It is deliberately coarser than PRCI's pytest-html report (which is
 generated in-container at run time with per-test captured stdout): here we
-show per-test status + duration from the xunit and the shared per-category
-logs. PRCI's per-test captured stdout needs pytest-html running in the image
-(not added), and the framework's ``--logfile-dir`` per-test logs are only
-collected on local/nested runs and not surfaced by any category.
+show per-test status + duration from the xunit, the framework's
+``--logfile-dir`` per-test log trees (fetched from the controller's workdir
+at collection time on every provider, surfaced in the Per-test logs section),
+and the shared per-category logs. PRCI's per-test captured stdout needs
+pytest-html running in the image (not added) and is still absent.
 """
 
 import datetime
@@ -24,7 +25,7 @@ import sys
 
 from .loganalyze import (CATEGORIES, CATEGORY_NAMES, LogStore, parse_xunit,
                          xunit_testcases, load_results, overall_status,
-                         scan_file)
+                         scan_file, ptest_status)
 
 # matched-line cap per source file, and per-line character cap, keep the
 # generated report bounded even for very noisy runs.
@@ -259,6 +260,71 @@ def _category_section(cat, store):
         f'<div class="body">{inner}</div></details>')
 
 
+def _ptest_section(store):
+    """A section with the framework's per-test log trees, one collapsed
+    block per test nodeid, each carrying its xunit status and the matched
+    lines from that test's per-host install/uninstall logs + journal."""
+    cat = next((c for c in CATEGORIES if c.ptest), None)
+    if cat is None:
+        return ''
+    groups = store.ptest_groups()
+    if not groups:
+        return ('<section><h2>Per-test logs</h2>'
+                '<p class="note">No per-test framework logs collected '
+                '(this provider does not fetch the controller&#39;s '
+                '<code>ipa-env/logs</code> tree, or it was empty).</p></section>')
+    tcs = []
+    for xp in store.xunit_paths():
+        try:
+            tcs.extend(xunit_testcases(xp))
+        except Exception:
+            continue
+    blocks = []
+    for test in sorted(groups):
+        status = ptest_status(test, tcs)
+        badge = _status_badge(status)
+        file_html = []
+        for e in sorted(groups[test], key=lambda x: (x['host'], x['phase'])):
+            ph = f' · {_esc(e["phase"])}' if e['phase'] else ''
+            file_html.append(
+                f'<div class="file"><div class="path">host '
+                f'{_esc(e["host"])}{ph}</div>')
+            files = store.ptest_entry_files(e)
+            if not files:
+                file_html.append('<div class="note">no files</div></div>')
+                continue
+            for f in files:
+                _total, matched, _tail = scan_file(f, cat.match)
+                rel = _rel(store, f)
+                if not matched:
+                    file_html.append(
+                        f'<div class="note"><code>{_esc(os.path.basename(rel))}'
+                        f'</code> — no matching lines ({_total} total)</div>')
+                    continue
+                shown = matched[:_MATCH_CAP]
+                more = len(matched) - len(shown)
+                body = ''.join('<span class="ln">'
+                               + _esc(_clip_line(l)) + '\n</span>'
+                               for l in shown)
+                if more:
+                    body += (f'<span class="note">… {more} more matching '
+                             'lines</span>')
+                file_html.append(
+                    f'<div class="note"><code>{_esc(os.path.basename(rel))}'
+                    f'</code> ({len(matched)}/{_total} lines)</div>'
+                    f'<pre>{body}</pre>')
+            file_html.append('</div>')
+        blocks.append(
+            f'<details><summary><code>{_esc(test)}</code> {badge}</summary>'
+            f'<div class="body">{"".join(file_html)}</div></details>')
+    return ('<section><h2>Per-test logs</h2>'
+            '<p class="note">The framework&#39;s per-test log trees '
+            '(<code>--logfile-dir</code>), one block per test nodeid. '
+            'Status is joined from the xunit; matched lines are shown per '
+            'host/phase.</p>'
+            + ''.join(blocks) + '</section>')
+
+
 def _rel(store, path):
     try:
         return os.path.relpath(path, store.workdir)
@@ -299,8 +365,10 @@ def build_report(store, meta=None):
 
     cat_sections = ''.join(
         _category_section(cat, store)
-        for cat in CATEGORIES if not cat.xunit)
-    cat_names = ', '.join(c.name for c in CATEGORIES if not c.xunit)
+        for cat in CATEGORIES if not cat.xunit and not cat.ptest)
+    cat_names = ', '.join(c.name for c in CATEGORIES
+                          if not c.xunit and not c.ptest)
+    ptest_section = _ptest_section(store)
 
     title = (f'FreeIPA CI job report — {meta.get("request_id") or "local"}')
     return (
@@ -318,17 +386,17 @@ def build_report(store, meta=None):
         '</header>\n'
         f'{_stages_section(stages)}\n'
         f'{_tests_section(rows)}\n'
+        f'{ptest_section}\n'
         '<section><h2>Log categories</h2>'
         '<p class="note">Matched lines per category, collapsed. '
         f'Categories: {_esc(cat_names)}.</p>\n'
         f'{cat_sections}\n</section>\n'
         '<div class="footer">Rendered offline from the collected artifacts '
         '(no network, no external assets). Coarser than PRCI\'s in-image '
-        'pytest-html report: per-test status/duration from the xunit plus '
-        'shared per-category logs, but no per-test captured stdout (that '
-        'needs pytest-html in the image; the framework\'s --logfile-dir '
-        'per-test logs are collected on local/nested runs but not surfaced '
-        'by any category here).</div>\n'
+        'pytest-html report: per-test status/duration from the xunit, the '
+        'framework\'s per-test log trees (Per-test logs section), and shared '
+        'per-category logs. Per-test captured stdout still needs pytest-html '
+        'in the image (not added).</div>\n'
         '</div>\n</body>\n</html>\n')
 
 

@@ -116,6 +116,9 @@ job provisions its own VM(s).
 - `<workdir>/logs/` — per-host journal + `/var/log/ipa*` tarballs, install
   and test run logs
 - `IPA_TESTS_LOGSDIR` (in-container) — per-test logs from the framework
+  (`--logfile-dir`); `down`/`collect_logs` also fetch this controller tree
+  into `<workdir>/logs/collected/<master>/ipa-env/logs` so `logs` can surface it
+  (see the `per-test` category below)
 
 ## Log analysis (`logs`)
 
@@ -139,6 +142,7 @@ Categories (each with a sensible default line filter, overridable via
 | category    | source                                   |
 |-------------|------------------------------------------|
 | `tests`     | `nosetests.xml` (JUnit): totals + failed/errored tests with messages and traceback tails, grouped by module |
+| `per-test`  | the framework's per-test log tree (one dir per test nodeid): per-host install/uninstall logs + journal, with the xunit status joined in |
 | `run`       | `logs/run.log` — the streamed install/test/uninstall console (FAILED/ERROR/summary lines) |
 | `install`   | `ipaserver-install.log` (ERROR/WARNING) |
 | `uninstall` | `ipaserver-uninstall.log` (ERROR/WARNING) |
@@ -181,10 +185,11 @@ freeipa-env tf-logs <request-id> --html          # fetch a TF request, then rend
 
 The report is intentionally coarser than PRCI's in-image pytest-html `report.html`:
 it shows per-test status + duration from the xunit plus the shared per-category
-logs, but not per-test captured stdout (PRCI gets that from pytest-html running
-in the image, which this one does not add). The framework's `--logfile-dir`
-per-test logs are collected on local/nested runs but no category surfaces them
-here. When a per-stage `results.yaml` is present in the workdir (the TF
+logs and the framework's per-test log trees (a `Per-test logs` section, one
+collapsed block per test nodeid with the xunit status joined in), but not
+per-test captured stdout (PRCI gets that from pytest-html running in the image,
+which this one does not add). When a per-stage `results.yaml` is present in the
+workdir (the TF
 transport uploads it with the request; see below) a `Stages` table shows each
 stage's result, duration and note.
 
@@ -341,7 +346,7 @@ copy of the repo's `ci/` tree). Each `--runner SPEC` names one transport:
 |---|---|---|
 | `user@host[:port]` (default) | **ssh** | a pre-allocated runner reached over key-based ssh; the `ci/` tree is rsynced there and `up`/`run`/`down` execute remotely |
 | `local` | **local** | the control node is the runner; no ssh, the same job flow runs as local subprocesses (needs `podman` on the control node) |
-| `testing-farm` | **TF** | no ssh, no pre-allocated host: each job becomes one **Testing Farm** request that provisions its own guest |
+| `testing-farm` | **TF** | no ssh, no pre-allocated host: a runner's queued jobs run as **one Testing Farm** request whose guest provisions once, builds the SRPM + channel images once, and runs the presets in sequence |
 
 All three share one job recipe (`up` → `run` → `down`, under a per-job
 timeout; `down` is unbounded and must complete), so queue semantics and the
@@ -355,12 +360,15 @@ any user). The local runner expands `~/...` against the local user's home.
 
 ### Testing Farm transport
 
-`--runner testing-farm` sends each queued job to the public
-[Testing Farm](https://docs.testing-farm.io/) API as one request. There is no
-pre-allocated host and no root on any machine you control: TF provisions a
-fresh Fedora guest, checks out the repo **itself**, and runs the tmt plan in
-`ci/tmt` on it. A job **PASSes** only when the TF request completes with an
-overall `passed` result.
+`--runner testing-farm` sends each runner's queued jobs to the public
+[Testing Farm](https://docs.testing-farm.io/) API as **one request** (one
+request per runner subsequence). There is no pre-allocated host and no root
+on any machine you control: TF provisions a fresh Fedora guest, checks out the
+repo **itself**, and runs the tmt plan in `ci/tmt` on it. The guest builds the
+SRPM and every needed channel image **once**, then runs the presets in
+sequence, reusing the baked images. A preset **PASSes** only when the request
+completes and that preset's own `results.yaml` grades `passed`; the request
+itself fails if any preset's run step fails.
 
 Required: an API token — pass `--tf-token TOKEN` or set the
 `TESTING_FARM_API_TOKEN` environment variable. The repo the guest clones is
@@ -380,29 +388,33 @@ tree to the guest as a plain file copy (no `.git`, no submodule contents),
 so the tmt test clones the repo itself first — `git clone --recursive` +
 `git checkout` of `--tf-repo-url`/`--tf-ref` — then produces `freeipa`'s
 SRPM on the guest: `autoreconf -i`, `./configure` with the spec's
-rpm-equivalent flags, and `make srpms`. It then bakes the preset's channel
-image from that SRPM with `ci/images/build.sh --srpm`, and finally drives the
-same `freeipa-env up` → `run` → `down` recipe a local or ssh job would,
-exiting with the `run` step's status. Pass `--srpm <URL>` only to override
-with a prebuilt SRPM (it must be an HTTP(S) URL the guest can fetch).
+rpm-equivalent flags, and `make srpms`. It bakes each of the presets'
+channel images from that SRPM with `ci/images/build.sh --srpm` **once each**
+(a channel already baked is reused), then runs every preset in sequence —
+each a fresh `freeipa-env up` → `run` → `down` under its own `--job-timeout`
+— and the request fails if any run step fails. Pass `--srpm <URL>` only to
+override with a prebuilt SRPM (it must be an HTTP(S) URL the guest can fetch).
 
 **Per-stage results + downloadable job artifacts.** The tmt test declares
-`result: custom`, so the runner reports the job as one tmt result per stage
-(`srpm-build`, `image-build`, `env-up`, `test-run`, `env-down`) plus a
-parent result for the whole test, each with its own console log. After the
-recipe the job workdir artifacts (the run console, `nosetests.xml`, the
-collected per-host logs) are copied into the tmt test data dir. Testing
-Farm uploads the whole tmt workdir with the request, so in `results.xml`
-every stage shows up as its own testcase (with a per-stage log link) and
-the job artifacts are downloadable under `.../data/artifacts/`.
+`result: custom`, so each preset is reported with one result per stage
+(`srpm-build`, `image-build`, `env-up`, `test-run`, `env-down`) plus a parent
+result, each with its own console log; the batch as a whole carries a parent
+result that is `fail` when any preset's run step fails. Each preset's workdir
+artifacts (run console, `nosetests.xml`, collected per-host logs) are
+reparented under `.../data/artifacts/<preset-key>/` and its `results.yaml`
+under `.../data/<preset-key>/`, so every preset is downloadable and gradable
+on its own.
 
-**Analyze a TF job's artifacts with `logs`.** `freeipa-env tf-logs <request-id>`
-downloads a finished request's job artifacts (the run console, `nosetests.xml`,
-the per-host daemon logs and tarballs) into a local workdir in the same layout
-a local/ssh job uses, then runs the usual `logs` machinery over them — no env
-file needed. The request id is the one printed in the `queue run` transcript
-(or from the TF API). `--category`/`--pattern`/`--json`/`--host` work exactly as
-for `logs`; `--workdir DIR` picks where the artifacts are stored (default
+**Analyze a TF request's artifacts with `logs`.** `freeipa-env tf-logs
+<request-id>` downloads a finished request's artifacts into a local workdir in
+the same layout a local/ssh job uses, then runs the usual `logs` machinery —
+no env file needed. A batched request stores **one workdir per preset**
+(`<workdir>/<preset-key>/` with its own `logs/`, `stages/`, `results.yaml`)
+and a single `report` per preset (`--html` writes one `results.html` per
+preset); a legacy single-preset request stores one flat workdir. The request
+id is the one printed in the `queue run` transcript (or from the TF API).
+`--category`/`--pattern`/`--json`/`--host` work exactly as for `logs`;
+`--workdir DIR` picks where the artifacts are stored (default
 `./tf-<request-id>.env`) and re-running against the same dir reuses the
 downloaded files.
 
@@ -424,20 +436,20 @@ only needed to *submit* a request via `queue run --runner testing-farm`.)
 
 ```
 freeipa-env queue run ci/queues/gating.yaml \
-    --runner testing-farm --jobs test_kerberos_flags \
+    --runner testing-farm \
     --tf-token $TESTING_FARM_API_TOKEN \
     --tf-repo-url https://github.com/abbra/freeipa.git \
     --tf-ref modrnize-ci \
-```
-                                   # allow the full build flow (default 4 h)
+    --job-timeout 21600        # one build + several runs (default 4 h/preset)
 ```
 
-The supervisor polls the request to a terminal state under `--job-timeout`
-(default 14400 = 4 h) and cancels it if the deadline is reached; a full
-on-guest build (SRPM + binary RPMs + image + a 3-host integration run) needs
-a larger watchdog, so raise it for TF runs. `--dry-run` with a `testing-farm`
-runner prints the exact request JSON that would be submitted (a token is
-still required, but nothing is actually sent).
+The supervisor polls the single request to a terminal state under a batch
+deadline (`--job-timeout`, default 14400 = 4 h per preset, plus a build
+buffer) and cancels it if the deadline is reached; a full on-guest build
+(SRPM + binary RPMs + image) happens once and is shared by every preset in
+the request. `--dry-run` with a `testing-farm` runner prints the exact batch
+request JSON that would be submitted (a token is still required, but nothing
+is actually sent).
 
 ## Build the IPA RPMs ourselves
 
