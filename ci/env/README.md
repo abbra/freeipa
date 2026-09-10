@@ -10,6 +10,7 @@ freeipa-env run  ENV.YAML    run the test workflow (install, tests, uninstall)
 freeipa-env down ENV.YAML    collect journal/logs, then tear down
 freeipa-env show ENV.YAML    print environment state
 freeipa-env logs ENV.YAML    categorize and retrieve collected logs
+freeipa-env report [ENV.YAML]  render a self-contained results.html from the artifacts
 freeipa-env resolve ENV.YAML   resolve image refs against the local store (read-only)
 freeipa-env ensure ENV.YAML    build the env's channel images from build.srpm, if missing
 freeipa-env migrate PRCI.YAML  generate presets from a PRCI definition
@@ -158,6 +159,34 @@ environment before analyzing; a failed collection never clobbers existing
 artifacts). Daemon tarballs are extracted selectively into
 `<workdir>/logs/extracted/<host>/` and cached by mtime+size, so repeated
 calls are instant.
+
+### Self-contained HTML report (`report`, `--html`)
+
+`freeipa-env report` renders the collected artifacts into a single
+self-contained `results.html` (default `<workdir>/results.html`) for sharing
+or pasting into a ticket. It reuses the same `LogStore` / `loganalyze`
+machinery as `logs`, so it is **offline** (no network, no env file needed for
+an already-collected workdir) and **dependency-free** to view: all CSS is
+inlined, there is no JavaScript and no external asset, and sections collapse
+with the native `<details>` element. Each failed/errored/skipped test row
+carries its failure message and a traceback tail; the per-category log views
+are collapsed.
+
+```
+freeipa-env report --workdir DIR                 # <workdir>/results.html
+freeipa-env report --workdir DIR -o /tmp/r.html  # explicit output
+freeipa-env logs ENV.YAML --html                 # same report, as a logs variant
+freeipa-env tf-logs <request-id> --html          # fetch a TF request, then render
+```
+
+The report is intentionally coarser than PRCI's in-image pytest-html `report.html`:
+it shows per-test status + duration from the xunit plus the shared per-category
+logs, but not per-test captured stdout (PRCI gets that from pytest-html running
+in the image, which this one does not add). The framework's `--logfile-dir`
+per-test logs are collected on local/nested runs but no category surfaces them
+here. When a per-stage `results.yaml` is present in the workdir (the TF
+transport uploads it with the request; see below) a `Stages` table shows each
+stage's result, duration and note.
 
 ## Presets
 
@@ -380,7 +409,14 @@ downloaded files.
 ```
 freeipa-env tf-logs <request-id>
 freeipa-env tf-logs <request-id> --category tests --category run --lines 20
+freeipa-env tf-logs <request-id> --html          # fetch, then results.html
 ```
+
+`tf-logs` also fetches the job's per-stage `results.yaml` (the tmt test's
+`result: custom` outcome, uploaded with the request) into the workdir, so the
+`report`/`--html` output includes a `Stages` table (per-stage result,
+duration, note) alongside the per-test xunit table and the collapsed
+log categories.
 
 Fetching a finished request needs no token: both the request state
 (`GET /v0.1/requests/<id>`) and the artifact store are public. (A token is

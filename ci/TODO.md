@@ -580,6 +580,30 @@ everything on it — no ssh, no root on any host we control). Design §3.11.
   token is required only to *submit* a request (`queue run --runner
   testing-farm`), which `TestingFarmRunner` still enforces.
 
+- [x] M11: render a self-contained job report from the collected artifacts
+  (2026-09-10): `freeipa-env report --workdir DIR` (or `logs ... --html` /
+  `tf-logs ... --html`) writes one offline `results.html` (default
+  `<workdir>/results.html`) — inlined CSS, no JS, no external assets, native
+  `<details>` collapse. It reuses the `LogStore`/`loganalyze` machinery so the
+  report stays in lockstep with the terminal `logs` view: a header with overall
+  badge + xunit totals + host count, a per-test table (status/duration from the
+  xunit, failed/errored/skipped rows carry the message + traceback tail), and a
+  collapsed per-category log section. When the job's per-stage `results.yaml`
+  is present (the TF transport fetches it with the request; `fetch_artifacts`
+  gained a basename branch that routes a `results.yaml` href to the workdir
+  root rather than `logs/`) a `Stages` table shows each stage's result,
+  duration and note. No image change and it works for local/ssh/TF alike, and
+  retroactively for an already-fetched workdir. Implementation:
+  `freeipa_env/htmlreport.py` (new), `loganalyze.py` gained `xunit_testcases()`
+  + `load_results()` + `overall_status()`; `testingfarm.py` fetches
+  `results.yaml`; `cli.py` gained the `report` subcommand + `--html` on
+  `logs`/`tf-logs`. Deliberately coarser than PRCI's in-image pytest-html
+  report (no per-test captured stdout, and the framework `--logfile-dir`
+  per-test logs are not surfaced — see the report footer). Verified on TF
+  request `42e4c6a3`: 5/5 tests pass, 528.9s, 3 hosts, 6 stage rows, and a
+  synthetic fail/error/skip xunit renders the detail rows + overall `fail`;
+  the terminal `logs`/`--json`/`--category` output is unchanged.
+
 ## Known limitations / follow-ups
 
 - **Repo pinning**: the validation image was built against a rolling F44

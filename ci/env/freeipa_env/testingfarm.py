@@ -125,8 +125,10 @@ def fetch_artifacts(request_id, workdir, token, url=DEFAULT_URL,
     uploaded file in the request's ``results.xml`` — so the file set (and the
     unpredictable ``work-…`` dir prefix) is read straight from the XML. Each
     ``…/data/artifacts/<rel>`` file is fetched to ``workdir/logs/<rel>``;
-    the per-stage console logs are fetched to ``workdir/stages/`` (opt-out
-    via ``include_consoles``). Returns the count of files written.
+    the per-stage console logs to ``workdir/stages/`` (opt-out via
+    ``include_consoles``); and the tmt custom ``results.yaml`` (per-stage
+    results) to ``workdir/results.yaml`` (always — it feeds the report's
+    stage table). Returns the count of files written.
     """
     client = TestingFarmClient(token, url=url, timeout=timeout)
     req = client.get(request_id)
@@ -156,7 +158,17 @@ def fetch_artifacts(request_id, workdir, token, url=DEFAULT_URL,
     for h in hrefs:
         if not h.startswith('http') or data_dir(h):
             continue
-        if '/artifacts/' in h:
+        if os.path.basename(h.rstrip('/')) == 'results.yaml':
+            # the per-stage tmt custom results -> <workdir>/results.yaml,
+            # which `report` / `--html` render into the stage table. Always
+            # fetched (it is part of the job report, not a stage console).
+            # Checked before the artifacts/ branch: tf-runner.sh also copies
+            # it under artifacts/, and that copy must not land in logs/.
+            if fetch(h, os.path.join(workdir, 'results.yaml')):
+                n += 1
+                if log:
+                    log('  results.yaml')
+        elif '/artifacts/' in h:
             rel = h.split('/artifacts/', 1)[1].lstrip('/')
             if not rel:
                 continue

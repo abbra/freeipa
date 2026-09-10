@@ -400,6 +400,123 @@ def parse_xunit(path):
     return totals, failures, skipped
 
 
+def xunit_testcases(path):
+    """Per-test-case records from a JUnit file, in document order.
+
+    Each record: classname, name, file, line, time (float), status
+    ('pass' | 'fail' | 'error' | 'skipped'), message, text. Unlike
+    parse_xunit (which aggregates totals + failures for the terminal
+    summary), this returns one row per test for the HTML report's
+    per-test table; it leaves parse_xunit's return shape untouched.
+    """
+    root = ET.parse(path).getroot()
+    out = []
+    for tc in root.iter('testcase'):
+        node = tc.find('failure')
+        status = 'fail' if node is not None else None
+        if status is None:
+            node = tc.find('error')
+            status = 'error' if node is not None else None
+        if status is None:
+            node = tc.find('skipped')
+            status = 'skipped' if node is not None else 'pass'
+        t = tc.get('time')
+        try:
+            dur = float(t) if t else 0.0
+        except ValueError:
+            dur = 0.0
+        out.append({
+            'classname': tc.get('classname', '?'),
+            'name': tc.get('name', '?'),
+            'file': tc.get('file', ''),
+            'line': tc.get('line', ''),
+            'time': dur,
+            'status': status,
+            'message': (node.get('message') if node is not None else '') or '',
+            'text': (node.text if node is not None else '') or '',
+        })
+    return out
+
+
+def load_results(workdir):
+    """Per-stage tmt custom results from <workdir>/results.yaml, if present.
+
+    Returns a list of stage dicts (name, result, note, start, end,
+    duration, logs) in document order, or None when the file is absent
+    (e.g. a local/ssh job that did not record a results.yaml). `note`
+    and `logs` are lists of strings; the rest are strings (or '' when
+    unset). The top-level `/` entry carries the job's overall result.
+    """
+    import yaml
+    p = os.path.join(workdir, 'results.yaml')
+    if not os.path.isfile(p):
+        return None
+    try:
+        with open(p) as f:
+            data = yaml.safe_load(f)
+    except (OSError, yaml.YAMLError) as e:
+        print(f'warning: could not read {p}: {e}', file=sys.stderr)
+        return None
+    if not isinstance(data, list):
+        return None
+    stages = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+
+        def aslist(v):
+            if v is None:
+                return []
+            if isinstance(v, (list, tuple)):
+                return [str(x) for x in v]
+            return [str(v)]
+
+        stages.append({
+            'name': item.get('name', ''),
+            'result': item.get('result', ''),
+            'note': aslist(item.get('note')),
+            'start': item.get('start-time', ''),
+            'end': item.get('end-time', ''),
+            'duration': item.get('duration', ''),
+            'logs': aslist(item.get('log')),
+        })
+    return stages
+
+
+def overall_status(store, stages):
+    """A coarse overall result for the report header.
+
+    Prefers the tmt results when present: the top-level `/` result is
+    authoritative, else any stage 'fail'/'warn' dominates. Without a
+    results.yaml it falls back on the xunit failure/error counts.
+    Returns (status, detail) with status in pass/fail/warn/skip/unknown.
+    """
+    if stages:
+        top = next((s for s in stages if s['name'] == '/'), None)
+        if top is not None:
+            r = top['result'] or 'unknown'
+            return (r, '; '.join(top['note']) or f'tmt result: {r}')
+        res = [s['result'] for s in stages]
+        if 'fail' in res:
+            return 'fail', 'a stage reported result=fail'
+        if 'warn' in res:
+            return 'warn', 'a stage reported result=warn'
+        return 'pass', f'{len(res)} stage(s) recorded, all passed'
+    tests = fails = errs = 0
+    for xp in store.xunit_paths():
+        try:
+            t, _f, _s = parse_xunit(xp)
+        except (ET.ParseError, OSError):
+            continue
+        tests += t['tests']
+        fails += t['failures']
+        errs += t['errors']
+    if fails or errs:
+        return 'fail', f'{fails} failed / {errs} errored of {tests} tests'
+    if tests:
+        return 'pass', f'{tests} test(s) passed'
+    return 'unknown', 'no results.yaml and no xunit report'
+
 # ---------------------------------------------------------------------------
 # rendering
 # ---------------------------------------------------------------------------

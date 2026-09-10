@@ -18,6 +18,7 @@ from .nested_provider import NestedProvider, NestedError
 from .loganalyze import (LogStore, CATEGORIES, CATEGORY_NAMES,
                          render_list, render_json, show_categories,
                          DEFAULT_LINES, DEFAULT_TAIL)
+from .htmlreport import render_html
 
 SCRIPTS_DIR = os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), 'scripts')
@@ -36,6 +37,39 @@ def load_spec(path):
     except EnvSpecError as e:
         print(f'error: {e}', file=sys.stderr)
         sys.exit(2)
+
+
+def _emit_html(store, html_arg, meta=None):
+    """Write the self-contained results.html (default <workdir>/results.html)
+    and print the path it was written to."""
+    out = (html_arg if html_arg not in (None, 'auto')
+           else os.path.join(store.workdir, 'results.html'))
+    p = render_html(store, out, meta)
+    print(f'== wrote report: {p}')
+    return p
+
+
+def cmd_report(args):
+    """Render a self-contained results.html for a workdir's artifacts.
+
+    No network needed: it reuses the same LogStore / loganalyze machinery
+    as `logs` and inlines all CSS, so the file opens offline straight from
+    the (fetched) workdir. The default output is <workdir>/results.html.
+    """
+    workdir = args.workdir
+    if not workdir:
+        if not args.env:
+            print('error: give an env file (to derive the default workdir) '
+                  'or --workdir DIR', file=sys.stderr)
+            return 2
+        workdir = default_workdir(load_spec(args.env))
+    if not os.path.isdir(workdir):
+        print(f'error: no artifacts in {workdir} (run `up`/`run`/`down` '
+              'first, or `tf-logs` to fetch a TF request)', file=sys.stderr)
+        return 2
+    _emit_html(LogStore(workdir), args.out,
+               meta={'request_id': getattr(args, 'request_id', None)})
+    return 0
 
 
 def make_provider(spec, workdir, args):
@@ -218,6 +252,9 @@ def cmd_logs(args):
     else:
         args.pattern_compiled = None
     store = LogStore(workdir)
+    if args.html:
+        _emit_html(store, args.html)
+        return 0
     cats = args.category or []
     if args.list or not cats:
         if args.json:
@@ -274,6 +311,10 @@ def cmd_tf_logs(args):
     else:
         args.pattern_compiled = None
     store = LogStore(workdir)
+    if args.html:
+        _emit_html(store, args.html,
+                   meta={'request_id': args.request_id})
+        return 0
     cats = args.category or []
     if args.list or not cats:
         if args.json:
@@ -562,6 +603,11 @@ def main(argv=None):
                     help='machine-readable summary (with --list)')
     sp.add_argument('--refresh', action='store_true',
                     help='re-collect logs from a live environment first')
+    sp.add_argument('--html', nargs='?', const='auto', default=None,
+                    metavar='OUT',
+                    help='instead of the terminal view, write a '
+                         'self-contained results.html and exit '
+                         '(default output: <workdir>/results.html)')
     sp.set_defaults(fn=cmd_logs)
 
     sp = sub.add_parser(
@@ -605,7 +651,26 @@ def main(argv=None):
                     help='print whole files unfiltered')
     sp.add_argument('--json', action='store_true',
                     help='machine-readable summary (with --list)')
+    sp.add_argument('--html', nargs='?', const='auto', default=None,
+                    metavar='OUT',
+                    help='after fetching, write a self-contained '
+                         'results.html and exit (default output: '
+                         '<workdir>/results.html)')
     sp.set_defaults(fn=cmd_tf_logs)
+
+    sp = sub.add_parser(
+        'report',
+        help='render a self-contained results.html from a workdir\'s '
+             'collected artifacts (offline; no env file needed)')
+    sp.add_argument('env', nargs='?', default=None,
+                    help='env.yaml (or preset) path (only to derive the '
+                         'default workdir)')
+    sp.add_argument('--workdir', default=None,
+                    help='state/logs dir to render (default '
+                         './<env-name>.env)')
+    sp.add_argument('-o', '--out', default=None,
+                    help='output file (default <workdir>/results.html)')
+    sp.set_defaults(fn=cmd_report)
 
     sp = sub.add_parser(
         'migrate',
