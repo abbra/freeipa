@@ -218,17 +218,24 @@ fi
 cd "$CI" || die "cannot cd to $CI"
 WORST_RC=0
 JOBS_NOTED=""
-while IFS=$'\t' read -r JK JPRESET; do
+# Read the job list from fd 3, NOT fd 0. tf-job.sh (and its podman/ssh/test
+# descendants) inherits the loop's stdin; if the list lived on fd 0 the
+# first job's child would consume the remaining lines, so the outer read
+# would hit EOF and every preset after the first would be silently skipped --
+# while WORST_RC stayed 0 and the batch still reported as passed. A dedicated
+# fd keeps the list out of reach of any child process. The child's own stdin
+# is pinned to /dev/null (a batch job is non-interactive; never read fd 0).
+while IFS=$'\t' read -r -u 3 JK JPRESET; do
     [ -n "$JK" ] || continue
     echo ""
     echo "########## job $JK: preset=$JPRESET ##########"
     export JOBKEY="$JK" ENFPRESET="$JPRESET" \
         JOB_WORKDIR="$BATCH_HOME/$JK"
-    bash "$CI/tmt/tests/freeipa-env/tf-job.sh"
+    bash "$CI/tmt/tests/freeipa-env/tf-job.sh" </dev/null
     rc=$?
     [ "$rc" -gt "$WORST_RC" ] && WORST_RC=$rc
     JOBS_NOTED="${JOBS_NOTED:+$JOBS_NOTED, }$JK=rc$rc"
-done <<EOF
+done 3<<EOF
 $JOB_LINES
 EOF
 
