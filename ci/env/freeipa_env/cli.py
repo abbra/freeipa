@@ -564,6 +564,19 @@ def _git_value(args, fallback=None):
         return fallback
 
 
+def _default_tf_ref():
+    """Default git ref for the TF guest: prefer the current branch NAME over
+    the HEAD SHA. TF distinguishes a branch from a raw ref and a bare SHA is
+    not an advertised ref on most remotes (e.g. GitHub), so it fails with
+    ``Failed to fetch ref <sha>: retries exhausted``; a branch name is always
+    fetchable. On a detached HEAD there is no branch, so fall back to the SHA.
+    """
+    branch = _git_value(['symbolic-ref', '--short', 'HEAD'])
+    if branch:
+        return branch
+    return _git_value(['rev-parse', 'HEAD']) or 'HEAD'
+
+
 def _tf_config(args):
     """The TF cfg dict for `queue run` ({} when no TF runner is requested;
     None after printing an error)."""
@@ -586,8 +599,7 @@ def _tf_config(args):
         'token': token,
         'url': getattr(args, 'tf_url', None),
         'repo_url': repo_url,
-        'ref': getattr(args, 'tf_ref', None) or
-        _git_value(['rev-parse', 'HEAD']) or 'HEAD',
+        'ref': getattr(args, 'tf_ref', None) or _default_tf_ref(),
         'arch': getattr(args, 'tf_arch', None),
         'compose': getattr(args, 'tf_compose', None),
         'plan': getattr(args, 'tf_plan', None),
@@ -846,8 +858,9 @@ def main(argv=None):
                       help='git URL of this repo for the TF guest to clone '
                            '(default: the origin remote of this checkout)')
     qrun.add_argument('--tf-ref', default=None,
-                      help='git ref for the TF guest (default: the HEAD '
-                           'commit of this checkout)')
+                      help='git ref for the TF guest (default: the current '
+                           'branch name, falling back to the HEAD commit '
+                           'on a detached HEAD)')
     qrun.add_argument('--tf-arch', default='x86_64',
                       help='TF guest architecture (default x86_64)')
     qrun.add_argument('--tf-compose', default='Fedora-44',
