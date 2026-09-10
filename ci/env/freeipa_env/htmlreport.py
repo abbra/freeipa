@@ -9,13 +9,17 @@ asset, and no JavaScript. Collapsing uses native <details>/<summary>, so the
 file works when opened straight from the fetched artifacts directory on a
 machine with no network.
 
-It is deliberately coarser than PRCI's pytest-html report (which is
-generated in-container at run time with per-test captured stdout): here we
-show per-test status + duration from the xunit, the framework's
-``--logfile-dir`` per-test log trees (fetched from the controller's workdir
-at collection time on every provider, surfaced in the Per-test logs section),
-and the shared per-category logs. PRCI's per-test captured stdout needs
-pytest-html running in the image (not added) and is still absent.
+The Per-test logs section carries, per test nodeid: (1) the pytest
+per-test captured output (stdout/stderr + traceback) parsed from the
+in-container ``pytest-html`` report (``report.html``; the test image runs
+pytest with ``--html=... --self-contained-html`` and the report is collected
+alongside the per-test log trees), and (2) links to the actual collected log
+files for that test (the real ``var/log/**`` + ``journal``; config copies
+excluded). Status is still joined from the xunit. Links are relative to the
+report's own directory (``<workdir>/logs``), so they resolve both on the TF
+artifact server and after a local ``tf-logs`` fetch. When no ``report.html``
+was collected (e.g. an older image without pytest-html) the captured output
+degrades to a note and the log links still show.
 """
 
 import datetime
@@ -25,7 +29,7 @@ import sys
 
 from .loganalyze import (CATEGORIES, CATEGORY_NAMES, LogStore, parse_xunit,
                          xunit_testcases, load_results, overall_status,
-                         scan_file, ptest_status)
+                         scan_file, ptest_status, parse_pytest_html)
 
 # matched-line cap per source file, and per-line character cap, keep the
 # generated report bounded even for very noisy runs.
@@ -93,6 +97,12 @@ details .body { padding: 4px 12px 12px; }
 .file { margin: 10px 0; }
 .file > .path { font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
 .note { color: var(--muted); font-size: 13px; }
+.loglist { margin: 4px 0 0; }
+.loglist a { color: var(--accent); text-decoration: none; font-family:
+  ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 12.5px; word-break: break-all; }
+.loglist a:hover { text-decoration: underline; }
+.loglist .sz { color: var(--muted); font-size: 12px; }
 .msg { color: var(--fail); font-weight: 600; }
 .fail-detail { margin-top: 8px; }
 .footer { margin-top: 40px; color: var(--muted); font-size: 12px;
@@ -119,6 +129,32 @@ def _status_badge(status, label=None):
 def _clip_line(line):
     return line if len(line) <= _LINE_CAP else line[:_LINE_CAP] + '…'
 
+
+def _human_size(n):
+    """Compact byte size for a log-file link (``12 K``, ``1.2 M``)."""
+    try:
+        n = float(n)
+    except (TypeError, ValueError):
+        return ''
+    for unit in ('B', 'K', 'M', 'G'):
+        if n < 1024.0 or unit == 'G':
+            if unit == 'B':
+                return f'{int(n)} {unit}'
+            return f'{n:.1f} {unit}'
+        n /= 1024.0
+    return f'{int(n)} B'
+
+
+def _clip_output(text, head=1200, tail=4000):
+    """Bound a possibly very large per-test output block, keeping the head
+    (setup/stderr) and the tail (the traceback). Truncation is marked."""
+    text = text.replace('\r\n', '\n').rstrip('\n')
+    if len(text) <= head + tail:
+        return text
+    omitted = len(text) - head - tail
+    return (text[:head] + '\n…\n'
+            f'[… {omitted} characters elided …]\n'
+            + text[-tail:])
 
 def _xunit_totals(store):
     """Aggregate xunit totals across (content-deduped) report files."""
@@ -261,73 +297,115 @@ def _category_section(cat, store):
 
 
 def _ptest_section(store):
-    """A section with the framework's per-test log trees, one collapsed
-    block per test nodeid, each carrying its xunit status and the matched
-    lines from that test's per-host install/uninstall logs + journal."""
-    cat = next((c for c in CATEGORIES if c.ptest), None)
-    if cat is None:
-        return ''
+    """Per-test logs: one collapsed block per framework nodeid, carrying
+    (1) the pytest per-test captured output (stdout/stderr + traceback)
+    parsed from the in-container pytest-html report, and (2) links to the
+    collected log files for that test (real ``var/log/**`` + ``journal``,
+    config copies excluded). Status is still joined from the xunit."""
     groups = store.ptest_groups()
     if not groups:
         return ('<section><h2>Per-test logs</h2>'
                 '<p class="note">No per-test framework logs collected '
                 '(this provider does not fetch the controller&#39;s '
                 '<code>ipa-env/logs</code> tree, or it was empty).</p></section>')
+
+    # pytest per-test captured output, keyed by the framework's mangled
+    # nodeid (the per-test dir name). Only present when the image ran
+    # pytest-html and the report was collected.
+    logmap = {}
+    ph = store.pytest_html_path()
+    if ph:
+        for nodeid, e in parse_pytest_html(ph).items():
+            logmap[nodeid.replace('/', '-').replace('::', '-')] = e
+
     tcs = []
     for xp in store.xunit_paths():
         try:
             tcs.extend(xunit_testcases(xp))
         except Exception:
             continue
+
     blocks = []
     for test in sorted(groups):
         status = ptest_status(test, tcs)
         badge = _status_badge(status)
-        file_html = []
+        pe = logmap.get(test)
+
+        # (1) pytest captured output for this nodeid
+        out_html = []
+        out_html.append('<div class="file"><div class="path">pytest output</div>')
+        if pe is not None:
+            log = pe.get('log') or ''
+            if log and log.strip():
+                out_html.append('<pre>' + _esc(_clip_output(log)) + '</pre>')
+            else:
+                out_html.append('<div class="note">no captured output</div>')
+            dur = pe.get('duration')
+            res = pe.get('result')
+            if dur or res:
+                out_html.append(
+                    f'<div class="note">pytest: {_esc(res)} · '
+                    f'{_esc(dur)}</div>')
+        elif ph is None:
+            out_html.append(
+                '<div class="note">no pytest captured output collected '
+                '(the image predates pytest-html; re-run on an updated '
+                'image to populate this block)</div>')
+        else:
+            out_html.append(
+                '<div class="note">no per-test captured output for this '
+                'entry (setup/teardown phase, or not in the pytest report)'
+                '</div>')
+        out_html.append('</div>')
+
+        # (2) links to the collected log files, per host/phase
+        file_html = out_html
         for e in sorted(groups[test], key=lambda x: (x['host'], x['phase'])):
-            ph = f' · {_esc(e["phase"])}' if e['phase'] else ''
+            phs = f' · {_esc(e["phase"])}' if e['phase'] else ''
             file_html.append(
                 f'<div class="file"><div class="path">host '
-                f'{_esc(e["host"])}{ph}</div>')
-            files = store.ptest_entry_files(e)
+                f'{_esc(e["host"])}{phs}</div>')
+            files = store.ptest_entry_log_files(e)
             if not files:
-                file_html.append('<div class="note">no files</div></div>')
+                file_html.append('<div class="note">no log files</div></div>')
                 continue
+            file_html.append('<div class="loglist">')
             for f in files:
-                _total, matched, _tail = scan_file(f, cat.match)
-                rel = _rel(store, f)
-                if not matched:
-                    file_html.append(
-                        f'<div class="note"><code>{_esc(os.path.basename(rel))}'
-                        f'</code> — no matching lines ({_total} total)</div>')
-                    continue
-                shown = matched[:_MATCH_CAP]
-                more = len(matched) - len(shown)
-                body = ''.join('<span class="ln">'
-                               + _esc(_clip_line(l)) + '\n</span>'
-                               for l in shown)
-                if more:
-                    body += (f'<span class="note">… {more} more matching '
-                             'lines</span>')
+                href = _rel(store, f)
+                label = os.path.relpath(f, e['path'])
+                try:
+                    size = _human_size(os.path.getsize(f))
+                except OSError:
+                    size = ''
+                sz = f' <span class="sz">{_esc(size)}</span>' if size else ''
                 file_html.append(
-                    f'<div class="note"><code>{_esc(os.path.basename(rel))}'
-                    f'</code> ({len(matched)}/{_total} lines)</div>'
-                    f'<pre>{body}</pre>')
-            file_html.append('</div>')
+                    f'<div><a href="{_esc(href)}">{_esc(label)}</a>{sz}</div>')
+            file_html.append('</div></div>')
+
         blocks.append(
             f'<details><summary><code>{_esc(test)}</code> {badge}</summary>'
             f'<div class="body">{"".join(file_html)}</div></details>')
     return ('<section><h2>Per-test logs</h2>'
-            '<p class="note">The framework&#39;s per-test log trees '
-            '(<code>--logfile-dir</code>), one block per test nodeid. '
-            'Status is joined from the xunit; matched lines are shown per '
-            'host/phase.</p>'
+            '<p class="note">Per test nodeid: the pytest captured output '
+            '(stdout/stderr + traceback from the in-image pytest-html '
+            'report) and links to the collected log files for that test '
+            '(real <code>var/log/**</code> + <code>journal</code>; config '
+            'copies excluded). Status is joined from the xunit. Links are '
+            'relative to this report&#39;s directory.</p>'
             + ''.join(blocks) + '</section>')
 
 
 def _rel(store, path):
+    """Relative path for a link in the report.
+
+    The report lives in ``<workdir>/logs`` (see ``cli._emit_html``), and the
+    log files it links to live under ``<workdir>/logs/...`` (the collected
+    tree + the ptest log trees), so the base is the logdir, not the workdir.
+    That keeps the identical relative link valid both on the TF artifact
+    server and after a local ``tf-logs`` fetch.
+    """
     try:
-        return os.path.relpath(path, store.workdir)
+        return os.path.relpath(path, store.logdir)
     except ValueError:
         return path
 
@@ -392,11 +470,12 @@ def build_report(store, meta=None):
         f'Categories: {_esc(cat_names)}.</p>\n'
         f'{cat_sections}\n</section>\n'
         '<div class="footer">Rendered offline from the collected artifacts '
-        '(no network, no external assets). Coarser than PRCI\'s in-image '
-        'pytest-html report: per-test status/duration from the xunit, the '
-        'framework\'s per-test log trees (Per-test logs section), and shared '
-        'per-category logs. Per-test captured stdout still needs pytest-html '
-        'in the image (not added).</div>\n'
+        '(no network, no external assets). Per-test logs: pytest captured '
+        'output (stdout/stderr + traceback) from the in-image pytest-html '
+        'report, plus links to the collected per-test log files '
+        '(real <code>var/log/**</code> + <code>journal</code>); per-test '
+        'status/duration from the xunit; shared per-category logs below. '
+        'Log-file links are relative to this report&#39;s directory.</div>\n'
         '</div>\n</body>\n</html>\n')
 
 
@@ -416,11 +495,12 @@ def render_batch_index(workdir, entries, out_path, meta=None):
 
     A batch request yields one reportable workdir per preset; the parent
     ``results.html`` (default ``<workdir>/results.html``) is an index that
-    links to each preset's ``<preset>/results.html`` and shows its overall
-    status (from the preset's ``results.yaml``), so the parent is not a
-    near-empty single-job report. ``entries`` is a list of ``(key, subdir)``
-    tuples (``key`` is the preset name; ``subdir`` its reportable workdir).
-    Self-contained (same inlined CSS, no network). Returns the path written.
+    links to each preset's ``<preset>/logs/results.html`` and shows its
+    overall status (from the preset's ``results.yaml``), so the parent is
+    not a near-empty single-job report. ``entries`` is a list of
+    ``(key, subdir)`` tuples (``key`` is the preset name; ``subdir`` its
+    reportable workdir). Self-contained (same inlined CSS, no network).
+    Returns the path written.
     """
     meta = meta or {}
     now = datetime.datetime.now(datetime.timezone.utc).strftime(
@@ -438,7 +518,7 @@ def render_batch_index(workdir, entries, out_path, meta=None):
             n_other += 1
         # preset key is '' for a legacy single-job request; that case is not
         # rendered through the index, so a bare label is always a preset name.
-        rel = 'results.html' if key == '' else f'{key}/results.html'
+        rel = 'results.html' if key == '' else f'{key}/logs/results.html'
         label = key if key else '(top level)'
         rows.append(
             '<tr>'

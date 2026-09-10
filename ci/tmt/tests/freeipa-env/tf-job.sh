@@ -87,6 +87,18 @@ stage_record "${PIPESTATUS[0]}"
 [ "${STAGE_RC[env-down]}" -eq 0 ] || \
     stage_set warn "down rc ${STAGE_RC[env-down]} (best effort; does not mask the run result)"
 
+# --- render the self-contained HTML report (best effort) -------------------
+# From the now-collected logs + xunit, render <workdir>/logs/results.html. It
+# must run BEFORE the $WORKDIR/logs copy below so the report rides the same
+# artifacts/ tree onto the TF artifact server (and is picked up locally by
+# `tf-logs --html`). A failure only warns: it must never mask the run result,
+# and the raw logs are still collected regardless.
+if [ -d "$WORKDIR/logs" ]; then
+    echo "== report: $CLI report --workdir $WORKDIR"
+    "$CLI" report --workdir "$WORKDIR" 2>&1 | tee "$STAGEDATA/report.log" \
+        || echo "WARN: freeipa-env report failed (logs still collected)"
+fi
+
 # --- collect this preset's artifacts into its own staged dir ---------------
 cp -f "$STAGEDATA/test-run.log" "$STAGEDATA/run.log" 2>/dev/null || true
 if [ -d "$WORKDIR/logs" ]; then

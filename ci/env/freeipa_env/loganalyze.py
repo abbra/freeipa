@@ -43,6 +43,7 @@ run script snapshots (de-duplicated by content). A --pattern override and
 
 import hashlib
 import json
+import html as _htmllib
 import os
 import re
 import sys
@@ -245,6 +246,64 @@ class LogStore:
                     continue
                 out.append(os.path.join(root, n))
         return sorted(out)
+
+    def ptest_entry_log_files(self, entry):
+        """The *collected log files* under one per-test/host entry, excluding
+        the config copies the framework snapshots into the same tree.
+
+        A per-test entry dir holds one sub-dir per host (e.g.
+        ``master1.ipa.test``). Under the host dir, ``journal`` and everything
+        under ``var/log/`` are the logs gathered for that host/phase;
+        ``etc/``, ``root/``, ``run/`` and the
+        ``var/log/pki/pki-tomcat/backup/`` tree are config/other state, not
+        logs. Returns the log files (sorted by path); the HTML report links
+        to these directly.
+        """
+        base = entry['path']
+        # entry['path'] is the per-test nodeid dir; the real per-host tree
+        # lives one level down. If a host subdir is present, anchor there;
+        # otherwise treat entry['path'] itself as the host dir (covers a
+        # future layout where the two coincide).
+        host_dirs = [d for d in os.listdir(base)
+                     if os.path.isdir(os.path.join(base, d))]
+        roots = [os.path.join(base, d) for d in host_dirs] or [base]
+        out = []
+        for r0 in roots:
+            for root, dirs, names in os.walk(r0):
+                # descend only into log-bearing subtrees (var/log/**, but
+                # never its pki backup/ dir, which is config snapshots)
+                keep = [d for d in dirs
+                        if not (os.path.basename(root).endswith('pki-tomcat')
+                                and d == 'backup')]
+                dirs[:] = keep
+                rel = os.path.relpath(root, r0)
+                under_varlog = (rel == 'var/log'
+                                or rel.startswith('var/log' + os.sep))
+                for n in sorted(names):
+                    if n.endswith(('.tar', '.tar.xz', '.tgz', '.gz',
+                                   '.tar.bz2', '.xz')):
+                        continue
+                    if not (under_varlog or n == 'journal'):
+                        continue
+                    out.append(os.path.join(root, n))
+        return sorted(out)
+
+    def pytest_html_path(self):
+        """Path to pytest-html's in-container ``report.html`` if one was
+        collected, else None.
+
+        The test image runs pytest with
+        ``--html=<IPATEST_LOGSDIR>/report.html --self-contained-html``
+        (see cli.cmd_run), so the per-test captured stdout lands in the
+        framework tree at ``collected/<host>/ipa-env/logs/report.html``.
+        The master's copy is preferred (its captured output is the
+        canonical one); the first present copy wins.
+        """
+        for h in self.hosts:
+            p = os.path.join(self.ptest_base(h), 'report.html')
+            if os.path.isfile(p):
+                return p
+        return None
 
     def journal_paths(self, host):
         """Prefers the journal fetched at collection time; falls back to
@@ -505,6 +564,51 @@ def xunit_testcases(path):
             'message': (node.get('message') if node is not None else '') or '',
             'text': (node.text if node is not None else '') or '',
         })
+    return out
+
+
+def parse_pytest_html(path):
+    """Per-test captured output from a pytest-html report.
+
+    pytest-html (``--self-contained-html``) embeds every test's record in a
+    ``data-jsonblob`` attribute on the ``<table>``: a JSON object whose
+    ``tests`` map is ``{pytest_nodeid: [entry, ...]}``, each entry carrying
+    ``result`` (Passed/Failed/...), ``duration`` (a ``"N ms"`` string) and
+    ``log`` (the captured stdout/stderr + traceback for that test). The inner
+    quotes are HTML-entity-escaped (``&#34;``), so the attribute is captured
+    with a non-greedy match to the first raw quote and the entities are
+    unescaped before ``json.loads``. Returns ``{nodeid: {result, duration,
+    log}}`` keyed by the *un-mangled* pytest nodeid (``/`` and ``::`` kept);
+    the caller maps that to the framework's mangled per-test dir name.
+    Returns ``{}`` when the attribute is absent or unparseable.
+    """
+    try:
+        with open(path, encoding='utf-8', errors='replace') as f:
+            doc = f.read()
+    except OSError:
+        return {}
+    m = re.search(r'data-jsonblob="([\s\S]*?)"\s*(?:/>|>)', doc)
+    if not m:
+        return {}
+    try:
+        blob = json.loads(_htmllib.unescape(m.group(1)))
+    except (ValueError, _htmllib.HTMLParseError):
+        return {}
+    out = {}
+    tests = blob.get('tests')
+    if not isinstance(tests, dict):
+        return out
+    for nodeid, entries in tests.items():
+        if not isinstance(entries, list) or not entries:
+            continue
+        e = entries[0]
+        if not isinstance(e, dict):
+            continue
+        out[str(nodeid)] = {
+            'result': e.get('result') or '',
+            'duration': e.get('duration') or '',
+            'log': e.get('log') or '',
+        }
     return out
 
 

@@ -40,10 +40,16 @@ def load_spec(path):
 
 
 def _emit_html(store, html_arg, meta=None):
-    """Write the self-contained results.html (default <workdir>/results.html)
-    and print the path it was written to."""
+    """Write the self-contained results.html (default <workdir>/logs/results.html)
+    and print the path it was written to.
+
+    The report sits in the logdir (not the workdir root) so that its
+    relative links to the collected log tree (also under <workdir>/logs)
+    resolve identically on the TF artifact server and after a local
+    ``tf-logs`` fetch.
+    """
     out = (html_arg if html_arg not in (None, 'auto')
-           else os.path.join(store.workdir, 'results.html'))
+           else os.path.join(store.logdir, 'results.html'))
     p = render_html(store, out, meta)
     print(f'== wrote report: {p}')
     return p
@@ -54,7 +60,8 @@ def _emit_batch_index(workdir, entries, meta=None):
 
     ``entries`` is a list of ``(key, subdir)`` tuples, one per preset (the
     ``''`` key is the top level). The index links to each preset's
-    ``<preset>/results.html``; the parent itself is not a single-job report.
+    ``<preset>/logs/results.html``; the parent itself is not a single-job
+    report.
     """
     from .htmlreport import render_batch_index
     out = os.path.join(workdir, 'results.html')
@@ -68,7 +75,9 @@ def cmd_report(args):
 
     No network needed: it reuses the same LogStore / loganalyze machinery
     as `logs` and inlines all CSS, so the file opens offline straight from
-    the (fetched) workdir. The default output is <workdir>/results.html.
+    the (fetched) workdir. The default output is
+    <workdir>/logs/results.html (the logdir, so its relative links to the
+    collected log tree resolve on the artifact server and locally).
     """
     workdir = args.workdir
     if not workdir:
@@ -326,8 +335,8 @@ def cmd_tf_logs(args):
     for key, d in subdirs:
         label = f'{key}: {workdir}' if key == '' else f'{key}: {d}'
         print(f'== workdir {label} ({per_key[key]} file(s))', file=sys.stderr)
-        print(f'   report: freeipa-env report {d} --html {d}/results.html',
-              file=sys.stderr)
+        print(f'   report: freeipa-env report {d} '
+              f'(writes {d}/logs/results.html)', file=sys.stderr)
     if any(key != '' for key, _ in subdirs):
         print(f'== batch request: one report per preset above',
               file=sys.stderr)
@@ -346,10 +355,13 @@ def cmd_tf_logs(args):
         if any(k for k, _ in subdirs):
             # A batch request: one report per preset, plus an index at the
             # parent linking to each (the parent is not a single-job report).
-            for _key, d in subdirs:
+            # The '' entry is the parent workdir (its own results.yaml), not a
+            # preset — it is the index itself, not a row.
+            presets = [(k, d) for k, d in subdirs if k]
+            for _key, d in presets:
                 _emit_html(LogStore(d), 'auto',
                            meta={'request_id': args.request_id})
-            _emit_batch_index(workdir, subdirs,
+            _emit_batch_index(workdir, presets,
                               meta={'request_id': args.request_id})
         else:
             # A legacy single-job request: one report for the workdir itself.
@@ -381,7 +393,9 @@ def cmd_run(args):
                                     env=env, log='run.log')
     elif run.mode == 'integration':
         argv = ['ipa-run-tests', '--logging-level=debug', '--verbose', '-ra',
-                '--with-xunit', f'--logfile-dir={CONTAINER_LOGSDIR}']
+                '--with-xunit', f'--logfile-dir={CONTAINER_LOGSDIR}',
+                f'--html={CONTAINER_LOGSDIR}/report.html',
+                '--self-contained-html']
         # --logfile-dir makes the framework collect its per-test log trees
         # (one dir per test nodeid, with the per-host install/uninstall logs
         # + journal) into /root/ipa-env/logs instead of a throwaway tempdir,
@@ -389,6 +403,11 @@ def cmd_run(args):
         # content. The framework creates the dir itself (os.makedirs), and the
         # container's /root is writable (base mode's run-base-tests.sh writes
         # to the same path), so no pre-creation is needed.
+        # --html/--self-contained-html (pytest-html) writes the in-container
+        # per-test captured stdout/stderr + traceback report to
+        # /root/ipa-env/logs/report.html; it rides the same /root/ipa-env cp
+        # as the per-test trees and is parsed by the report's Per-test logs
+        # section. pytest-html must be installed in the image (ci/images/full).
         for x in run.ignore:
             argv += ['--ignore', x]
         for x in run.deselect:
@@ -671,8 +690,8 @@ def main(argv=None):
     sp.add_argument('--html', nargs='?', const='auto', default=None,
                     metavar='OUT',
                     help='instead of the terminal view, write a '
-                         'self-contained results.html and exit '
-                         '(default output: <workdir>/results.html)')
+                         'self-contained results.html and exit (default '
+                         'output: <workdir>/logs/results.html)')
     sp.set_defaults(fn=cmd_logs)
 
     sp = sub.add_parser(
@@ -720,7 +739,7 @@ def main(argv=None):
                     metavar='OUT',
                     help='after fetching, write a self-contained '
                          'results.html and exit (default output: '
-                         '<workdir>/results.html)')
+                         '<workdir>/logs/results.html)')
     sp.set_defaults(fn=cmd_tf_logs)
 
     sp = sub.add_parser(
@@ -734,7 +753,7 @@ def main(argv=None):
                     help='state/logs dir to render (default '
                          './<env-name>.env)')
     sp.add_argument('-o', '--out', default=None,
-                    help='output file (default <workdir>/results.html)')
+                    help='output file (default <workdir>/logs/results.html)')
     sp.set_defaults(fn=cmd_report)
 
     sp = sub.add_parser(

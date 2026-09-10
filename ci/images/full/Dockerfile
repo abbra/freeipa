@@ -38,3 +38,12 @@ RUN set -eux; \
 # bindings imported by the xmlrpc idrange tests; sudo is needed by the
 # client-side sudo job.
 RUN dnf -y install python3-samba sudo && rm -rf /var/cache/dnf/*
+
+# pytest-html (4.2.0): the integration `run` passes --html/--self-contained-html
+# so pytest writes a per-test captured stdout/stderr + traceback report
+# (report.html) into the collected log tree; the `report` command's Per-test
+# logs section parses it. pytest-html is not a dnf package, so install it via
+# pip from the distro's python3-pip.
+RUN dnf -y install python3-pip \
+    && python3 -m pip install --no-cache-dir 'pytest-html==4.2.0' \
+    && dnf -y clean all
