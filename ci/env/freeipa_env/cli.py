@@ -362,7 +362,14 @@ def cmd_run(args):
                                     env=env, log='run.log')
     elif run.mode == 'integration':
         argv = ['ipa-run-tests', '--logging-level=debug', '--verbose', '-ra',
-                '--with-xunit']
+                '--with-xunit', f'--logfile-dir={CONTAINER_LOGSDIR}']
+        # --logfile-dir makes the framework collect its per-test log trees
+        # (one dir per test nodeid, with the per-host install/uninstall logs
+        # + journal) into /root/ipa-env/logs instead of a throwaway tempdir,
+        # so `down` collects them and the report's "Per-test logs" section has
+        # content. The framework creates the dir itself (os.makedirs), and the
+        # container's /root is writable (base mode's run-base-tests.sh writes
+        # to the same path), so no pre-creation is needed.
         for x in run.ignore:
             argv += ['--ignore', x]
         for x in run.deselect:
