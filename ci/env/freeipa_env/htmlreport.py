@@ -409,3 +409,84 @@ def render_html(store, out_path, meta=None):
     with open(out_path, 'w') as f:
         f.write(doc)
     return out_path
+
+
+def render_batch_index(workdir, entries, out_path, meta=None):
+    """Write an index page for a batch (multi-preset) TF request.
+
+    A batch request yields one reportable workdir per preset; the parent
+    ``results.html`` (default ``<workdir>/results.html``) is an index that
+    links to each preset's ``<preset>/results.html`` and shows its overall
+    status (from the preset's ``results.yaml``), so the parent is not a
+    near-empty single-job report. ``entries`` is a list of ``(key, subdir)``
+    tuples (``key`` is the preset name; ``subdir`` its reportable workdir).
+    Self-contained (same inlined CSS, no network). Returns the path written.
+    """
+    meta = meta or {}
+    now = datetime.datetime.now(datetime.timezone.utc).strftime(
+        '%Y-%m-%d %H:%M:%S UTC')
+    rows = []
+    n_pass = n_fail = n_other = 0
+    for key, subdir in entries:
+        store = LogStore(subdir)
+        status, detail = overall_status(store, load_results(subdir))
+        if status in ('pass', 'skip'):
+            n_pass += 1
+        elif status == 'fail':
+            n_fail += 1
+        else:
+            n_other += 1
+        # preset key is '' for a legacy single-job request; that case is not
+        # rendered through the index, so a bare label is always a preset name.
+        rel = 'results.html' if key == '' else f'{key}/results.html'
+        label = key if key else '(top level)'
+        rows.append(
+            '<tr>'
+            f'<td><a href="{_esc(rel)}"><code>{_esc(label)}</code></a></td>'
+            f'<td>{_status_badge(status)}</td>'
+            f'<td>{_esc(detail)}</td>'
+            f'<td class="num">{len(store.hosts)} host(s)</td>'
+            '</tr>')
+    req = ''
+    if meta.get('job_url'):
+        rid = meta.get('request_id', '')
+        req = (f'<div class="meta">request: '
+               f'<a href="{_esc(meta["job_url"])}">{_esc(rid)}</a></div>')
+    elif meta.get('request_id'):
+        req = (f'<div class="meta">request: {_esc(meta["request_id"])}</div>')
+    title = (f'FreeIPA CI batch report — {meta.get("request_id") or "local"}')
+    doc = (
+        '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
+        '<meta name="viewport" content="width=device-width, '
+        'initial-scale=1">\n'
+        f'<title>{_esc(title)}</title>\n<style>{_CSS}</style>\n</head>\n'
+        '<body>\n<div class="wrap">\n'
+        '<header>\n'
+        '<h1>FreeIPA CI batch report</h1>\n'
+        f'<div class="sub">workdir: <code>{_esc(workdir)}</code></div>\n'
+        f'<div class="sub">generated {now}</div>\n'
+        f'{req}\n'
+        '<div class="badges">'
+        f'{_status_badge("pass", f"{n_pass} passed")}'
+        + (f' {_status_badge("fail", f"{n_fail} failed")}' if n_fail else '')
+        + (f' {_status_badge("info", f"{n_other} other")}' if n_other else '')
+        + f' {_status_badge("info", f"{len(entries)} preset(s)")}'
+        '</div>\n'
+        '</header>\n'
+        '<section><h2>Presets</h2>'
+        '<p class="note">One row per preset in the batch request; open a row '
+        'for that preset&#39;s full report (stages, tests, per-test logs, '
+        'categories).</p>\n'
+        '<table>'
+        '<tr><th>preset</th><th>result</th><th>detail</th>'
+        '<th class="num">hosts</th></tr>'
+        + ''.join(rows) + '</table>\n</section>\n'
+        '<div class="footer">Rendered offline from the collected artifacts '
+        '(no network, no external assets).</div>\n'
+        '</div>\n</body>\n</html>\n')
+    d = os.path.dirname(os.path.abspath(out_path))
+    if d and not os.path.isdir(d):
+        os.makedirs(d)
+    with open(out_path, 'w') as f:
+        f.write(doc)
+    return out_path

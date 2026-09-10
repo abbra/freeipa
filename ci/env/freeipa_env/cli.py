@@ -49,6 +49,20 @@ def _emit_html(store, html_arg, meta=None):
     return p
 
 
+def _emit_batch_index(workdir, entries, meta=None):
+    """Write the batch index at <workdir>/results.html and print its path.
+
+    ``entries`` is a list of ``(key, subdir)`` tuples, one per preset (the
+    ``''`` key is the top level). The index links to each preset's
+    ``<preset>/results.html``; the parent itself is not a single-job report.
+    """
+    from .htmlreport import render_batch_index
+    out = os.path.join(workdir, 'results.html')
+    p = render_batch_index(workdir, entries, out, meta)
+    print(f'== wrote batch index: {p}')
+    return p
+
+
 def cmd_report(args):
     """Render a self-contained results.html for a workdir's artifacts.
 
@@ -329,12 +343,17 @@ def cmd_tf_logs(args):
         args.pattern_compiled = None
     store = LogStore(workdir)
     if args.html:
-        # A batch request yields one report per preset (per-key workdir); a
-        # legacy single-job request is one report for the workdir itself.
-        dirs = ([workdir] if not any(k for k, _ in subdirs)
-                else [d for _k, d in subdirs])
-        for d in dirs:
-            _emit_html(LogStore(d), 'auto',
+        if any(k for k, _ in subdirs):
+            # A batch request: one report per preset, plus an index at the
+            # parent linking to each (the parent is not a single-job report).
+            for _key, d in subdirs:
+                _emit_html(LogStore(d), 'auto',
+                           meta={'request_id': args.request_id})
+            _emit_batch_index(workdir, subdirs,
+                              meta={'request_id': args.request_id})
+        else:
+            # A legacy single-job request: one report for the workdir itself.
+            _emit_html(LogStore(workdir), args.html,
                        meta={'request_id': args.request_id})
         return 0
     cats = args.category or []
