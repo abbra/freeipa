@@ -256,9 +256,13 @@ done
 # --- batch parent results ---------------------------------------------------
 [ "$WORST_RC" -eq 0 ] || OVERALL=fail
 if [ -n "$FATAL_NOTE" ]; then
-    :  # a die() already set the parent note
+    :  # a die() set the parent note (and exited via the trap)
 else
-    FATAL_NOTE="batch: $(printf '%s\n' "$JOB_LINES" | grep -c .) job(s); $JOBS_NOTED"
+    # The batch summary is informational, not a fatal: a green batch must not
+    # carry a "fatal:" note. Only a die() (a genuine fatal that exits) leaves
+    # FATAL_NOTE set; on the normal completion path it is empty, so the
+    # summary goes in PARENT_NOTE and is emitted without the fatal: prefix.
+    PARENT_NOTE="batch: $(printf '%s\n' "$JOB_LINES" | grep -c .) job(s); $JOBS_NOTED"
 fi
 RUN_RC="$WORST_RC"
 write_results

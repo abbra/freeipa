@@ -34,6 +34,7 @@ STAGE=""                            # stage currently running
 OVERALL=pass                        # the test-level outcome
 RUN_RC=""                           # the `run` step exit code (job status)
 FATAL_NOTE=""                       # die() message, for the parent note
+PARENT_NOTE=""                      # non-fatal parent summary note (batch summary)
 RESULTS_WRITTEN=""                  # guard: write_results runs once
 
 # iso TIME: epoch seconds -> schema-valid timestamp (fractional seconds, UTC)
@@ -114,6 +115,8 @@ write_results() {
         printf -- '- name: /\n  result: %s\n  note:\n' "$OVERALL"
         if [ -n "$FATAL_NOTE" ]; then
             yaml_note "fatal: $FATAL_NOTE"
+        elif [ -n "$PARENT_NOTE" ]; then
+            yaml_note "$PARENT_NOTE"
         elif [ -n "$RUN_RC" ]; then
             yaml_note "run exit $RUN_RC; stages: $(printf '%s' "$STAGE_SEEN" | sed -e 's/^ //' -e 's/ /, /g')"
         else
