@@ -239,11 +239,10 @@ def cmd_tf_logs(args):
                              DEFAULT_LINES, DEFAULT_TAIL)
     from .testingfarm import fetch_artifacts, TfApiError
 
+    # Fetching a finished request's artifacts needs no auth: the request
+    # state (GET) and the artifact store are public. A token is only used if
+    # one happens to be set (e.g. to match a non-public API deployment).
     token = args.tf_token or os.environ.get('TESTING_FARM_API_TOKEN')
-    if not token:
-        print('error: no TF API token (pass --tf-token or set '
-              'TESTING_FARM_API_TOKEN)', file=sys.stderr)
-        return 2
     workdir = args.workdir
     if not workdir:
         stem = re.sub(r'[^A-Za-z0-9._-]+', '-', args.request_id).strip('-')
@@ -577,8 +576,10 @@ def main(argv=None):
                          './tf-<request-id>.env; reuse it to skip the '
                          're-download)')
     sp.add_argument('--tf-token', default=None,
-                    help='Testing Farm API token (default: env '
-                         'TESTING_FARM_API_TOKEN)')
+                    help='Testing Farm API token; not needed to fetch a '
+                         'finished request (the request state and the '
+                         'artifact store are public) — default: env '
+                         'TESTING_FARM_API_TOKEN, or none')
     sp.add_argument('--tf-url', default=None,
                     help='Testing Farm API base URL '
                          '(default https://api.testing-farm.io)')

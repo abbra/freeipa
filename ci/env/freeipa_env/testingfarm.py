@@ -53,10 +53,13 @@ class TestingFarmClient:
 
     def _call(self, method, path, body=None):
         data = json.dumps(body).encode() if body is not None else None
+        headers = {'Content-Type': 'application/json'}
+        if self.token:
+            # GETs (request state / artifacts) are public; submit (POST) and
+            # cancel (DELETE) are what actually need the token.
+            headers['Authorization'] = f'Bearer {self.token}'
         req = urllib.request.Request(
-            self.url + path, data=data, method=method,
-            headers={'Authorization': f'Bearer {self.token}',
-                     'Content-Type': 'application/json'})
+            self.url + path, data=data, method=method, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 raw = r.read()

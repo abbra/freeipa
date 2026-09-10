@@ -573,6 +573,12 @@ everything on it — no ssh, no root on any host we control). Design §3.11.
   logs + tarballs for client1/master1/replica1, xunit, run console, 5 stage
   logs) and the `logs` summary + per-category output rendered with the
   correct hosts, xunit totals (5 tests, 0 failed) and daemon-log categories.
+  Fetching needs no token: both the request state (`GET /v0.1/requests/<id>`)
+  and the artifact store are public, so `TestingFarmClient` only sends the
+  `Authorization` header when a token is set and `tf-logs` works with none
+  (verified: no-token `--no-consoles` run fetched 23 files and parsed). A
+  token is required only to *submit* a request (`queue run --runner
+  testing-farm`), which `TestingFarmRunner` still enforces.
 
 ## Known limitations / follow-ups
 

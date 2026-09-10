@@ -378,9 +378,13 @@ for `logs`; `--workdir DIR` picks where the artifacts are stored (default
 downloaded files.
 
 ```
-freeipa-env tf-logs <request-id> --tf-token $TESTING_FARM_API_TOKEN
+freeipa-env tf-logs <request-id>
 freeipa-env tf-logs <request-id> --category tests --category run --lines 20
 ```
+
+Fetching a finished request needs no token: both the request state
+(`GET /v0.1/requests/<id>`) and the artifact store are public. (A token is
+only needed to *submit* a request via `queue run --runner testing-farm`.)
 
 ```
 freeipa-env queue run ci/queues/gating.yaml \
@@ -388,7 +392,7 @@ freeipa-env queue run ci/queues/gating.yaml \
     --tf-token $TESTING_FARM_API_TOKEN \
     --tf-repo-url https://github.com/abbra/freeipa.git \
     --tf-ref modrnize-ci \
-    --job-timeout 21600            # the guest builds the SRPM + image, so
+```
                                    # allow the full build flow (default 4 h)
 ```
 
