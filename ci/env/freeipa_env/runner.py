@@ -68,7 +68,8 @@ class Runner:
         raise NotImplementedError
 
     def build_channels(self, srpm, srpm_dir, channels, remote_ci,
-                       image_timeout, log=None, copr=None):
+                       image_timeout, log=None, copr=None, copr_ipa=False,
+                       ipa_packages=None):
         raise NotImplementedError
 
     def make_step(self, remote_ci, jobs_dir, timeout_s, keep_on_failure):
@@ -170,9 +171,11 @@ class SshRunner(Runner):
                         timeout=timeout)
 
     def build_channels(self, srpm, srpm_dir, channels, remote_ci,
-                       image_timeout, log=None, copr=None):
+                       image_timeout, log=None, copr=None, copr_ipa=False,
+                       ipa_packages=None):
         _build_channels_on(self, srpm, srpm_dir, channels, remote_ci,
-                           image_timeout, log, copr)
+                           image_timeout, log, copr, copr_ipa=copr_ipa,
+                           ipa_packages=ipa_packages)
 
     def _exec(self, cmd, timeout=600):
         return self.ssh(cmd, timeout=timeout)
@@ -238,9 +241,11 @@ class LocalRunner(Runner):
                         timeout=timeout)
 
     def build_channels(self, srpm, srpm_dir, channels, remote_ci,
-                       image_timeout, log=None, copr=None):
+                       image_timeout, log=None, copr=None, copr_ipa=False,
+                       ipa_packages=None):
         _build_channels_on(self, self._p(srpm), srpm_dir, channels,
-                           remote_ci, image_timeout, log, copr)
+                           remote_ci, image_timeout, log, copr,
+                           copr_ipa=copr_ipa, ipa_packages=ipa_packages)
 
     def _exec(self, cmd, timeout=600):
         return self._sh(cmd, timeout=timeout)
@@ -259,16 +264,18 @@ class RunnerTransportError(Exception):
 
 
 def _build_channels_on(r, srpm, srpm_dir, channels, remote_ci,
-                       image_timeout, log, copr=None):
+                       image_timeout, log, copr=None, copr_ipa=False,
+                       ipa_packages=None):
     """Build the queue's channel images on the runner from the shipped SRPM
     (design §3.10). Freshness model: a channel image already present is left
     untouched; only absent channels are built (bounded by image_timeout).
-    The build runs build.sh --srpm in the dedicated build image, exactly as
-    the local ``freeipa-env ensure`` path does. Fail fast on error."""
+    The build runs build.sh (compiling the SRPM, or, in copr_ipa mode,
+    installing the IPA packages from the enabled COPR repos), exactly as the
+    local ``freeipa-env ensure`` path does. Fail fast on error."""
     from .imagemake import build_sh_argv
     if not channels:
         if log:
-            log('no build channels in the queue; skipping SRPM build')
+            log('no build channels in the queue; skipping image build')
         return
     for cname in channels:
         imgref = f'freeipa-ci/full:{cname}'
@@ -280,12 +287,17 @@ def _build_channels_on(r, srpm, srpm_dir, channels, remote_ci,
             if log:
                 log(f'channel {cname} image present; leaving untouched')
             continue
-        argv = build_sh_argv(srpm, cname, tool='podman', copr=copr)
+        argv = build_sh_argv(srpm, cname, tool='podman', copr=copr,
+                             copr_ipa=copr_ipa, ipa_packages=ipa_packages)
         cmd = ('cd ' + r._path(remote_ci) + ' && bash images/build.sh '
                + ' '.join(shlex.quote(a) for a in argv))
         if log:
-            log(f'building channel {cname} image from SRPM {srpm} '
-                '(may take a while)')
+            if copr_ipa:
+                log(f'building channel {cname} image with IPA from '
+                    f'COPR repos {" ".join(copr or [])} (may take a while)')
+            else:
+                log(f'building channel {cname} image from SRPM {srpm} '
+                    '(may take a while)')
         full = (f'timeout -k 120 {image_timeout} bash -c '
                 + shlex.quote(cmd))
         rc, out = r._exec(full, timeout=image_timeout + 300)

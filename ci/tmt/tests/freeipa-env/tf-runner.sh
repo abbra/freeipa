@@ -98,6 +98,14 @@ COPR_REPOS="${FREEIPA_COPR_REPOS:-}"
 COPR_ARGS=()
 for _r in $COPR_REPOS; do COPR_ARGS+=(--copr "$_r"); done
 [ -n "$COPR_REPOS" ] && echo "== COPR repos for the channel-image bakes: $COPR_REPOS"
+# Install IPA from the enabled COPR repos instead of building it from an
+# SRPM (build.sh --ipa-from-copr): the SRPM download/build stage is skipped
+# entirely and each channel image is baked with `dnf -y install <IPA
+# packages>` against the enabled COPR repos. IPA_PACKAGES (optional) overrides
+# the default dnf spec set (freeipa-server python3-ipatests).
+IPA_FROM_COPR="${FREEIPA_IPA_FROM_COPR:-}"
+IPA_PACKAGES="${FREEIPA_IPA_PACKAGES:-}"
+[ -n "$IPA_FROM_COPR" ] && echo "== IPA-from-COPR mode: $COPR_REPOS${IPA_PACKAGES:+ ($IPA_PACKAGES)}"
 BATCH_HOME="$HOME/freeipa-jobs"
 SRPM_DIR="$BATCH_HOME/batch-srpm"
 
@@ -189,9 +197,11 @@ build_srpm_from_clone() {
     cd "$CI" || die "cannot cd back to $CI"
 }
 
-# --- ensure the SRPM + every missing channel image (build ONCE) -------------
-# The SRPM is only needed when at least one channel image is absent (a batch
-# whose images are all pre-baked skips both the SRPM build and the bake).
+# --- ensure the SRPM (or the COPR IPA) + every missing channel image --------
+# In the SRPM lane the SRPM is only needed when at least one channel image is
+# absent (a batch whose images are all pre-baked skips both the SRPM build and
+# the bake). In IPA-from-COPR mode there is no SRPM at all: the channel images
+# are baked with the IPA installed from the enabled COPR repos.
 MISSING=""
 for c in $CHANNELS; do
     if ! podman image inspect "freeipa-ci/full:$c" >/dev/null 2>&1; then
@@ -199,31 +209,49 @@ for c in $CHANNELS; do
     fi
 done
 if [ -n "$MISSING" ]; then
-    mkdir -p "$SRPM_DIR"
-    if [ -n "$SRPM_URL" ]; then
-        echo "== downloading SRPM $SRPM_URL -> $SRPM_DIR/"
-        curl -fsSL -o "$SRPM_DIR/freeipa.src.rpm" "$SRPM_URL" \
-            || die "failed to download SRPM from $SRPM_URL"
-    elif [ -n "$REPO_URL" ]; then
-        echo "== full flow: no SRPM URL; building freeipa's SRPM on the guest (cloning $REPO_URL @ $REPO_REF)"
-        build_srpm_from_clone "$SRPM_DIR" || die "SRPM build on the guest failed"
+    if [ -n "$IPA_FROM_COPR" ]; then
+        # IPA-from-COPR: no SRPM download/build; bake each missing channel
+        # image with the IPA installed from the enabled COPR repos.
+        for c in $MISSING; do
+            echo "== building channel $c image with IPA from COPR"
+            bash "$CI/images/build.sh" --ipa-from-copr --channel "$c" \
+                --tool podman ${COPR_ARGS[@]+"${COPR_ARGS[@]}"} \
+                ${IPA_PACKAGES:+--ipa-packages "$IPA_PACKAGES"} \
+                || die "channel image build (IPA-from-COPR) failed for $c"
+            podman image inspect "freeipa-ci/full:$c" >/dev/null 2>&1 \
+                || die "build succeeded but freeipa-ci/full:$c is still missing"
+        done
     else
-        build_srpm_from_clone "$SRPM_DIR" || die "SRPM build on the guest failed"
+        mkdir -p "$SRPM_DIR"
+        if [ -n "$SRPM_URL" ]; then
+            echo "== downloading SRPM $SRPM_URL -> $SRPM_DIR/"
+            curl -fsSL -o "$SRPM_DIR/freeipa.src.rpm" "$SRPM_URL" \
+                || die "failed to download SRPM from $SRPM_URL"
+        elif [ -n "$REPO_URL" ]; then
+            echo "== full flow: no SRPM URL; building freeipa's SRPM on the guest (cloning $REPO_URL @ $REPO_REF)"
+            build_srpm_from_clone "$SRPM_DIR" || die "SRPM build on the guest failed"
+        else
+            build_srpm_from_clone "$SRPM_DIR" || die "SRPM build on the guest failed"
+        fi
+        ls -l "$SRPM_DIR"
+        for c in $MISSING; do
+            echo "== building channel $c image from SRPM"
+            # build.sh builds the base + build images itself when absent, so
+            # this one call covers both the SRPM-URL and the full-flow paths;
+            # present channel images were skipped above (build once, reuse).
+            bash "$CI/images/build.sh" --srpm "$SRPM_DIR" --channel "$c" \
+                --tool podman ${COPR_ARGS[@]+"${COPR_ARGS[@]}"} \
+                || die "channel image build failed for $c"
+            podman image inspect "freeipa-ci/full:$c" >/dev/null 2>&1 \
+                || die "build succeeded but freeipa-ci/full:$c is still missing"
+        done
     fi
-    ls -l "$SRPM_DIR"
-    for c in $MISSING; do
-        echo "== building channel $c image from SRPM"
-        # build.sh builds the base + build images itself when absent, so this
-        # one call covers both the SRPM-URL and the full-flow paths; present
-        # channel images were skipped above (freshness: build once, reuse).
-        bash "$CI/images/build.sh" --srpm "$SRPM_DIR" --channel "$c" \
-            --tool podman ${COPR_ARGS[@]+"${COPR_ARGS[@]}"} \
-            || die "channel image build failed for $c"
-        podman image inspect "freeipa-ci/full:$c" >/dev/null 2>&1 \
-            || die "build succeeded but freeipa-ci/full:$c is still missing"
-    done
 else
-    echo "== all channel image(s) present: $(echo $CHANNELS); SRPM build skipped"
+    if [ -n "$IPA_FROM_COPR" ]; then
+        echo "== all channel image(s) present: $(echo $CHANNELS)"
+    else
+        echo "== all channel image(s) present: $(echo $CHANNELS); SRPM build skipped"
+    fi
 fi
 
 # --- run each preset's recipe (per-preset staged results) -------------------

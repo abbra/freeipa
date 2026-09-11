@@ -4,6 +4,7 @@
 # Usage:
 #   ci/images/build.sh --rpms /path/to/rpms --sha 962ac6d0e [options]
 #   ci/images/build.sh --srpm /path/to/dist/srpms [options]
+#   ci/images/build.sh --ipa-from-copr --copr owner/project [options]
 #
 # Options:
 #   --rpms DIR        Directory containing IPA dev-build RPMs (x86_64 +
@@ -33,10 +34,27 @@
 #                     anything (repeatable). Each becomes a dnf repo pointing
 #                     at copr.fedorainstantcloud.org for the active distro, so
 #                     the full image (IPA RPM + dependency installs) and the
-#                     SRPM build image (BuildRequires installs) can pull
+#                     the SRPM build image (BuildRequires installs) can pull
 #                     non-distro packages. This customizes channel *creation*
 #                     without touching any preset (channel *use* stays the
 #                     abstract `image: freeipa-<channel>` reference).
+#   --ipa-from-copr   Install the IPA packages from the enabled COPR
+#                     repositories instead of building them from a local
+#                     SRPM/RPM set. Requires at least one --copr repo. No
+#                     --rpms/--srpm is used: the full image is baked with
+#                     `dnf -y install <IPA packages>` against the enabled
+#                     COPR repos (IPA itself and its dependencies all come
+#                     from COPR), so this lane never runs rpmbuild. The
+#                     freshness model is unchanged: the channel image is
+#                     only built if its tag is absent (the caller decides
+#                     whether to invoke build.sh at all).
+#   --ipa-packages SPECS
+#                     Space-separated dnf specs to install in --ipa-from-copr
+#                     mode (default: `freeipa-server python3-ipatests`). The
+#                     default pulls the whole server (client, server-common,
+#                     python3-ipaserver) plus the test package (ipa-run-tests,
+#                     the `python3-ipatests` bits the `run` lane executes);
+#                     override to bake a narrower image.
 #   --tool TOOL       Container tool: podman (default) or docker.
 #
 # Example (validation host):
@@ -59,6 +77,8 @@ EXCLUDES+=('*debuginfo')
 EXCLUDES+=('*debugsource')
 PINS=
 COPR_REPOS=
+IPA_FROM_COPR=0
+IPA_PACKAGES="freeipa-server python3-ipatests"
 TOOL=podman
 DISTARCH=x86_64
 while [[ $# -gt 0 ]]; do
@@ -72,16 +92,29 @@ while [[ $# -gt 0 ]]; do
         --exclude) EXCLUDES+=("$2"); shift 2 ;;
         --pin) PINS="$2"; shift 2 ;;
         --copr) COPR_REPOS="${COPR_REPOS:+$COPR_REPOS }$2"; shift 2 ;;
+        --ipa-from-copr) IPA_FROM_COPR=1; shift ;;
+        --ipa-packages) IPA_PACKAGES="$2"; shift 2 ;;
         --tool) TOOL="$2"; shift 2 ;;
         --distarch) DISTARCH="$2"; shift 2 ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
 done
 
+if [[ "$IPA_FROM_COPR" == "1" && ( -n "$RPMS" || -n "$SRPM" ) ]]; then
+    echo "--ipa-from-copr is mutually exclusive with --rpms/--srpm" >&2
+    exit 2
+fi
 if [[ -n "$RPMS" && -n "$SRPM" ]]; then
     echo "--rpms and --srpm are mutually exclusive" >&2; exit 2
 fi
-[[ -n "$RPMS" || -n "$SRPM" ]] || { echo "--rpms or --srpm is required" >&2; exit 2; }
+if [[ "$IPA_FROM_COPR" == "1" ]]; then
+    [[ -n "$COPR_REPOS" ]] || {
+        echo "--ipa-from-copr requires at least one --copr repo" >&2; exit 2; }
+else
+    [[ -n "$RPMS" || -n "$SRPM" ]] || {
+        echo "--rpms or --srpm is required (or --ipa-from-copr with --copr)"
+        >&2; exit 2; }
+fi
 command -v "$TOOL" >/dev/null || { echo "$TOOL not found" >&2; exit 2; }
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -212,6 +245,17 @@ if [[ -n "$SRPM" ]]; then
         exit 1; }
 fi
 
+# --- install IPA from COPR (no local RPMs / SRPM) ---------------------------
+# --ipa-from-copr: the full image installs the IPA packages from the enabled
+# COPR repos (the Dockerfile's IPA_DNF_SPECS branch), so there is nothing to
+# select or build locally. Provide an empty rpms/ so the Dockerfile's
+# `COPY rpms/` still has a source; the install branch ignores its contents.
+if [[ "$IPA_FROM_COPR" == "1" ]]; then
+    echo "==> Installing IPA from COPR repos: $COPR_REPOS"
+    echo "==> IPA dnf specs: $IPA_PACKAGES"
+    mkdir -p "$WORK/rpms"
+fi
+
 ls "$WORK/rpms"
 
 # --- build the full image ----------------------------------------------------
@@ -220,6 +264,9 @@ cp "$SCRIPT_DIR/full/Dockerfile" "$WORK/"
 ARGS=(build -f "$WORK/Dockerfile" -t "$FULL_IMAGE" --build-arg "BASE=$BASE_IMAGE" "$WORK")
 [[ -n "$PINS" ]] && ARGS+=(--build-arg "PIN_SPECS=$PINS")
 [[ -n "$COPR_REPOS" ]] && ARGS+=(--build-arg "COPR_REPOS=$COPR_REPOS")
+if [[ "$IPA_FROM_COPR" == "1" ]]; then
+    ARGS+=(--build-arg "IPA_DNF_SPECS=$IPA_PACKAGES")
+fi
 "$TOOL" "${ARGS[@]}"
 
 # Image tag contract:

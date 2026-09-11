@@ -59,7 +59,8 @@ class Supervisor:
     def __init__(self, queue, runners, outdir, job_timeout=14400,
                  keep_on_failure=False, remote_ci='~/freeipa-ci/ci',
                  jobs_dir='~/jobs', bootstrap=True, srpm=None,
-                 srpm_dir=None, image_timeout=9000, copr=None):
+                 srpm_dir=None, image_timeout=9000, copr=None,
+                 copr_ipa=False, ipa_packages=None):
         self.queue = queue
         self.runners = runners
         self.outdir = outdir
@@ -81,6 +82,11 @@ class Supervisor:
         # on the channel-image bakes. Host runners pass it to build.sh --copr;
         # the TF runner records it for the guest's bakes.
         self.copr = copr
+        # install the IPA from the enabled COPR repos instead of building it
+        # from an SRPM (build.sh --ipa-from-copr): no SRPM is shipped in this
+        # mode; ipa_packages overrides the default dnf spec set.
+        self.copr_ipa = copr_ipa
+        self.ipa_packages = ipa_packages
         self._lock = threading.Lock()
         self._results = []
         self._logf = None
@@ -141,26 +147,49 @@ class Supervisor:
                 self._log(f'[{r.spec}] syncing {REPO_CI_DIR}/ -> '
                           f'{self.remote_ci}/')
                 r.bootstrap(self.remote_ci)
-        if self.srpm:
+        # prebuild the queue's channel images before any job starts: either
+        # from the shipped SRPM (the default lane) or, in copr_ipa mode, by
+        # installing the IPA from the enabled COPR repos (no SRPM).
+        if self.srpm or self.copr_ipa:
             for r in self.runners:
                 if r.kind == 'testing-farm':
-                    r.ship_file(self.srpm, self.srpm_dir)  # records the URL
+                    if self.srpm:
+                        r.ship_file(self.srpm, self.srpm_dir)  # records URL
                     if self.copr:
                         # the guest bakes the channel images at job time; the
                         # COPR repos ride along as the FREEIPA_COPR_REPOS
                         # request variable (build_tf_request / tf-runner.sh).
                         r.cfg['copr'] = list(self.copr)
-                    self._log(f'[{r.spec}] SRPM URL recorded for the TF guest')
+                    if self.copr_ipa:
+                        # the guest installs the IPA from COPR instead of
+                        # building it from an SRPM (tf-runner.sh skips the
+                        # SRPM stage entirely in this mode).
+                        r.cfg['copr_ipa'] = True
+                        if self.ipa_packages:
+                            r.cfg['ipa_packages'] = self.ipa_packages
+                    if self.srpm:
+                        self._log(f'[{r.spec}] SRPM URL recorded for the TF '
+                                  'guest')
+                    else:
+                        self._log(f'[{r.spec}] IPA-from-COPR mode recorded '
+                                  f'for the TF guest ({len(self.copr or [])} '
+                                  'repo(s))')
                     self._log(f'[{r.spec}] channel images: built by the TF '
                               'guest at job time (no prebuild)')
                     continue
-                self._ship_srpm(r)
-                self._log(f'[{r.spec}] shipped SRPM -> {self.srpm_dir}/')
-                r.build_channels(self._remote_srpm(self.srpm_dir),
-                                 self.srpm_dir, self._channels_needed(),
-                                 self.remote_ci, self.image_timeout,
-                                 copr=self.copr,
-                                 log=self._runner_log(r))
+                if self.srpm:
+                    self._ship_srpm(r)
+                    self._log(f'[{r.spec}] shipped SRPM -> {self.srpm_dir}/')
+                else:
+                    self._log(f'[{r.spec}] no SRPM (IPA-from-COPR mode)')
+                r.build_channels(
+                    self._remote_srpm(self.srpm_dir) if self.srpm else None,
+                    self.srpm_dir, self._channels_needed(),
+                    self.remote_ci, self.image_timeout,
+                    copr=self.copr,
+                    copr_ipa=self.copr_ipa,
+                    ipa_packages=self.ipa_packages,
+                    log=self._runner_log(r))
         # image resolution is a provider task: ask each host runner to
         # resolve every distinct preset's build channels against its local
         # image store (fail fast before any job starts). Channels the SRPM

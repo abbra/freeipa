@@ -99,7 +99,11 @@ def make_provider(spec, workdir, args):
     if spec.provider == 'podman':
         return PodmanProvider(spec, workdir, tool=args.tool,
                               seccomp=args.seccomp,
-                              copr=getattr(args, 'copr', None) or None)
+                              copr=getattr(args, 'copr', None) or None,
+                              copr_ipa=getattr(args, 'ipa_from_copr',
+                                               False),
+                              ipa_packages=getattr(args, 'ipa_packages',
+                                                   None))
     if spec.provider == 'nested':
         return NestedProvider(spec, workdir, args)
     return ExternalProvider(spec, workdir, strict=args.strict,
@@ -504,6 +508,8 @@ def cmd_queue(args):
                       'JSON below is what would be submitted)')
             srpm = getattr(args, 'srpm', None)
             copr = getattr(args, 'copr', None) or None
+            copr_ipa = getattr(args, 'ipa_from_copr', False)
+            ipa_packages = getattr(args, 'ipa_packages', None)
             # The supervisor dequeues round-robin over the runners; a TF
             # runner submits its whole subsequence as ONE batched request
             # (build the SRPM/channel images once, reuse across presets).
@@ -525,7 +531,9 @@ def cmd_queue(args):
                       + ', '.join(j.key for j in sub) + ') ==')
                 print(json.dumps(
                     build_tf_request(tf_cfg, sub, args.job_timeout,
-                                     srpm=srpm, copr=copr),
+                                     srpm=srpm, copr=copr,
+                                     copr_ipa=copr_ipa,
+                                     ipa_packages=ipa_packages),
                     indent=2))
         return 0
     outdir = args.outdir or os.path.join(os.getcwd(), f'{q.name}.queue')
@@ -537,6 +545,16 @@ def cmd_queue(args):
         return 2
     srpm = getattr(args, 'srpm', None)
     copr = getattr(args, 'copr', None) or None
+    copr_ipa = getattr(args, 'ipa_from_copr', False)
+    ipa_packages = getattr(args, 'ipa_packages', None)
+    if copr_ipa and not copr:
+        print('error: --ipa-from-copr requires at least one --copr repo',
+              file=sys.stderr)
+        return 2
+    if copr_ipa and srpm:
+        print('error: --ipa-from-copr is mutually exclusive with --srpm',
+              file=sys.stderr)
+        return 2
     has_tf = any(s.strip() == 'testing-farm' for s in args.runner)
     if srpm and not has_tf and not os.path.exists(srpm):
         print(f'error: --srpm path does not exist: {srpm}', file=sys.stderr)
@@ -549,7 +567,7 @@ def cmd_queue(args):
                      bootstrap=not args.no_bootstrap, srpm=srpm,
                      srpm_dir=srpm_dir,
                      image_timeout=getattr(args, 'image_timeout', 9000),
-                     copr=copr)
+                     copr=copr, copr_ipa=copr_ipa, ipa_packages=ipa_packages)
     try:
         return sup.run()
     except SupervisorError as e:
@@ -644,6 +662,15 @@ def main(argv=None):
                              'image builds (repeatable); customizes channel '
                              '*creation* without touching the preset. '
                              'Used by up/ensure with the podman provider.')
+        sp.add_argument('--ipa-from-copr', action='store_true',
+                        help='install the IPA packages from the enabled '
+                             'COPR repos (--copr) instead of building them '
+                             'from an SRPM/RPM set (build.sh '
+                             '--ipa-from-copr); requires at least one --copr')
+        sp.add_argument('--ipa-packages', default=None, metavar='SPECS',
+                        help='space-separated dnf specs to install in '
+                             '--ipa-from-copr mode (default: '
+                             'freeipa-server python3-ipatests)')
 
     sp = sub.add_parser('up', help='create (or attach) the environment')
     add_common(sp)
@@ -863,6 +890,17 @@ def main(argv=None):
                            'Host runners pass it to build.sh --copr; the '
                            'testing-farm runner emits it as the guest '
                            'FREEIPA_COPR_REPOS request variable.')
+    qrun.add_argument('--ipa-from-copr', action='store_true',
+                      help='install the IPA packages from the enabled '
+                           'COPR repos (--copr) instead of building them '
+                           'from an SRPM (build.sh --ipa-from-copr); '
+                           'requires at least one --copr. Host runners bake '
+                           'the channel images from COPR; the testing-farm '
+                           'runner emits FREEIPA_IPA_FROM_COPR for the guest')
+    qrun.add_argument('--ipa-packages', default=None, metavar='SPECS',
+                      help='space-separated dnf specs to install in '
+                           '--ipa-from-copr mode (default: '
+                           'freeipa-server python3-ipatests)')
     qrun.add_argument('--image-timeout', type=int, default=9000,
                       help='per-channel-image remote build timeout in '
                            'seconds (default 9000 = 2.5h)')

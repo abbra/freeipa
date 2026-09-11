@@ -31,6 +31,14 @@ ARG COPR_REPOS=
 # Space-separated NVR specs to install before the IPA RPMs (see above).
 ARG PIN_SPECS=
 
+# Space-separated dnf specs to install INSTEAD of the local IPA RPMs
+# (build.sh --ipa-from-copr: IPA itself comes from the enabled COPR repos,
+# so nothing is copied into /root/rpms and this branch installs the dnf
+# specs -- default `freeipa-server python3-ipatests`, i.e. the server plus
+# the ipatests package the run lane executes -- resolving against the
+# enabled COPR + distro repos).
+ARG IPA_DNF_SPECS=
+
 # The build context is prepared by ci/images/build.sh: it contains rpms/
 # with the selected IPA RPMs for the target SHA.
 COPY rpms/ /root/rpms/
@@ -46,7 +54,11 @@ RUN set -eux; \
     if [ -n "${PIN_SPECS}" ]; then \
         dnf -y install ${PIN_SPECS}; \
     fi; \
-    dnf -y install /root/rpms/*.rpm; \
+    if [ -n "${IPA_DNF_SPECS}" ]; then \
+        dnf -y install ${IPA_DNF_SPECS}; \
+    else \
+        dnf -y install /root/rpms/*.rpm; \
+    fi; \
     rm -rf /root/rpms /var/cache/dnf/*
 
 # Samba lane (design §3.3): freeipa-server-trust-ad and freeipa-client-samba

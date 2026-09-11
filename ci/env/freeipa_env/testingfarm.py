@@ -285,7 +285,8 @@ def fetch_artifacts(request_id, workdir, token, url=DEFAULT_URL,
     return per_key
 
 
-def build_tf_request(cfg, jobs, timeout_s, srpm=None, copr=None):
+def build_tf_request(cfg, jobs, timeout_s, srpm=None, copr=None,
+                     copr_ipa=False, ipa_packages=None):
     """The TF request body for a **batch** of queue jobs (pure; used by the
     runner and by ``--dry-run``). One request carries the whole list; the
     guest builds its SRPM/channel images once and runs every preset (see
@@ -318,6 +319,14 @@ def build_tf_request(cfg, jobs, timeout_s, srpm=None, copr=None):
         variables['FREEIPA_CHANNEL'] = cfg['channel']
     if copr:
         variables['FREEIPA_COPR_REPOS'] = ' '.join(copr)
+    if copr_ipa:
+        # instead of building the IPA from a shipped SRPM, the guest installs
+        # the IPA packages from the enabled COPR repos on its channel image
+        # bakes (build.sh --ipa-from-copr); it skips the SRPM download/build
+        # stage entirely. ipa_packages overrides the default dnf spec set.
+        variables['FREEIPA_IPA_FROM_COPR'] = '1'
+        if ipa_packages:
+            variables['FREEIPA_IPA_PACKAGES'] = str(ipa_packages)
     for k, v in (cfg.get('extra_variables') or {}).items():
         variables[str(k)] = str(v)
     env = {
@@ -393,7 +402,8 @@ class TestingFarmRunner(Runner):
         return 0, ''
 
     def build_channels(self, srpm, srpm_dir, channels, remote_ci,
-                       image_timeout, log=None, copr=None):
+                       image_timeout, log=None, copr=None, copr_ipa=False,
+                       ipa_packages=None):
         # The TF guest builds its channel images at job time.
         pass
 
@@ -410,7 +420,9 @@ class TestingFarmRunner(Runner):
         request failures (submit/poll error, or a hard guest crash); each
         preset's own status is graded from its fetched ``results.yaml``."""
         body = build_tf_request(self.cfg, jobs, timeout_s,
-                                copr=self.cfg.get('copr') or None)
+                                copr=self.cfg.get('copr') or None,
+                                copr_ipa=bool(self.cfg.get('copr_ipa')),
+                                ipa_packages=self.cfg.get('ipa_packages'))
         base = (jobs_dir or '~/.freeipa-jobs') + '/tf-batch'
         shared = [
             f'== tf: batch of {len(jobs)} job(s): '

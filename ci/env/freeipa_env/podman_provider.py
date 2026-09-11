@@ -34,13 +34,15 @@ class PodmanError(Exception):
 
 class PodmanProvider:
     def __init__(self, spec, workdir, tool='podman', seccomp=None,
-                 copr=None):
+                 copr=None, copr_ipa=False, ipa_packages=None):
         self.spec = spec
         self.workdir = workdir
         self._resolved = {}
         self.tool = tool
         self.seccomp = seccomp
         self.copr = copr
+        self.copr_ipa = copr_ipa
+        self.ipa_packages = ipa_packages
         self.logdir = os.path.join(workdir, 'logs')
         self.config_path = os.path.join(workdir, 'ipa-test-config.yaml')
 
@@ -97,7 +99,9 @@ class PodmanProvider:
         The control node already produced an SRPM (``ci/scripts/make-srpms.sh``)
         and named it in the spec's ``build.srpm``; here, on this host, we
         compile it inside the dedicated ``freeipa-ci/build`` image and bake the
-        channel ``full`` image from the resulting binary RPMs. Idempotent:
+        channel ``full`` image from the resulting binary RPMs. Alternatively,
+        when the provider is in ``copr_ipa`` mode, the IPA packages are
+        installed from the enabled COPR repos (no SRPM). Idempotent:
         channels already present are skipped unless ``force`` (or
         ``build.force`` in the spec) is set, in which case they are rebuilt.
         Explicit (non-channel) image references are not built — they are
@@ -113,10 +117,11 @@ class PodmanProvider:
                 refs.add(ref)
         if not refs:
             return {}
-        # nothing to build unless the spec points at an SRPM; otherwise leave
-        # resolution to resolve_images (which raises its usual "build it"
-        # error for a missing channel).
-        if not (self.spec.build or {}).get('srpm'):
+        # nothing to build unless the spec points at an SRPM or we are
+        # installing IPA from COPR; otherwise leave resolution to
+        # resolve_images (which raises its usual "build it" error for a
+        # missing channel).
+        if not self.copr_ipa and not (self.spec.build or {}).get('srpm'):
             return {}
         if force is None:
             force = bool((self.spec.build or {}).get('force', False))
@@ -124,7 +129,8 @@ class PodmanProvider:
         try:
             result = ensure_channels(self.spec, self.workdir, sorted(refs),
                                      tool=self.tool, force=force,
-                                     copr=self.copr)
+                                     copr=self.copr, copr_ipa=self.copr_ipa,
+                                     ipa_packages=self.ipa_packages)
         except ImageBuildError as e:
             raise PodmanError(str(e))
         for ref, (concrete, img_id) in result.items():
