@@ -104,28 +104,51 @@ fi
 # --- collect this preset's artifacts into its own staged dir ---------------
 cp -f "$STAGEDATA/test-run.log" "$STAGEDATA/run.log" 2>/dev/null || true
 if [ -d "$WORKDIR/logs" ]; then
-    # Publish the small top-level loose files individually, but pack the
-    # bulky per-host log tree (logs/collected/, thousands of files) into a
-    # single tarball so the TF artifact server stores ONE file per preset
-    # instead of thousands of loose /var/log/* entries. The host's
-    # fetch_artifacts unpacks the tarball back into <key>/logs/.
+    # Publish logs/ as tarballs, not hundreds of loose, uncompressed log
+    # files. The host's fetch_artifacts unpacks each .tar.gz back into
+    # <key>/logs/:
+    #   logs.tar.gz          top-level loose logs (flat entries)
+    #   collected-logs.tar.gz the bulky per-host daemon tree (logs/collected/)
+    # Kept loose (reports, not logs): results.html (served directly by the
+    # artifact server; the host re-renders it after fetch anyway) and
+    # nosetests.xml (referenced by results.yaml as artifacts/<key>/nosetests.xml
+    # and read by LogStore.xunit_paths).
     mkdir -p "$STAGEDATA/artifacts"
-    loose=0
+    # Pack the top-level loose logs into one logs.tar.gz with FLAT entries so
+    # the host's generic .tar.gz extraction drops them straight into
+    # workdir/<key>/logs/. Kept OUT of the archive:
+    #   collected/        -> packed below as collected-logs.tar.gz
+    #   extracted/        -> DERIVED cache re-created on the host by
+    #                        `freeipa-env report` from collected-logs.tar.gz
+    #                        (LogStore.extracted_dir), so publishing it would
+    #                        just duplicate bytes already in that tarball
+    #   nosetests.xml / results.html -> published loose (reports, not logs)
+    logstage=$(mktemp -d)
     for f in "$WORKDIR/logs"/*; do
         [ -e "$f" ] || continue
         case "$(basename "$f")" in
-            collected) continue ;;   # packed below as a tarball
+            collected|extracted|nosetests.xml|results.html) continue ;;
+            *.tar.gz) continue ;;
         esac
-        cp -rf "$f" "$STAGEDATA/artifacts/" && loose=$((loose + 1)) \
-            || echo "WARN: could not copy $f"
+        cp -rf "$f" "$logstage/" || echo "WARN: could not stage $f"
     done
+    if find "$logstage" -mindepth 1 -maxdepth 1 | grep -q .; then
+        (cd "$logstage" && tar -czf "$STAGEDATA/artifacts/logs.tar.gz" .) \
+            && echo "== packed loose logs -> logs.tar.gz" \
+            || echo "WARN: could not tar loose logs"
+    fi
+    rm -rf "$logstage"
+    # Reports stay loose so the artifact server serves them directly.
+    [ -f "$WORKDIR/logs/results.html" ] && cp -f "$WORKDIR/logs/results.html" \
+        "$STAGEDATA/artifacts/" || true
     if [ -d "$WORKDIR/logs/collected" ]; then
         tar -czf "$STAGEDATA/artifacts/collected-logs.tar.gz" \
             -C "$WORKDIR/logs" collected 2>/dev/null \
             && echo "== packed $WORKDIR/logs/collected -> collected-logs.tar.gz" \
             || echo "WARN: could not tar $WORKDIR/logs/collected"
     fi
-    echo "== collected $loose loose file(s) + collected-logs.tar.gz from $WORKDIR/logs"
+    echo "== packed logs/ -> logs.tar.gz + collected-logs.tar.gz" \
+         "(plus loose results.html; extracted/ dropped)"
 fi
 if [ -f "$WORKDIR/nosetests.xml" ]; then
     mkdir -p "$STAGEDATA/artifacts"
