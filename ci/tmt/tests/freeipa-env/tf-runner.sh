@@ -91,6 +91,13 @@ SRPM_URL="${FREEIPA_SRPM_URL:-}"
 REPO_URL="${FREEIPA_REPO_URL:-}"
 REPO_REF="${FREEIPA_REPO_REF:-HEAD}"
 GLOBAL_CHANNEL="${FREEIPA_CHANNEL:-}"
+# Additional COPR repos to enable on the channel-image bakes (space-joined
+# OWNER/PROJECT list from the request's FREEIPA_COPR_REPOS variable). This
+# customizes channel *creation* on the guest without touching any preset.
+COPR_REPOS="${FREEIPA_COPR_REPOS:-}"
+COPR_ARGS=()
+for _r in $COPR_REPOS; do COPR_ARGS+=(--copr "$_r"); done
+[ -n "$COPR_REPOS" ] && echo "== COPR repos for the channel-image bakes: $COPR_REPOS"
 BATCH_HOME="$HOME/freeipa-jobs"
 SRPM_DIR="$BATCH_HOME/batch-srpm"
 
@@ -210,7 +217,8 @@ if [ -n "$MISSING" ]; then
         # one call covers both the SRPM-URL and the full-flow paths; present
         # channel images were skipped above (freshness: build once, reuse).
         bash "$CI/images/build.sh" --srpm "$SRPM_DIR" --channel "$c" \
-            --tool podman || die "channel image build failed for $c"
+            --tool podman ${COPR_ARGS[@]+"${COPR_ARGS[@]}"} \
+            || die "channel image build failed for $c"
         podman image inspect "freeipa-ci/full:$c" >/dev/null 2>&1 \
             || die "build succeeded but freeipa-ci/full:$c is still missing"
     done

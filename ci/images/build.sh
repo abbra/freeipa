@@ -28,6 +28,15 @@
 #                     debugsource are excluded by default.
 #   --pin SPECS       'NVR ...' specs installed before the IPA RPMs
 #                     (repo pinning, see full/Dockerfile).
+#   --copr OWNER/PROJECT
+#                     Additional COPR repository to enable before installing
+#                     anything (repeatable). Each becomes a dnf repo pointing
+#                     at copr.fedorainstantcloud.org for the active distro, so
+#                     the full image (IPA RPM + dependency installs) and the
+#                     SRPM build image (BuildRequires installs) can pull
+#                     non-distro packages. This customizes channel *creation*
+#                     without touching any preset (channel *use* stays the
+#                     abstract `image: freeipa-<channel>` reference).
 #   --tool TOOL       Container tool: podman (default) or docker.
 #
 # Example (validation host):
@@ -49,6 +58,7 @@ EXCLUDES=()
 EXCLUDES+=('*debuginfo')
 EXCLUDES+=('*debugsource')
 PINS=
+COPR_REPOS=
 TOOL=podman
 DISTARCH=x86_64
 while [[ $# -gt 0 ]]; do
@@ -61,6 +71,7 @@ while [[ $# -gt 0 ]]; do
         --tag) TAG="$2"; shift 2 ;;
         --exclude) EXCLUDES+=("$2"); shift 2 ;;
         --pin) PINS="$2"; shift 2 ;;
+        --copr) COPR_REPOS="${COPR_REPOS:+$COPR_REPOS }$2"; shift 2 ;;
         --tool) TOOL="$2"; shift 2 ;;
         --distarch) DISTARCH="$2"; shift 2 ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
@@ -159,10 +170,18 @@ if [[ -n "$SRPM" ]]; then
 
     # Dedicated build image (base + BuildRequires), baked once, not per build.
     BUILD_IMAGE="$TAG/build:$DIST"
-    if [[ "${BASE:-0}" != "1" ]] && ! "$TOOL" image inspect "$BUILD_IMAGE" >/dev/null 2>&1; then
-        echo "==> Building build image $BUILD_IMAGE"
-        "$TOOL" build -f "$SCRIPT_DIR/build/Dockerfile" -t "$BUILD_IMAGE" \
-            --build-arg "BASE=$BASE_IMAGE" "$SCRIPT_DIR/build"
+    need_build=0
+    [[ "${BASE:-0}" != "1" ]] && need_build=1
+    if (( need_build )) && [[ -z "$COPR_REPOS" ]] && \
+        "$TOOL" image inspect "$BUILD_IMAGE" >/dev/null 2>&1; then
+        need_build=0
+    fi
+    if (( need_build )); then
+        echo "==> Building build image $BUILD_IMAGE${COPR_REPOS:+ (COPR: $COPR_REPOS)}"
+        BARGS=(build -f "$SCRIPT_DIR/build/Dockerfile" -t "$BUILD_IMAGE" \
+               --build-arg "BASE=$BASE_IMAGE")
+        [[ -n "$COPR_REPOS" ]] && BARGS+=(--build-arg "COPR_REPOS=$COPR_REPOS")
+        "$TOOL" "${BARGS[@]}"
     fi
 
     TOPDIR="$WORK/rpmbuild"
@@ -200,6 +219,7 @@ echo "==> Building full image $FULL_IMAGE"
 cp "$SCRIPT_DIR/full/Dockerfile" "$WORK/"
 ARGS=(build -f "$WORK/Dockerfile" -t "$FULL_IMAGE" --build-arg "BASE=$BASE_IMAGE" "$WORK")
 [[ -n "$PINS" ]] && ARGS+=(--build-arg "PIN_SPECS=$PINS")
+[[ -n "$COPR_REPOS" ]] && ARGS+=(--build-arg "COPR_REPOS=$COPR_REPOS")
 "$TOOL" "${ARGS[@]}"
 
 # Image tag contract:

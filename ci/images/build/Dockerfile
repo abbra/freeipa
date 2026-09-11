@@ -21,11 +21,29 @@
 ARG BASE=freeipa-ci/base:44
 FROM ${BASE}
 
+# Additional COPR repositories to enable before installing anything
+# (space-separated OWNER/PROJECT names). Each becomes a dnf repo pointing
+# at https://copr.fedorainstantcloud.org/coprs/<owner>/<project>/fedora-
+# $releasever/$basearch/. This is the build-lane hook for compiling the SRPM
+# against non-distro BuildRequires (or a newer samba/389-ds than the distro
+# carries) without changing any preset: channel *creation* is customized
+# here, while channel *use* (the preset's abstract `image: freeipa-<channel>`
+# reference) stays untouched.
+ARG COPR_REPOS=
+
 # Build toolchain. On F44 `rpmbuild` lives in `rpm-build` (split out of
 # `rpm`). The autotools + gettext are the spec's unconditional BuildRequires
 # (gcc, make, pkgconfig, pkgconf, autoconf, automake, libtool, gettext,
 # gettext-devel) that %prep/%build need beyond `dnf builddep`-style BRs.
-RUN dnf -y install \
+RUN set -eux; \
+    if [ -n "${COPR_REPOS}" ]; then \
+        dnf -y install dnf-plugins-core; \
+        for repo in ${COPR_REPOS}; do \
+            dnf -y copr enable "$repo"; \
+        done; \
+        dnf makecache; \
+    fi; \
+    dnf -y install \
         rpm rpm-build make autoconf automake libtool pkgconf pkgconfig \
         gettext gettext-devel \
         gcc diffutils file findutils xz tar \

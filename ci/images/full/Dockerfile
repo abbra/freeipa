@@ -18,6 +18,16 @@
 ARG BASE=freeipa-ci/base:44
 FROM ${BASE}
 
+# Additional COPR repositories to enable before installing anything
+# (space-separated OWNER/PROJECT names). Each becomes a dnf repo pointing
+# at https://copr.fedorainstantcloud.org/coprs/<owner>/<project>/fedora-
+# $releasever/$basearch/. This is the build-lane hook for baking non-distro
+# packages (or a newer samba/389-ds than the distro carries) into the
+# channel image without changing any preset: channel *creation* is
+# customized here, while channel *use* (the preset's abstract
+# `image: freeipa-<channel>` reference) stays untouched.
+ARG COPR_REPOS=
+
 # Space-separated NVR specs to install before the IPA RPMs (see above).
 ARG PIN_SPECS=
 
@@ -26,6 +36,13 @@ ARG PIN_SPECS=
 COPY rpms/ /root/rpms/
 
 RUN set -eux; \
+    if [ -n "${COPR_REPOS}" ]; then \
+        dnf -y install dnf-plugins-core; \
+        for repo in ${COPR_REPOS}; do \
+            dnf -y copr enable "$repo"; \
+        done; \
+        dnf makecache; \
+    fi; \
     if [ -n "${PIN_SPECS}" ]; then \
         dnf -y install ${PIN_SPECS}; \
     fi; \

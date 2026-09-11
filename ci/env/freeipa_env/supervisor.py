@@ -59,7 +59,7 @@ class Supervisor:
     def __init__(self, queue, runners, outdir, job_timeout=14400,
                  keep_on_failure=False, remote_ci='~/freeipa-ci/ci',
                  jobs_dir='~/jobs', bootstrap=True, srpm=None,
-                 srpm_dir=None, image_timeout=9000):
+                 srpm_dir=None, image_timeout=9000, copr=None):
         self.queue = queue
         self.runners = runners
         self.outdir = outdir
@@ -76,6 +76,11 @@ class Supervisor:
         self.srpm = srpm
         self.srpm_dir = srpm_dir
         self.image_timeout = image_timeout
+        # build-lane extra repos (channel *creation* customized without
+        # touching the preset): a list of OWNER/PROJECT COPR repos enabled
+        # on the channel-image bakes. Host runners pass it to build.sh --copr;
+        # the TF runner records it for the guest's bakes.
+        self.copr = copr
         self._lock = threading.Lock()
         self._results = []
         self._logf = None
@@ -140,6 +145,11 @@ class Supervisor:
             for r in self.runners:
                 if r.kind == 'testing-farm':
                     r.ship_file(self.srpm, self.srpm_dir)  # records the URL
+                    if self.copr:
+                        # the guest bakes the channel images at job time; the
+                        # COPR repos ride along as the FREEIPA_COPR_REPOS
+                        # request variable (build_tf_request / tf-runner.sh).
+                        r.cfg['copr'] = list(self.copr)
                     self._log(f'[{r.spec}] SRPM URL recorded for the TF guest')
                     self._log(f'[{r.spec}] channel images: built by the TF '
                               'guest at job time (no prebuild)')
@@ -149,6 +159,7 @@ class Supervisor:
                 r.build_channels(self._remote_srpm(self.srpm_dir),
                                  self.srpm_dir, self._channels_needed(),
                                  self.remote_ci, self.image_timeout,
+                                 copr=self.copr,
                                  log=self._runner_log(r))
         # image resolution is a provider task: ask each host runner to
         # resolve every distinct preset's build channels against its local

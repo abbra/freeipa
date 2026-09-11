@@ -285,7 +285,7 @@ def fetch_artifacts(request_id, workdir, token, url=DEFAULT_URL,
     return per_key
 
 
-def build_tf_request(cfg, jobs, timeout_s, srpm=None):
+def build_tf_request(cfg, jobs, timeout_s, srpm=None, copr=None):
     """The TF request body for a **batch** of queue jobs (pure; used by the
     runner and by ``--dry-run``). One request carries the whole list; the
     guest builds its SRPM/channel images once and runs every preset (see
@@ -293,7 +293,9 @@ def build_tf_request(cfg, jobs, timeout_s, srpm=None):
     ``cfg``: repo_url, ref, arch, compose, plan, srpm_url, channel,
     extra_variables, skip_guest_setup. ``srpm`` is an explicit HTTP(S) SRPM
     URL (from ``--srpm``); when set it takes precedence over
-    ``cfg['srpm_url']``."""
+    ``cfg['srpm_url']``. ``copr`` is a list of OWNER/PROJECT repos enabled
+    on the guest's channel-image bakes (see tf-runner.sh); when set it is
+    emitted as the space-joined ``FREEIPA_COPR_REPOS`` request variable."""
     job_list = [
         {'key': j.key, 'preset_rel': j.preset_rel} for j in jobs
     ]
@@ -314,6 +316,8 @@ def build_tf_request(cfg, jobs, timeout_s, srpm=None):
         variables['FREEIPA_SRPM_URL'] = cfg['srpm_url']
     if cfg.get('channel'):
         variables['FREEIPA_CHANNEL'] = cfg['channel']
+    if copr:
+        variables['FREEIPA_COPR_REPOS'] = ' '.join(copr)
     for k, v in (cfg.get('extra_variables') or {}).items():
         variables[str(k)] = str(v)
     env = {
@@ -389,7 +393,7 @@ class TestingFarmRunner(Runner):
         return 0, ''
 
     def build_channels(self, srpm, srpm_dir, channels, remote_ci,
-                       image_timeout, log=None):
+                       image_timeout, log=None, copr=None):
         # The TF guest builds its channel images at job time.
         pass
 
@@ -405,7 +409,8 @@ class TestingFarmRunner(Runner):
         ``Runner.run_job``). The request-level state/overall decides only
         request failures (submit/poll error, or a hard guest crash); each
         preset's own status is graded from its fetched ``results.yaml``."""
-        body = build_tf_request(self.cfg, jobs, timeout_s)
+        body = build_tf_request(self.cfg, jobs, timeout_s,
+                                copr=self.cfg.get('copr') or None)
         base = (jobs_dir or '~/.freeipa-jobs') + '/tf-batch'
         shared = [
             f'== tf: batch of {len(jobs)} job(s): '

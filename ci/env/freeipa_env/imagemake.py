@@ -44,7 +44,8 @@ def _build_sh():
     return os.path.join(_images_dir(), 'build.sh')
 
 
-def build_sh_argv(srpm, channel, dist=None, tool='podman', tag=None):
+def build_sh_argv(srpm, channel, dist=None, tool='podman', tag=None,
+                  copr=None):
     """Flag arguments (after the build.sh path) that make build.sh compile the
     SRPM and bake one channel image. Shared by the local build path (podman
     provider / `freeipa-env ensure`, which shells out to build.sh here) and
@@ -56,10 +57,13 @@ def build_sh_argv(srpm, channel, dist=None, tool='podman', tag=None):
             '--tool', str(tool or 'podman')]
     if tag:
         args += ['--tag', str(tag)]
+    for repo in (copr or []):
+        args += ['--copr', repo]
     return args
 
 
-def ensure_channels(spec, workdir, channels, tool='podman', force=False):
+def ensure_channels(spec, workdir, channels, tool='podman', force=False,
+                    copr=None):
     """Ensure each abstract channel reference's full image is present on this
     host, building the absent ones (or all, when ``force``) from the spec's
     ``build.srpm``. Returns {ref: (concrete_tag, image_id)}.
@@ -91,7 +95,7 @@ def ensure_channels(spec, workdir, channels, tool='podman', force=False):
                 f'channel {ref!r} needs a build but no build.srpm is set on '
                 f'this env; run `ci/scripts/make-srpms.sh` and add a `build:` '
                 f'block (or pass --srpm to the ensure command)')
-        _build_one(tool, srpm, cname, dist, tag, workdir, force)
+        _build_one(tool, srpm, cname, dist, tag, workdir, force, copr)
         img_id = _image_id(tool, concrete)
         if not img_id:
             raise ImageBuildError(
@@ -101,11 +105,11 @@ def ensure_channels(spec, workdir, channels, tool='podman', force=False):
     return out
 
 
-def _build_one(tool, srpm, channel, dist, tag, workdir, force):
+def _build_one(tool, srpm, channel, dist, tag, workdir, force, copr=None):
     """Run build.sh --srpm to (re)build one channel image; stream output to
     workdir/logs/images-build.log and the caller's stderr."""
     args = ['bash', _build_sh()] + build_sh_argv(
-        srpm, channel, dist=dist, tool=tool, tag=tag)
+        srpm, channel, dist=dist, tool=tool, tag=tag, copr=copr)
     verb = 'rebuilding' if force else 'building'
     print(f'== {verb} channel image for {channel} from SRPM {srpm}',
           file=sys.stderr)

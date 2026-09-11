@@ -68,7 +68,7 @@ class Runner:
         raise NotImplementedError
 
     def build_channels(self, srpm, srpm_dir, channels, remote_ci,
-                       image_timeout, log=None):
+                       image_timeout, log=None, copr=None):
         raise NotImplementedError
 
     def make_step(self, remote_ci, jobs_dir, timeout_s, keep_on_failure):
@@ -170,9 +170,9 @@ class SshRunner(Runner):
                         timeout=timeout)
 
     def build_channels(self, srpm, srpm_dir, channels, remote_ci,
-                       image_timeout, log=None):
+                       image_timeout, log=None, copr=None):
         _build_channels_on(self, srpm, srpm_dir, channels, remote_ci,
-                           image_timeout, log)
+                           image_timeout, log, copr)
 
     def _exec(self, cmd, timeout=600):
         return self.ssh(cmd, timeout=timeout)
@@ -238,9 +238,9 @@ class LocalRunner(Runner):
                         timeout=timeout)
 
     def build_channels(self, srpm, srpm_dir, channels, remote_ci,
-                       image_timeout, log=None):
+                       image_timeout, log=None, copr=None):
         _build_channels_on(self, self._p(srpm), srpm_dir, channels,
-                           remote_ci, image_timeout, log)
+                           remote_ci, image_timeout, log, copr)
 
     def _exec(self, cmd, timeout=600):
         return self._sh(cmd, timeout=timeout)
@@ -259,7 +259,7 @@ class RunnerTransportError(Exception):
 
 
 def _build_channels_on(r, srpm, srpm_dir, channels, remote_ci,
-                       image_timeout, log):
+                       image_timeout, log, copr=None):
     """Build the queue's channel images on the runner from the shipped SRPM
     (design §3.10). Freshness model: a channel image already present is left
     untouched; only absent channels are built (bounded by image_timeout).
@@ -280,7 +280,7 @@ def _build_channels_on(r, srpm, srpm_dir, channels, remote_ci,
             if log:
                 log(f'channel {cname} image present; leaving untouched')
             continue
-        argv = build_sh_argv(srpm, cname, tool='podman')
+        argv = build_sh_argv(srpm, cname, tool='podman', copr=copr)
         cmd = ('cd ' + r._path(remote_ci) + ' && bash images/build.sh '
                + ' '.join(shlex.quote(a) for a in argv))
         if log:

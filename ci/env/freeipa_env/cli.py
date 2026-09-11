@@ -98,7 +98,8 @@ def cmd_report(args):
 def make_provider(spec, workdir, args):
     if spec.provider == 'podman':
         return PodmanProvider(spec, workdir, tool=args.tool,
-                              seccomp=args.seccomp)
+                              seccomp=args.seccomp,
+                              copr=getattr(args, 'copr', None) or None)
     if spec.provider == 'nested':
         return NestedProvider(spec, workdir, args)
     return ExternalProvider(spec, workdir, strict=args.strict,
@@ -502,6 +503,7 @@ def cmd_queue(args):
                 print('(testing-farm: no token configured; the request '
                       'JSON below is what would be submitted)')
             srpm = getattr(args, 'srpm', None)
+            copr = getattr(args, 'copr', None) or None
             # The supervisor dequeues round-robin over the runners; a TF
             # runner submits its whole subsequence as ONE batched request
             # (build the SRPM/channel images once, reuse across presets).
@@ -523,7 +525,7 @@ def cmd_queue(args):
                       + ', '.join(j.key for j in sub) + ') ==')
                 print(json.dumps(
                     build_tf_request(tf_cfg, sub, args.job_timeout,
-                                     srpm=srpm),
+                                     srpm=srpm, copr=copr),
                     indent=2))
         return 0
     outdir = args.outdir or os.path.join(os.getcwd(), f'{q.name}.queue')
@@ -534,6 +536,7 @@ def cmd_queue(args):
         print(f'error: {e}', file=sys.stderr)
         return 2
     srpm = getattr(args, 'srpm', None)
+    copr = getattr(args, 'copr', None) or None
     has_tf = any(s.strip() == 'testing-farm' for s in args.runner)
     if srpm and not has_tf and not os.path.exists(srpm):
         print(f'error: --srpm path does not exist: {srpm}', file=sys.stderr)
@@ -545,7 +548,8 @@ def cmd_queue(args):
                      remote_ci=args.remote_ci, jobs_dir=args.jobs_dir,
                      bootstrap=not args.no_bootstrap, srpm=srpm,
                      srpm_dir=srpm_dir,
-                     image_timeout=getattr(args, 'image_timeout', 9000))
+                     image_timeout=getattr(args, 'image_timeout', 9000),
+                     copr=copr)
     try:
         return sup.run()
     except SupervisorError as e:
@@ -634,6 +638,12 @@ def main(argv=None):
         sp.add_argument('--ssh-key', default=None,
                         help='external provider: private key for root SSH '
                              '(default: ~/.ssh/id_rsa)')
+        sp.add_argument('--copr', action='append', metavar='OWNER/PROJECT',
+                        default=[],
+                        help='additional COPR repo to enable on the channel-'
+                             'image builds (repeatable); customizes channel '
+                             '*creation* without touching the preset. '
+                             'Used by up/ensure with the podman provider.')
 
     sp = sub.add_parser('up', help='create (or attach) the environment')
     add_common(sp)
@@ -845,6 +855,14 @@ def main(argv=None):
     qrun.add_argument('--srpm-dir', default=None, metavar='PATH',
                       help='remote dir on each runner to ship the SRPM into '
                            '(default: <dirname --remote-ci>/srpm)')
+    qrun.add_argument('--copr', action='append', metavar='OWNER/PROJECT',
+                      default=[],
+                      help='additional COPR repo to enable on the queue '
+                           'channel-image builds (repeatable); customizes '
+                           'channel *creation* without touching any preset. '
+                           'Host runners pass it to build.sh --copr; the '
+                           'testing-farm runner emits it as the guest '
+                           'FREEIPA_COPR_REPOS request variable.')
     qrun.add_argument('--image-timeout', type=int, default=9000,
                       help='per-channel-image remote build timeout in '
                            'seconds (default 9000 = 2.5h)')
