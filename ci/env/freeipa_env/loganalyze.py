@@ -580,7 +580,12 @@ def parse_pytest_html(path):
     unescaped before ``json.loads``. Returns ``{nodeid: {result, duration,
     log}}`` keyed by the *un-mangled* pytest nodeid (``/`` and ``::`` kept);
     the caller maps that to the framework's mangled per-test dir name.
-    Returns ``{}`` when the attribute is absent or unparseable.
+    Returns ``{}`` when the attribute is absent or unparseable. The ``log``
+    is returned as **plain text**: pytest-html HTML-escapes the captured
+    output a second time (apostrophes -> ``&#x27;``) before JSON-embedding it,
+    and the single attribute-level unescape above does not undo that, so the
+    log value is unescaped here (once) so callers can re-escape it exactly
+    once without double-escaping into visible entity text.
     """
     try:
         with open(path, encoding='utf-8', errors='replace') as f:
@@ -607,7 +612,7 @@ def parse_pytest_html(path):
         out[str(nodeid)] = {
             'result': e.get('result') or '',
             'duration': e.get('duration') or '',
-            'log': e.get('log') or '',
+            'log': _htmllib.unescape(e.get('log') or ''),
         }
     return out
 
