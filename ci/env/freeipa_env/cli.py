@@ -439,17 +439,27 @@ def _fetch_xunit(prov, workdir):
         # run-base-tests.sh pushd's into $IPA_TESTS_LOGSDIR, like Azure).
         # probe LOGSDIR, /root, /, and the pkg dir. The probe uses
         # double-quoted python literals only, so it can be wrapped in
-        # single quotes for the container bash safely
+        # single quotes for the container bash safely. When no report
+        # exists (e.g. the install failed and the tests never ran) the
+        # probe yields an empty string, which we treat as a clean no-op
+        # below rather than a crash.
         probe = ('import ipatests, os; '
                  'c = ["/root/ipa-env/logs/nosetests.xml", '
                  '"/root/nosetests.xml", "/nosetests.xml", '
                  'os.path.join(os.path.dirname(ipatests.__file__), '
                  '"nosetests.xml")]; '
-                 'print(next(p for p in c if os.path.isfile(p)))')
+                 'print(next((p for p in c if os.path.isfile(p)), ""))')
         _rc, out = prov._exec(
             prov.spec.container_name(prov.spec.master),
             "python3 -c '%s'" % probe)
         src = out.strip().splitlines()[-1].strip()
+        if not src:
+            # no report written: expected when the install failed and the
+            # test phase was skipped, or when no tests matched. Not an error.
+            print('== no xunit report found '
+                  '(tests produced no nosetests.xml; expected when the '
+                  'install failed)', file=sys.stderr)
+            return
         prov._podman(['cp', f'{prov.spec.container_name(prov.spec.master)}:'
                             f'{src}',
                       os.path.join(workdir, 'nosetests.xml')])
