@@ -670,7 +670,10 @@ def main(argv=None):
         sp.add_argument('--ipa-packages', default=None, metavar='SPECS',
                         help='space-separated dnf specs to install in '
                              '--ipa-from-copr mode (default: '
-                             'freeipa-server python3-ipatests)')
+                             'all IPA subpackages -- the full server '
+                             'incl. freeipa-server-dns, the client, the '
+                             'python3-* bits and python3-ipatests -- '
+                             'resolved from the COPR repos)')
 
     sp = sub.add_parser('up', help='create (or attach) the environment')
     add_common(sp)
@@ -900,7 +903,10 @@ def main(argv=None):
     qrun.add_argument('--ipa-packages', default=None, metavar='SPECS',
                       help='space-separated dnf specs to install in '
                            '--ipa-from-copr mode (default: '
-                           'freeipa-server python3-ipatests)')
+                          'all IPA subpackages -- the full server '
+                          'incl. freeipa-server-dns, the client, the '
+                          'python3-* bits and python3-ipatests -- '
+                          'resolved from the COPR repos)')
     qrun.add_argument('--image-timeout', type=int, default=9000,
                       help='per-channel-image remote build timeout in '
                            'seconds (default 9000 = 2.5h)')

@@ -101,8 +101,10 @@ for _r in $COPR_REPOS; do COPR_ARGS+=(--copr "$_r"); done
 # Install IPA from the enabled COPR repos instead of building it from an
 # SRPM (build.sh --ipa-from-copr): the SRPM download/build stage is skipped
 # entirely and each channel image is baked with `dnf -y install <IPA
-# packages>` against the enabled COPR repos. IPA_PACKAGES (optional) overrides
-# the default dnf spec set (freeipa-server python3-ipatests).
+# packages>` against the enabled COPR repos. IPA_PACKAGES (optional)
+# overrides the default dnf spec set (every IPA subpackage -- the full
+# server incl. freeipa-server-dns, the client, the python3-* bits and
+# python3-ipatests).
 IPA_FROM_COPR="${FREEIPA_IPA_FROM_COPR:-}"
 IPA_PACKAGES="${FREEIPA_IPA_PACKAGES:-}"
 [ -n "$IPA_FROM_COPR" ] && echo "== IPA-from-COPR mode: $COPR_REPOS${IPA_PACKAGES:+ ($IPA_PACKAGES)}"

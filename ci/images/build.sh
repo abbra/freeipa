@@ -50,11 +50,14 @@
 #                     whether to invoke build.sh at all).
 #   --ipa-packages SPECS
 #                     Space-separated dnf specs to install in --ipa-from-copr
-#                     mode (default: `freeipa-server python3-ipatests`). The
-#                     default pulls the whole server (client, server-common,
-#                     python3-ipaserver) plus the test package (ipa-run-tests,
-#                     the `python3-ipatests` bits the `run` lane executes);
-#                     override to bake a narrower image.
+#                     mode. The default is every IPA subpackage (the full
+#                     server incl. freeipa-server-dns -- the `run` lane
+#                     installs with --setup-dns -- plus the client, the
+#                     python3-* bits and python3-ipatests, the package the
+#                     `run` lane executes); the run lane needs all of it,
+#                     and a bare `freeipa-server` would leave out e.g. the
+#                     integrated-DNS subpackage. Override to bake a narrower
+#                     image.
 #   --tool TOOL       Container tool: podman (default) or docker.
 #
 # Example (validation host):
@@ -78,7 +81,16 @@ EXCLUDES+=('*debugsource')
 PINS=
 COPR_REPOS=
 IPA_FROM_COPR=0
-IPA_PACKAGES="freeipa-server python3-ipatests"
+# Every IPA subpackage (from freeipa.spec.in): the full server (incl.
+# freeipa-server-dns, required by the --setup-dns install), the client,
+# the python3-* bits and python3-ipatests. Resolved entirely from the
+# enabled COPR repos (noarch + arch), so this never under-resolves.
+IPA_PACKAGES="freeipa freeipa-server freeipa-server-common freeipa-server-dns \
+    freeipa-server-encrypted-dns freeipa-server-trust-ad freeipa-client \
+    freeipa-client-common freeipa-client-encrypted-dns freeipa-client-samba \
+    freeipa-client-epn freeipa-common freeipa-python-compat freeipa-selinux \
+    freeipa-selinux-nfast freeipa-selinux-luna python3-ipaserver \
+    python3-ipaclient python3-ipalib python3-ipatests"
 TOOL=podman
 DISTARCH=x86_64
 while [[ $# -gt 0 ]]; do
