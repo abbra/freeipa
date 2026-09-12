@@ -81,11 +81,12 @@ EXCLUDES+=('*debugsource')
 PINS=
 COPR_REPOS=
 IPA_FROM_COPR=0
-# Every IPA subpackage (from freeipa.spec.in): the full server (incl.
-# freeipa-server-dns, required by the --setup-dns install), the client,
-# the python3-* bits and python3-ipatests. Resolved entirely from the
-# enabled COPR repos (noarch + arch), so this never under-resolves.
-IPA_PACKAGES="freeipa freeipa-server freeipa-server-common freeipa-server-dns \
+# Every IPA subpackage (from freeipa.spec.in, minus the source-only
+# `freeipa` meta, which has no binary RPM in COPR): the full server
+# (incl. freeipa-server-dns, required by the --setup-dns install), the
+# client, the python3-* bits and python3-ipatests. Resolved entirely from
+# the enabled COPR repos (noarch + arch), so this never under-resolves.
+IPA_PACKAGES="freeipa-server freeipa-server-common freeipa-server-dns \
     freeipa-server-encrypted-dns freeipa-server-trust-ad freeipa-client \
     freeipa-client-common freeipa-client-encrypted-dns freeipa-client-samba \
     freeipa-client-epn freeipa-common freeipa-python-compat freeipa-selinux \
