@@ -452,7 +452,9 @@ def _fetch_xunit(prov, workdir):
         _rc, out = prov._exec(
             prov.spec.container_name(prov.spec.master),
             "python3 -c '%s'" % probe)
-        src = out.strip().splitlines()[-1].strip()
+        # the probe prints exactly one line (the path, or empty when no
+        # report exists); there is no multi-line output to worry about.
+        src = out.strip()
         if not src:
             # no report written: expected when the install failed and the
             # test phase was skipped, or when no tests matched. Not an error.
