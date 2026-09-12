@@ -132,6 +132,13 @@ class Supervisor:
     def setup(self):
         self._validate_presets()
         os.makedirs(os.path.join(self.outdir, 'transcripts'), exist_ok=True)
+        for r in self.runners:
+            if r.kind == 'testing-farm':
+                # Keep the TF runner's per-preset artifact downloads inside
+                # this queue's outdir (repo-local) rather than under a
+                # home directory; the transcript's workdir paths and the
+                # summary then point at the real local files.
+                r.artifacts_base = self.outdir
         self._logf = open(os.path.join(self.outdir, 'queue.log'), 'a')
         self._log(f'queue {self.queue.name}: {len(self.queue.jobs)} job(s), '
                   f'{len(self.runners)} runner(s): '

@@ -372,6 +372,12 @@ class TestingFarmRunner(Runner):
             token, url=cfg.get('url') or DEFAULT_URL,
             timeout=cfg.get('api_timeout') or 30)
         self._request_id = None
+        # Local root for the per-preset artifacts this runner downloads.
+        # The supervisor points it at the queue's outdir so the local
+        # fetch stays inside the repo (no ~/... home-dir writes, no
+        # literal-~ directories); None falls back to the runner's
+        # jobs_dir for standalone use.
+        self.artifacts_base = None
 
     # -- interface ------------------------------------------------------
     def check(self):
@@ -423,7 +429,12 @@ class TestingFarmRunner(Runner):
                                 copr=self.cfg.get('copr') or None,
                                 copr_ipa=bool(self.cfg.get('copr_ipa')),
                                 ipa_packages=self.cfg.get('ipa_packages'))
-        base = (jobs_dir or '~/.freeipa-jobs') + '/tf-batch'
+        # Local per-preset artifact root, inside the queue's outdir when the
+        # supervisor provides one (repo-local: no home-dir writes, no
+        # literal-~ paths); fall back to the jobs_dir for standalone use.
+        root = self.artifacts_base or jobs_dir or '~/.freeipa-jobs'
+        base = os.path.join(os.path.abspath(os.path.expanduser(root)),
+                            'tf-batch')
         shared = [
             f'== tf: batch of {len(jobs)} job(s): '
             + ', '.join(j.key for j in jobs),
@@ -507,7 +518,10 @@ class TestingFarmRunner(Runner):
                 for res in results:
                     key = res['job'].key
                     rw = res['workdir']
-                    rw_local = os.path.expanduser(rw)
+                    # base is already absolute (artifacts_base / expanded
+                    # jobs_dir), so workdir points straight at the fetched
+                    # files -- no ~ expansion needed or wanted here.
+                    rw_local = rw
                     if per_key.get(key) or \
                             os.path.isfile(os.path.join(rw_local,
                                                         'results.yaml')):
