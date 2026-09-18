@@ -822,48 +822,70 @@ class CertDB:
         """
         self.nssdb.convert_db()
 
-    def pki_issue_ra_certificate(self, csrfile, certfile, dm_password):
+    def pki_issue_ra_certificate(self, csrfile, certfile, dm_password=None,
+                                 client_certfile=None, client_keyfile=None):
         """Using a user-provided CSR submit it to the CA using its
            python API.
 
         `csrfile` points to the CSR.  `certfile` is the path where we
         write the issued certificate.
-        """
-        pk12pwfile = ipautil.write_tmp_file(dm_password)
-        agent_key = ipautil.write_tmp_file("")
-        agent_cert = ipautil.write_tmp_file("")
-        cmd = [
-            paths.OPENSSL, 'pkcs12',
-            '-in', paths.DOGTAG_ADMIN_P12,
-            '-out', agent_cert.name,
-            '-nokeys',
-            '-password', 'file:{pk12pwfile}'.format(pk12pwfile=pk12pwfile.name),
-        ]
-        # the PKCS12 MAC requires PKCS12KDF which is not an approved FIPS
-        # algorithm and cannot be supported by the FIPS provider.
-        # Do not require mac verification in FIPS mode
-        fips_enabled = tasks.is_fips_enabled()
-        if fips_enabled:
-            cmd.append('-nomacver')
-        ipautil.run(cmd)
 
-        cmd = [
-            paths.OPENSSL, 'pkcs12',
-            '-in', paths.DOGTAG_ADMIN_P12,
-            '-out', agent_key.name,
-            '-nocerts',
-            '-noenc',
-            '-password', 'file:{pk12pwfile}'.format(pk12pwfile=pk12pwfile.name),
-        ]
-        if fips_enabled:
-            cmd.append('-nomacver')
-        ipautil.run(cmd)
+        By default the Dogtag admin certificate and key are unsealed from
+        DOGTAG_ADMIN_P12 using `dm_password` and used to authenticate the
+        enrollment. Pass `client_certfile` and `client_keyfile` to
+        authenticate with an existing agent pair instead of unsealing the
+        admin PKCS #12.
+
+        The Akamu RA enrollment uses this: it reuses the ipara RA agent
+        pair (paths.RA_AGENT_PEM / paths.RA_AGENT_KEY), which is already
+        authorized for certificate enrollment and is present on the CA
+        renewal master. That removes the DM-password dependency, which is
+        unavailable on the upgrade path.
+        """
+        if client_certfile is None:
+            # Keep the temporary file objects referenced until the
+            # enrollment is done: NamedTemporaryFile deletes its file as
+            # soon as the object is garbage-collected.
+            pk12pwfile = ipautil.write_tmp_file(dm_password)
+            agent_key_file = ipautil.write_tmp_file("")
+            agent_cert_file = ipautil.write_tmp_file("")
+            cmd = [
+                paths.OPENSSL, 'pkcs12',
+                '-in', paths.DOGTAG_ADMIN_P12,
+                '-out', agent_cert_file.name,
+                '-nokeys',
+                '-password', f"file:{pk12pwfile.name}",
+            ]
+            # the PKCS12 MAC requires PKCS12KDF which is not an approved FIPS
+            # algorithm and cannot be supported by the FIPS provider.
+            # Do not require mac verification in FIPS mode
+            fips_enabled = tasks.is_fips_enabled()
+            if fips_enabled:
+                cmd.append('-nomacver')
+            ipautil.run(cmd)
+
+            cmd = [
+                paths.OPENSSL, 'pkcs12',
+                '-in', paths.DOGTAG_ADMIN_P12,
+                '-out', agent_key_file.name,
+                '-nocerts',
+                '-noenc',
+                '-password', f"file:{pk12pwfile.name}",
+            ]
+            if fips_enabled:
+                cmd.append('-nomacver')
+            ipautil.run(cmd)
+            agent_cert = agent_cert_file.name
+            agent_key = agent_key_file.name
+        else:
+            agent_cert = client_certfile
+            agent_key = client_keyfile
 
         pki_client = pki.client.PKIClient(
             url='https://localhost:8443', verify=False)
         pki_client.set_client_auth(
-            client_cert=agent_cert.name,
-            client_key=agent_key.name,
+            client_cert=agent_cert,
+            client_key=agent_key,
         )
         ca_client = pki.ca.CAClient(pki_client)
         cert_client = pki.cert.CertClient(ca_client)

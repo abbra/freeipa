@@ -1969,6 +1969,12 @@ def upgrade_configuration():
                 akamu_custodia = custodiainstance.CustodiaInstance(
                     host_name=api.env.host, realm=api.env.realm,
                     custodia_peer=akamu_peer)
+        # Only __init__ ran for the CA here (never configure_instance), so
+        # subject_base and ca_subject are unset; the Akamu RA enrollment reads
+        # both. Populate them the same way configure_instance does.
+        ca.subject_base = subject_base or \
+            installutils.default_subject_base(api.env.realm)
+        ca.ca_subject = installutils.default_ca_subject_dn(ca.subject_base)
         akamu.upgrade_instance(ca=ca, custodia=akamu_custodia)
 
         ca_update_acme_configuration(ca, fqdn)
