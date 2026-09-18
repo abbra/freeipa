@@ -173,7 +173,12 @@ In this mode, `ipa-otpd` launches `oidc_child` with `--issuer-url`
 pointing at Ahdapa and `--client-id` set to the per-replica public Web
 UI client `ipa-webui-<fqdn>` -- the same client the installer registers
 with Ahdapa for the Web UI, using the `none` token endpoint
-authentication method. No client secret is passed: `oidc_child`
+authentication method. The installer registers this client with both
+the `authorization_code` and
+`urn:ietf:params:oauth:grant-type:device_code` grant types, since
+Ahdapa enforces the per-client `grant_types` list on both the
+device authorization request and the device code token polling.
+No client secret is passed: `oidc_child`
 authenticates to Ahdapa as a public client, and Ahdapa itself holds the
 per-user credentials for the external IdP and performs the federation
 to it.
