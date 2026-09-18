@@ -6,7 +6,9 @@ client_id                  = "$IDP_CLIENT_ID"
 client_name                = "FreeIPA Web UI"
 token_endpoint_auth_method = "none"
 scopes                     = ["openid", "profile", "krb5:ccache"]
-grant_types                = ["authorization_code"]
+# The Web UI client is also used by ipa-otpd for the OAuth 2.0 Device
+# Authorization Grant flow (RFC 8628), hence the device_code grant type.
+grant_types                = ["authorization_code", "urn:ietf:params:oauth:grant-type:device_code"]
 redirect_uris              = [
     "https://$FQDN/ipa/ui/",
     "https://$FQDN/ipa/modern-ui/",
