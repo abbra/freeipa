@@ -89,9 +89,6 @@ def request_ra_certificate(ca):
         tmpdb.create_certdbs()
         tmpdb.load_cacert(chain_file, IPA_CA_TRUST_FLAGS)
 
-        tmpdb.import_pkcs12(
-            paths.DOGTAG_ADMIN_P12, pkcs12_passwd=ca.dm_password)
-
         (keytype, keysize) = certs.get_key_type_and_strength(
             api.env.key_type_size)
         if keytype == "mldsa":
@@ -110,19 +107,28 @@ def request_ra_certificate(ca):
             cmd.extend(["-q", keysize])
         ipautil.run(cmd)
 
+        # Authenticate the enrollment with the ipara RA agent pair instead of
+        # unsealing the Dogtag admin PKCS #12 (which requires the DM password,
+        # unavailable on the upgrade path). Dogtag's AgentCertAuth authorizes
+        # the "Certificate Manager Agents" group, which both ipara and akamu-ra
+        # belong to, so the ipara agent may enroll the caSubsystemCert profile.
         tmpdb.pki_issue_ra_certificate(
             csrfile=csrfile, certfile=paths.AKAMU_RA_AGENT_PEM,
-            dm_password=ca.dm_password)
+            client_certfile=paths.RA_AGENT_PEM,
+            client_keyfile=paths.RA_AGENT_KEY)
 
         cert = x509.load_certificate_from_file(paths.AKAMU_RA_AGENT_PEM)
         tmpdb.add_cert(cert, AKAMU_RA_SUBJECT_CN, EMPTY_TRUST_FLAGS)
-        pk12_pwdfile = ipautil.write_tmp_file(ca.dm_password)
+        # The p12 is transient (lives in the tmp DB and is cleaned up on exit);
+        # a fresh random password is safer than reusing the DM password.
+        p12_password = secrets.token_hex(16)
+        pk12_pwdfile = ipautil.write_tmp_file(p12_password)
         tmpdb.export_pkcs12(
             os.path.join(tmpdb.secdir, "akamu-ra.p12"),
             pk12_pwdfile.name, AKAMU_RA_SUBJECT_CN)
         certs.install_key_from_p12(
             os.path.join(tmpdb.secdir, "akamu-ra.p12"),
-            ca.dm_password, paths.AKAMU_RA_AGENT_KEY)
+            p12_password, paths.AKAMU_RA_AGENT_KEY)
 
     _create_akamu_ra_agent(ca, cert)
     _set_akamu_ra_cert_perms()
