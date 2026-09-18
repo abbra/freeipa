@@ -37,10 +37,10 @@
 #include <sys/wait.h>
 
 #include "internal.h"
+#include "ipa_hostname.h"
 
 #define OIDC_CHILD_PATH "/usr/libexec/sssd/oidc_child"
 #define ENV_AHDAPA_ISSUER_URL "ahdapa_issuer_url"
-#define AHDAPA_CLIENT_ID "ipa-otpd"
 
 struct child_ctx {
     int read_from_child;
@@ -131,6 +131,13 @@ static void oauth2_on_child_writable(verto_ctx *vctx, verto_ev *ev)
         iov[idx].iov_base = child_ctx->saved_item->oauth2.device_code_reply;
         iov[idx].iov_len = strlen(child_ctx->saved_item->oauth2.device_code_reply);
         idx++;
+        if (child_ctx->use_ahdapa) {
+            /* oidc_child --issuer-url mode expects the device code JSON
+             * on a single stdin line; terminate it. */
+            iov[idx].iov_base = "\n";
+            iov[idx].iov_len = 1;
+            idx++;
+        }
         io = writev(verto_get_fd(ev), iov, idx);
     }
     if (io < 0) {
@@ -414,6 +421,7 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
     size_t args_idx = 0;
     krb5_data data_state = {0};
     struct otpd_queue_item *saved_item = NULL;
+    char *ahdapa_client_id = NULL;
 
     if (oauth2_state != OAUTH2_GET_DEVICE_CODE
                 && oauth2_state != OAUTH2_GET_ACCESS_TOKEN) {
@@ -478,14 +486,33 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
     if (child_ctx->use_ahdapa) {
         /* ahdapa_issuer_url is written to /etc/ipa/default.conf by
          * ahdapainstance.py and reaches ipa-otpd as an environment
-         * variable via the systemd EnvironmentFile directive */
+         * variable via the systemd EnvironmentFile directive.
+         *
+         * In ahdapa mode oidc_child talks to the local ahdapa instance
+         * using the ahdapa-registered public Web UI client. No client
+         * secret is passed: ahdapa owns the external IdP credentials
+         * per user and performs the federation itself. The client id
+         * must match idp_client_id() in ahdapainstance.py and
+         * $IDP_CLIENT_ID in ahdapa-clients.toml.template. */
+        const char *fqdn = ipa_gethostfqdn();
+        if (fqdn == NULL) {
+            ret = EINVAL;
+            otpd_log_req((*item)->req, "Failed to get host FQDN");
+            goto done;
+        }
+        ahdapa_client_id = malloc(strlen(fqdn) + 12);
+        if (ahdapa_client_id == NULL) {
+            ret = ENOMEM;
+            otpd_log_err(ret, "Failed to allocate ahdapa client id");
+            goto done;
+        }
+        snprintf(ahdapa_client_id, strlen(fqdn) + 12, "ipa-webui-%s", fqdn);
+
         args[args_idx++] = "--issuer-url";
         args[args_idx++] = (char *) ahdapa_issuer;
 
-        /* must match IDP_OTPD_CLIENT_ID in ahdapainstance.py and
-         * $IDP_OTPD_CLIENT_ID in ahdapa-clients.toml.template */
         args[args_idx++] = "--client-id";
-        args[args_idx++] = AHDAPA_CLIENT_ID;
+        args[args_idx++] = ahdapa_client_id;
 
         args[args_idx++] = "--scope";
         args[args_idx++] = "openid";
@@ -646,6 +673,7 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
 
     ret = 0;
 done:
+    free(ahdapa_client_id);
     if (ret == 0) {
         *item = NULL;
     } else {
