@@ -155,7 +155,42 @@ capability, it is not necessary that the same capability would be supported by
 all external IdPs. It also does not require registration of the individual IPA
 OAuth 2.0 clients to the external IdPs.
 
-Setting up an integrated IdP with FreeIPA is beyond scope of this document.
+The "integrated IdP" role described above is now filled by Ahdapa, the
+OAuth2/OIDC identity provider that FreeIPA installs and manages on the
+same host (see [webui-oauth2-login.md](../webui-oauth2-login.md)). When
+Ahdapa is deployed, `ipa-otpd` routes the device authorization flow
+through it instead of reaching the external IdP directly.
+
+### Routing device authorization through Ahdapa
+
+When the `ahdapa_issuer_url` environment variable is set on `ipa-otpd`,
+the daemon routes the OAuth 2.0 Device Authorization Grant flow through
+the local Ahdapa instance. The Ahdapa installer writes this variable to
+`/etc/ipa/default.conf`, and the `ipa-otpd` systemd service loads it
+through the `EnvironmentFile` directive.
+
+In this mode, `ipa-otpd` launches `oidc_child` with `--issuer-url`
+pointing at Ahdapa and `--client-id` set to the per-replica public Web
+UI client `ipa-webui-<fqdn>` -- the same client the installer registers
+with Ahdapa for the Web UI, using the `none` token endpoint
+authentication method. No client secret is passed: `oidc_child`
+authenticates to Ahdapa as a public client, and Ahdapa itself holds the
+per-user credentials for the external IdP and performs the federation
+to it.
+
+The device code JSON returned by the first `oidc_child` call is passed
+to the second one on stdin as a single JSON line terminated with a
+newline, as `oidc_child` expects in `--issuer-url` mode.
+
+Ahdapa identifies users with the `uid@REALM` subject claim, so
+`ipa-otpd` compares the resource owner identity against the RADIUS
+`User-Name` attribute (the Kerberos principal) of the request instead
+of the `ipaidpSub` value stored in the user entry.
+
+When the environment variable is not set, the behavior is unchanged:
+`ipa-otpd` uses the external IdP details from the user's `ipaidp*`
+entry and passes the client secret to `oidc_child` on stdin
+(`--client-secret-stdin`).
 
 ### High-level authentication overview
 
@@ -495,6 +530,11 @@ libraries to implement OAuth 2.0 communication.
 `ipa-otpd` retrieves IdP references associated with the user being authenticated
 and calls out to the `oidc_child` process to verify the user identity against an
 associated IdP.
+
+In addition, when Ahdapa is deployed, `ipa-otpd` routes the device
+authorization flow through it rather than reaching the external IdP
+directly (see
+[Routing device authorization through Ahdapa](#routing-device-authorization-through-ahdapa)).
 
 [idp-api]: idp-api.html
 
