@@ -42,7 +42,12 @@ logins on IPA-enrolled machines. That design uses SSSD as the OAuth2 client and
 the KDC as the token verifier. The current proposal is complementary: it
 addresses browser-based Web UI authentication using the standard Authorization
 Code flow with PKCE, with Ahdapa serving as both the authorization server and
-authentication frontend.
+authentication frontend. When Ahdapa is deployed, it also serves as the
+integrated IdP for the external-IdP device-code flow: `ipa-otpd` routes the
+OAuth 2.0 Device Authorization Grant through Ahdapa using the same
+per-replica public Web UI client (`ipa-webui-<fqdn>`, no client secret),
+with Ahdapa performing the federation to the external IdP (see
+[external identity provider](external-idp/external-idp.md)).
 
 That routing is a property of the deployment, not of the request: it is
 switched on by the `ahdapa_issuer_url` key that the installer writes to
