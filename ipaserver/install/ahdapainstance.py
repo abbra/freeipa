@@ -304,3 +304,8 @@ class AhdapaInstance(SimpleServiceInstance):
             self._configure_httpd_proxy()
             logger.info("Restarting ahdapa")
             self.restart()
+            # Reload httpd so the rewritten ipa-idp-proxy.conf takes
+            # effect (e.g. the mod_proxy worker parameter values);
+            # ahdapa's restart alone does not pick up new proxy
+            # config, and _configure_httpd_proxy may have changed it.
+            services.knownservices.httpd.reload_or_restart()
