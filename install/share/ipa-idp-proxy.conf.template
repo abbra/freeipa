@@ -8,6 +8,23 @@
 # worker-sharing bug where two UDS workers with the same logical URL can
 # have their pooled connections cross-contaminated, silently routing a
 # request to the wrong backend socket.
+# Ahdapa's session cookie (Set-Cookie) embeds the user's group
+# memberships in an AES-256-GCM sealed, base64url-encoded blob, so it
+# grows with the user's group count. Raise both per-field header
+# limits from the 8 KiB defaults:
+#
+#   LimitRequestFieldSize (server level, below): the same oversized
+#   cookie comes back in the Cookie header of every subsequent request
+#   to /idp/; without this, Apache rejects those requests (AH10102).
+#
+#   ResponseFieldSize (mod_proxy worker parameter on the ProxyPass
+#   inside the Location below, not a standalone directive): the
+#   upstream Set-Cookie from the login response; without it, Apache
+#   rejects the login response (AH10124/AH01106, logged with a
+#   misleading "(28)No space left on device" errno string).
+#
+# 32768 bytes supports roughly 700-900 short group names.
+LimitRequestFieldSize 32768
 
 RedirectMatch permanent ^/idp$$ /idp/
 
@@ -24,7 +41,11 @@ RedirectMatch permanent ^/idp$$ /idp/
     # file loads first (alphabetically) silently steal the other's cookie
     # rewrite, breaking session cookies for one of the two services.
     # Verified empirically against httpd 2.4.68/mod_proxy.
-    ProxyPass        unix:$AHDAPA_SOCKET|http://ahdapa-local/  nocanon
+    # ResponseFieldSize=... is a mod_proxy ProxyPass worker parameter
+    # (present in 2.4 builds since the 2018 PR62199 backport): it
+    # raises the per-field limit on upstream response headers, where
+    # Ahdapa's login Set-Cookie can exceed the 8192-byte default.
+    ProxyPass        unix:$AHDAPA_SOCKET|http://ahdapa-local/  nocanon ResponseFieldSize=32768
     ProxyPassReverse http://ahdapa-local/
     ProxyPassReverseCookiePath / /idp/
     ProxyPreserveHost On
