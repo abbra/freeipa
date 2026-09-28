@@ -181,6 +181,16 @@ error:
     otpd_queue_push(push, item);
 }
 
+/* Proxy-State set by oauth2.c: the device code state JSON from oidc_child. */
+static bool is_oauth2_state(const krb5_data *data_state)
+{
+    static const char prefix[] = "{\"device_code\":";
+
+    return data_state != NULL && data_state->data != NULL
+           && data_state->length > sizeof(prefix) - 1
+           && memcmp(data_state->data, prefix, sizeof(prefix) - 1) == 0;
+}
+
 static enum oauth2_state get_oauth2_state(enum ldap_query ldap_query,
                                           struct otpd_queue_item *item)
 {
@@ -196,6 +206,11 @@ static enum oauth2_state get_oauth2_state(enum ldap_query ldap_query,
     if (data_pwd == NULL && data_state == NULL) {
         oauth2_state = OAUTH2_GET_DEVICE_CODE;
     } else if (data_pwd == NULL && data_state != NULL) {
+        oauth2_state = OAUTH2_GET_ACCESS_TOKEN;
+    } else if (data_pwd != NULL && is_oauth2_state(data_state)) {
+        /* DARC: the second round carries the confirmation code the user
+         * typed at the terminal in User-Password, next to the device code
+         * state. This is not a password for an LDAP bind. */
         oauth2_state = OAUTH2_GET_ACCESS_TOKEN;
     }
 
