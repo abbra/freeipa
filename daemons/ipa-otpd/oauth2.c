@@ -232,6 +232,59 @@ static bool json_array_has(json_t *array, const char *value)
     return false;
 }
 
+/* RFC 8176 authentication method reference values by factor: 0 knowledge,
+ * 1 possession, 2 inherence; -1 for values that are not a factor. */
+static int amr_factor(const char *method)
+{
+    static const char *const knowledge[] = { "pwd", "pin", "kba", NULL };
+    static const char *const possession[] = { "otp", "sms", "tel", "hwk",
+                                              "swk", "sc", NULL };
+    static const char *const inherence[] = { "fpt", "face", "iris",
+                                             "retina", "vbm", NULL };
+    const char *const *classes[] = { knowledge, possession, inherence };
+    size_t c, i;
+
+    for (c = 0; c < sizeof(classes) / sizeof(classes[0]); c++) {
+        for (i = 0; classes[c][i] != NULL; i++) {
+            if (strcmp(method, classes[c][i]) == 0) {
+                return (int) c;
+            }
+        }
+    }
+
+    return -1;
+}
+
+/* Multi-factor: the IdP says so ("mfa"), or methods from at least two
+ * different factors were used. A single method such as "otp" or "hwk" is
+ * one factor. */
+static bool amr_is_mfa(json_t *amr)
+{
+    unsigned int factors = 0;
+    json_t *jval;
+    size_t i;
+    int f;
+
+    if (!json_is_array(amr)) {
+        return false;
+    }
+
+    if (json_array_has(amr, "mfa")) {
+        return true;
+    }
+
+    json_array_foreach(amr, i, jval) {
+        if (json_is_string(jval)) {
+            f = amr_factor(json_string_value(jval));
+            if (f >= 0) {
+                factors |= 1u << f;
+            }
+        }
+    }
+
+    return __builtin_popcount(factors) >= 2;
+}
+
 /* Reply-Message for Access-Accept: indicators for the KDC plugin, from the
  * confirmation and from the strength of the upstream sign-in that the IdP
  * relays in acr/amr (RFC 8176 values). */
@@ -263,9 +316,7 @@ static char *accept_indicators(bool confirmed, const char *auth_context)
         }
     }
 
-    if (json_is_array(jamr)
-            && (json_array_has(jamr, "mfa") || json_array_has(jamr, "otp")
-                || json_array_has(jamr, "hwk") || json_array_has(jamr, "sc"))) {
+    if (amr_is_mfa(jamr)) {
         json_array_append_new(jind, json_string(OAUTH2_IND_MFA));
     }
     if ((json_is_array(jamr) && json_array_has(jamr, "hwk"))
