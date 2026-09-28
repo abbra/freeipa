@@ -332,9 +332,10 @@ BuildRequires:  nodejs(abi) < 127, nodejs-npm
 %else
 BuildRequires:  nodejs(abi) < 111, nodejs-npm
 %endif
-# use old dependency on RHEL 8 for now
+# JavaScript minifier for the Web UI; install/ui/util/compile.sh uses
+# whichever is installed. RHEL 10 + EPEL has only uglify-js.
 %if 0%{?fedora} >= 31 || 0%{?rhel} >= 9
-BuildRequires:  python3-rjsmin
+BuildRequires:  (python3-rjsmin or uglify-js)
 %else
 BuildRequires:  uglify-js
 %endif

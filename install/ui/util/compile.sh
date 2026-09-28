@@ -23,9 +23,6 @@ set -o errexit
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 RDIR=$DIR/../release
 
-# for platform ID
-. /etc/os-release
-
 usage() {
 cat <<-__EOF__;
 NAME
@@ -108,15 +105,18 @@ if [[ ! $OUTPUT_FILE ]] ; then
     OUTPUT_FILE=$RDIR/$RELEASE/$LAYER.js
 fi
 
-# compile using python rjsmin on most platforms and uglify-js on RHEL 8
+# Minify with python3-rjsmin when it is installed, otherwise with uglify-js
+# (RHEL 8, and RHEL 10 with EPEL, which do not ship python3-rjsmin). Neither
+# mangles names, so the output is equivalent.
 echo "Minimizing: $RDIR/$RELEASE/$LAYER.js"
 echo "Target file: $OUTPUT_FILE"
-if [[ ("$ID" == "rhel" || "$ID_LIKE" =~ "rhel")
-      && ("$VERSION_ID" =~ "8." || "$VERSION_ID" == "8") ]];
-then
+if ${PYTHON:-python3} -c 'import rjsmin' 2>/dev/null; then
+    echo "Minifier: rjsmin"
+    ${PYTHON:-python3} -m rjsmin < $RDIR/$RELEASE/$LAYER.js > $OUTPUT_FILE
+elif command -v uglifyjs >/dev/null 2>&1; then
     echo "Minifier: uglifyjs"
     uglifyjs < $RDIR/$RELEASE/$LAYER.js > $OUTPUT_FILE
 else
-    echo "Minifier: rjsmin"
-    ${PYTHON:-python3} -m rjsmin < $RDIR/$RELEASE/$LAYER.js > $OUTPUT_FILE
+    echo "No JavaScript minifier found: install python3-rjsmin or uglify-js" >&2
+    exit 1
 fi
