@@ -35,12 +35,37 @@
 #include <string.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
+#include <time.h>
+#include <jansson.h>
 
 #include "internal.h"
 #include "ipa_hostname.h"
 
 #define OIDC_CHILD_PATH "/usr/libexec/sssd/oidc_child"
 #define ENV_AHDAPA_ISSUER_URL "ahdapa_issuer_url"
+
+/* DARC (Device Authorization with Return Confirmation) in Ahdapa mode:
+ * ipa-otpd on each KDC host is its own confidential client of the
+ * integrated IdP, authenticated with private_key_jwt. The key pair is
+ * created by the installer (ahdapainstance.py) and the public key is
+ * registered for the client "ipa-otpd-<fqdn>". */
+#define AHDAPA_OTPD_CLIENT_PREFIX "ipa-otpd-"
+#define AHDAPA_OTPD_P12 "/var/lib/ipa/ipa-otpd/ahdapa-client.p12"
+#define AHDAPA_OTPD_P12_PASSWORD "/var/lib/ipa/ipa-otpd/ahdapa-client.pwd"
+
+/* Indicators added to the ticket through the KDC plugin. */
+#define OAUTH2_IND_CONFIRMED "idp-confirmed"
+#define OAUTH2_IND_MFA "idp-mfa"
+#define OAUTH2_IND_PHR "idp-phr"
+
+/* Per-principal initiation budget: at most OAUTH2_THROTTLE_BURST device
+ * flows per OAUTH2_THROTTLE_WINDOW seconds, so that anyone able to start a
+ * Kerberos login for a principal cannot flood the IdP (or the user) with
+ * sign-in requests. Per-KDC-host limits are applied by the IdP, which sees
+ * one client per host. */
+#define OAUTH2_THROTTLE_BURST 5
+#define OAUTH2_THROTTLE_WINDOW 300
+#define OAUTH2_THROTTLE_SLOTS 256
 
 struct child_ctx {
     int read_from_child;
@@ -52,7 +77,275 @@ struct child_ctx {
     struct otpd_queue_item *saved_item;
     enum oauth2_state oauth2_state;
     krb5_boolean use_ahdapa;
+    /* Ahdapa mode: what oidc_child reads on stdin (PKCS#12 password, and
+     * for the token request the state JSON with the confirmation code). */
+    char *stdin_data;
+    /* Ahdapa mode: the canonical principal uid@REALM, which Ahdapa returns
+     * as sub and which the request is locked to (login_hint). */
+    char *principal;
+    /* A DARC confirmation code was sent with the token request. */
+    krb5_boolean confirmed;
 };
+
+static void child_ctx_free(struct child_ctx *child_ctx)
+{
+    if (child_ctx == NULL) {
+        return;
+    }
+
+    if (child_ctx->stdin_data != NULL) {
+        explicit_bzero(child_ctx->stdin_data, strlen(child_ctx->stdin_data));
+        free(child_ctx->stdin_data);
+    }
+    free(child_ctx->principal);
+    free(child_ctx);
+}
+
+/* ── Ahdapa mode helpers ─────────────────────────────────────────────────── */
+
+/* uid@REALM from the user entry, independent of how the client spelled the
+ * principal (aliases, enterprise names). */
+static char *canonical_principal(struct otpd_queue_item *item)
+{
+    char *realm = NULL;
+    char *princ = NULL;
+
+    if (item->user.uid == NULL
+            || krb5_get_default_realm(ctx.kctx, &realm) != 0) {
+        return NULL;
+    }
+
+    if (asprintf(&princ, "%s@%s", item->user.uid, realm) < 0) {
+        princ = NULL;
+    }
+    krb5_free_default_realm(ctx.kctx, realm);
+
+    return princ;
+}
+
+static char *read_secret_file(const char *path)
+{
+    char buf[1024];
+    ssize_t len;
+    int fd;
+    char *out;
+
+    fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        return NULL;
+    }
+
+    len = read(fd, buf, sizeof(buf) - 1);
+    close(fd);
+    if (len <= 0) {
+        explicit_bzero(buf, sizeof(buf));
+        return NULL;
+    }
+
+    while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r')) {
+        len--;
+    }
+    buf[len] = '\0';
+
+    out = len > 0 ? strdup(buf) : NULL;
+    explicit_bzero(buf, sizeof(buf));
+
+    return out;
+}
+
+/* RFC 9396 detail the KDC host asserts about the request. Only values the
+ * KDC observed belong here; the armor ticket client and address need MIT
+ * krb5 kdcpreauth callbacks that do not exist yet (DARC phase 2). */
+static char *krb5_tgt_details(const char *principal)
+{
+    const char *realm;
+    json_t *jdetails;
+    char *out;
+
+    realm = strrchr(principal, '@');
+    if (realm == NULL || realm[1] == '\0') {
+        return NULL;
+    }
+
+    jdetails = json_pack("[{s:s, s:s, s:s, s:s}]",
+                         "type", "krb5_tgt",
+                         "realm", realm + 1,
+                         "principal", principal,
+                         "armor", "anonymous");
+    if (jdetails == NULL) {
+        return NULL;
+    }
+
+    out = json_dumps(jdetails, JSON_COMPACT | JSON_PRESERVE_ORDER);
+    json_decref(jdetails);
+
+    return out;
+}
+
+/* The confirmation code from User-Password (RADIUS pads it with NULs). */
+static char *get_confirmation_code(krad_packet *req)
+{
+    const krb5_data *pwd;
+    size_t len;
+
+    pwd = krad_packet_get_attr(req, krad_attr_name2num("User-Password"), 0);
+    if (pwd == NULL || pwd->data == NULL) {
+        return NULL;
+    }
+
+    len = strnlen(pwd->data, pwd->length);
+    if (len == 0) {
+        return NULL;
+    }
+
+    return strndup(pwd->data, len);
+}
+
+/* The device code state (from Proxy-State) with the confirmation code
+ * added, as one line of JSON for oidc_child. */
+static char *state_with_code(const char *state, const char *code)
+{
+    json_error_t jerr;
+    json_t *jstate;
+    char *out;
+
+    jstate = json_loads(state, 0, &jerr);
+    if (!json_is_object(jstate)) {
+        json_decref(jstate);
+        return NULL;
+    }
+
+    if (code != NULL
+            && json_object_set_new(jstate, "confirmation_code",
+                                   json_string(code)) != 0) {
+        json_decref(jstate);
+        return NULL;
+    }
+
+    out = json_dumps(jstate, JSON_COMPACT | JSON_PRESERVE_ORDER);
+    json_decref(jstate);
+
+    return out;
+}
+
+static bool json_array_has(json_t *array, const char *value)
+{
+    json_t *jval;
+    size_t i;
+
+    json_array_foreach(array, i, jval) {
+        if (json_is_string(jval) && strcmp(json_string_value(jval), value) == 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/* Reply-Message for Access-Accept: indicators for the KDC plugin, from the
+ * confirmation and from the strength of the upstream sign-in that the IdP
+ * relays in acr/amr (RFC 8176 values). */
+static char *accept_indicators(bool confirmed, const char *auth_context)
+{
+    json_error_t jerr;
+    json_t *jctx = NULL;
+    json_t *jamr = NULL;
+    json_t *jind;
+    json_t *jmsg;
+    const char *acr = NULL;
+    char *json_str;
+    char *out = NULL;
+
+    jind = json_array();
+    if (jind == NULL) {
+        return NULL;
+    }
+
+    if (confirmed) {
+        json_array_append_new(jind, json_string(OAUTH2_IND_CONFIRMED));
+    }
+
+    if (auth_context != NULL) {
+        jctx = json_loads(auth_context, 0, &jerr);
+        if (json_is_object(jctx)) {
+            jamr = json_object_get(jctx, "amr");
+            acr = json_string_value(json_object_get(jctx, "acr"));
+        }
+    }
+
+    if (json_is_array(jamr)
+            && (json_array_has(jamr, "mfa") || json_array_has(jamr, "otp")
+                || json_array_has(jamr, "hwk") || json_array_has(jamr, "sc"))) {
+        json_array_append_new(jind, json_string(OAUTH2_IND_MFA));
+    }
+    if ((json_is_array(jamr) && json_array_has(jamr, "hwk"))
+            || (acr != NULL && (strcmp(acr, "phr") == 0
+                                || strcmp(acr, "phrh") == 0))) {
+        json_array_append_new(jind, json_string(OAUTH2_IND_PHR));
+    }
+
+    if (json_array_size(jind) > 0) {
+        /* "o" steals the array reference. */
+        jmsg = json_pack("{s:i, s:o}", "v", 2, "indicators", jind);
+        jind = NULL;
+        json_str = jmsg != NULL
+                    ? json_dumps(jmsg, JSON_COMPACT | JSON_PRESERVE_ORDER)
+                    : NULL;
+        if (json_str != NULL
+                && asprintf(&out, "oauth2 %s", json_str) < 0) {
+            out = NULL;
+        }
+        free(json_str);
+        json_decref(jmsg);
+    }
+
+    json_decref(jind);
+    json_decref(jctx);
+
+    return out;
+}
+
+/* Per-principal throttling of device flow initiation. */
+static bool oauth2_throttle(const char *principal)
+{
+    static struct {
+        char *principal;
+        time_t window_start;
+        unsigned int count;
+    } slots[OAUTH2_THROTTLE_SLOTS];
+    time_t now = time(NULL);
+    size_t oldest = 0;
+    size_t i;
+
+    for (i = 0; i < OAUTH2_THROTTLE_SLOTS; i++) {
+        if (slots[i].principal != NULL
+                && strcmp(slots[i].principal, principal) == 0) {
+            if (now - slots[i].window_start >= OAUTH2_THROTTLE_WINDOW) {
+                slots[i].window_start = now;
+                slots[i].count = 0;
+            }
+            if (slots[i].count >= OAUTH2_THROTTLE_BURST) {
+                return true;
+            }
+            slots[i].count++;
+            return false;
+        }
+        if (slots[i].principal == NULL
+                || slots[i].window_start < slots[oldest].window_start) {
+            oldest = i;
+            if (slots[i].principal == NULL) {
+                break;
+            }
+        }
+    }
+
+    free(slots[oldest].principal);
+    slots[oldest].principal = strdup(principal);
+    slots[oldest].window_start = now;
+    slots[oldest].count = 1;
+
+    return false;
+}
 
 static int set_fd_nonblocking(int fd)
 {
@@ -80,7 +373,7 @@ static void free_child_ctx(verto_ctx *vctx, verto_ev *ev)
 
     child_ctx = verto_get_private(ev);
 
-    free(child_ctx);
+    child_ctx_free(child_ctx);
 }
 
 static void oauth2_on_child_exit(verto_ctx *vctx, verto_ev *ev)
@@ -109,9 +402,13 @@ static void oauth2_on_child_writable(verto_ctx *vctx, verto_ev *ev)
         return;
     }
 
-    if (child_ctx->oauth2_state == OAUTH2_GET_DEVICE_CODE) {
-        if (!child_ctx->use_ahdapa
-                && child_ctx->item->idp.ipaidpClientSecret != NULL) {
+    if (child_ctx->use_ahdapa) {
+        /* Prepared in oauth2(): the PKCS#12 password, and for the token
+         * request the state line with the confirmation code. */
+        io = write(verto_get_fd(ev), child_ctx->stdin_data,
+                   strlen(child_ctx->stdin_data));
+    } else if (child_ctx->oauth2_state == OAUTH2_GET_DEVICE_CODE) {
+        if (child_ctx->item->idp.ipaidpClientSecret != NULL) {
             io = write(verto_get_fd(ev), child_ctx->item->idp.ipaidpClientSecret,
                        strlen(child_ctx->item->idp.ipaidpClientSecret));
         } else {
@@ -119,8 +416,7 @@ static void oauth2_on_child_writable(verto_ctx *vctx, verto_ev *ev)
         }
     } else {
         int idx = 0;
-        if (!child_ctx->use_ahdapa
-                && child_ctx->item->idp.ipaidpClientSecret != NULL) {
+        if (child_ctx->item->idp.ipaidpClientSecret != NULL) {
             iov[idx].iov_base = child_ctx->item->idp.ipaidpClientSecret;
             iov[idx].iov_len = strlen(child_ctx->item->idp.ipaidpClientSecret);
 	    idx++;
@@ -131,13 +427,6 @@ static void oauth2_on_child_writable(verto_ctx *vctx, verto_ev *ev)
         iov[idx].iov_base = child_ctx->saved_item->oauth2.device_code_reply;
         iov[idx].iov_len = strlen(child_ctx->saved_item->oauth2.device_code_reply);
         idx++;
-        if (child_ctx->use_ahdapa) {
-            /* oidc_child --issuer-url mode expects the device code JSON
-             * on a single stdin line; terminate it. */
-            iov[idx].iov_base = "\n";
-            iov[idx].iov_len = 1;
-            idx++;
-        }
         io = writev(verto_get_fd(ev), iov, idx);
     }
     if (io < 0) {
@@ -162,6 +451,9 @@ static void oauth2_on_child_writable(verto_ctx *vctx, verto_ev *ev)
     if (child_ctx->item->idp.ipaidpClientSecret != NULL) {
         explicit_bzero(child_ctx->item->idp.ipaidpClientSecret,
                        strlen(child_ctx->item->idp.ipaidpClientSecret));
+    }
+    if (child_ctx->stdin_data != NULL) {
+        explicit_bzero(child_ctx->stdin_data, strlen(child_ctx->stdin_data));
     }
     if (child_ctx->saved_item != NULL) {
         otpd_queue_item_free(child_ctx->saved_item);
@@ -261,25 +553,34 @@ done:
 }
 
 static int check_access_token_reply(struct child_ctx *child_ctx,
-                                    const char *buf, size_t len)
+                                    char *buf, size_t len)
 {
     int ret;
     const char *expected;
     size_t expected_len;
+    const char *auth_context = NULL;
+    char *indicators = NULL;
+    krad_attrset *attrset = NULL;
+    krb5_data data = { 0 };
+    char *nl;
 
     if (child_ctx->use_ahdapa) {
-        /* Ahdapa returns uid@REALM as sub, compare against RADIUS User-Name
-         * (the Kerberos principal) */
-        const krb5_data *princ;
-        princ = krad_packet_get_attr(child_ctx->item->req,
-                                     krad_attr_name2num("User-Name"), 0);
-        if (princ == NULL || princ->data == NULL || princ->length == 0) {
-            otpd_log_req(child_ctx->item->req,
-                         "Missing or empty User-Name in RADIUS request");
+        /* oidc_child --auth-context prints the ID token's acr/amr/auth_time
+         * on the first line and the subject on the second. Ahdapa returns
+         * uid@REALM as sub: compare with the canonical principal the
+         * request was locked to. */
+        nl = memchr(buf, '\n', len);
+        if (nl != NULL) {
+            *nl = '\0';
+            auth_context = buf;
+            len -= (nl + 1) - buf;
+            buf = nl + 1;
+        }
+        if (child_ctx->principal == NULL) {
             return EPERM;
         }
-        expected = princ->data;
-        expected_len = princ->length;
+        expected = child_ctx->principal;
+        expected_len = strlen(expected);
     } else {
         if (child_ctx->item->user.ipaidpSub == NULL) {
             otpd_log_req(child_ctx->item->req,
@@ -294,13 +595,40 @@ static int check_access_token_reply(struct child_ctx *child_ctx,
         return EPERM;
     }
 
+    /* Ahdapa mode: tell the KDC which indicators the ticket gets. */
+    if (child_ctx->use_ahdapa) {
+        indicators = accept_indicators(child_ctx->confirmed, auth_context);
+        if (indicators != NULL) {
+            ret = krad_attrset_new(ctx.kctx, &attrset);
+            if (ret != 0) {
+                free(indicators);
+                return ret;
+            }
+            data.data = indicators;
+            data.length = strlen(indicators);
+            ret = add_krad_attr_to_set(child_ctx->item->req, attrset, &data,
+                                       krad_attr_name2num("Reply-Message"),
+                                       "Failed to serialize indicators");
+            if (ret != 0) {
+                krad_attrset_free(attrset);
+                free(indicators);
+                return ret;
+            }
+            otpd_log_req(child_ctx->item->req, "Access-Accept: %s",
+                         indicators);
+        }
+    }
+
     ret = krad_packet_new_response(ctx.kctx, SECRET,
-                                   krad_code_name2num("Access-Accept"), NULL,
+                                   krad_code_name2num("Access-Accept"), attrset,
                                    child_ctx->item->req, &child_ctx->item->rsp);
     if (ret != 0) {
         otpd_log_err(ret, "Failed to create radius response");
         child_ctx->item->rsp = NULL;
     }
+
+    krad_attrset_free(attrset);
+    free(indicators);
 
     return ret;
 }
@@ -422,6 +750,10 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
     krb5_data data_state = {0};
     struct otpd_queue_item *saved_item = NULL;
     char *ahdapa_client_id = NULL;
+    char *details = NULL;
+    char *password = NULL;
+    char *code = NULL;
+    char *state_line = NULL;
 
     if (oauth2_state != OAUTH2_GET_DEVICE_CODE
                 && oauth2_state != OAUTH2_GET_ACCESS_TOKEN) {
@@ -470,6 +802,55 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
     const char *ahdapa_issuer = getenv(ENV_AHDAPA_ISSUER_URL);
     child_ctx->use_ahdapa = (ahdapa_issuer != NULL && *ahdapa_issuer != '\0');
 
+    if (child_ctx->use_ahdapa) {
+        child_ctx->principal = canonical_principal(*item);
+        if (child_ctx->principal == NULL) {
+            ret = EINVAL;
+            otpd_log_req((*item)->req, "Failed to build the user principal");
+            goto done;
+        }
+
+        if (oauth2_state == OAUTH2_GET_DEVICE_CODE
+                && oauth2_throttle(child_ctx->principal)) {
+            ret = EACCES;
+            otpd_log_req((*item)->req,
+                         "Too many IdP sign-in requests for %s, rejecting",
+                         child_ctx->principal);
+            goto done;
+        }
+
+        password = read_secret_file(AHDAPA_OTPD_P12_PASSWORD);
+        if (password == NULL) {
+            ret = EIO;
+            otpd_log_req((*item)->req, "Failed to read %s",
+                         AHDAPA_OTPD_P12_PASSWORD);
+            goto done;
+        }
+
+        if (oauth2_state == OAUTH2_GET_DEVICE_CODE) {
+            /* The whole of stdin is the PKCS#12 password. */
+            child_ctx->stdin_data = password;
+            password = NULL;
+        } else {
+            /* First line: PKCS#12 password; second: the device code state
+             * with the confirmation code the user typed (DARC), which the
+             * KDC plugin put into User-Password. */
+            code = get_confirmation_code((*item)->req);
+            child_ctx->confirmed = (code != NULL);
+            state_line = state_with_code(
+                            child_ctx->saved_item->oauth2.device_code_reply,
+                            code);
+            if (state_line == NULL
+                    || asprintf(&child_ctx->stdin_data, "%s\n%s\n",
+                                password, state_line) < 0) {
+                child_ctx->stdin_data = NULL;
+                ret = ENOMEM;
+                otpd_log_req((*item)->req, "Failed to prepare token request");
+                goto done;
+            }
+        }
+    }
+
     otpd_log_req((*item)->req, "oauth2 start: %s%s",
                                oauth2_state_to_str(oauth2_state),
                                child_ctx->use_ahdapa
@@ -488,25 +869,25 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
          * ahdapainstance.py and reaches ipa-otpd as an environment
          * variable via the systemd EnvironmentFile directive.
          *
-         * In ahdapa mode oidc_child talks to the local ahdapa instance
-         * using the ahdapa-registered public Web UI client. No client
-         * secret is passed: ahdapa owns the external IdP credentials
-         * per user and performs the federation itself. The client id
-         * must match idp_client_id() in ahdapainstance.py and
-         * $IDP_CLIENT_ID in ahdapa-clients.toml.template. */
+         * In ahdapa mode oidc_child talks DARC to the local ahdapa
+         * instance as this KDC host's confidential client
+         * "ipa-otpd-<fqdn>" (private_key_jwt). Ahdapa owns the external
+         * IdP registration and performs the federation itself; the device
+         * grant is never used towards the external IdP. The client id
+         * must match otpd_client_id() in ahdapainstance.py. */
         const char *fqdn = ipa_gethostfqdn();
         if (fqdn == NULL) {
             ret = EINVAL;
             otpd_log_req((*item)->req, "Failed to get host FQDN");
             goto done;
         }
-        ahdapa_client_id = malloc(strlen(fqdn) + 12);
-        if (ahdapa_client_id == NULL) {
+        if (asprintf(&ahdapa_client_id, "%s%s",
+                     AHDAPA_OTPD_CLIENT_PREFIX, fqdn) < 0) {
+            ahdapa_client_id = NULL;
             ret = ENOMEM;
             otpd_log_err(ret, "Failed to allocate ahdapa client id");
             goto done;
         }
-        snprintf(ahdapa_client_id, strlen(fqdn) + 12, "ipa-webui-%s", fqdn);
 
         args[args_idx++] = "--issuer-url";
         args[args_idx++] = (char *) ahdapa_issuer;
@@ -514,8 +895,39 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
         args[args_idx++] = "--client-id";
         args[args_idx++] = ahdapa_client_id;
 
+        args[args_idx++] = "--client-auth-method";
+        args[args_idx++] = "jwt";
+
+        args[args_idx++] = "--pkcs12-client-creds";
+        args[args_idx++] = AHDAPA_OTPD_P12;
+
+        args[args_idx++] = "--client-secret-stdin";
+
         args[args_idx++] = "--scope";
         args[args_idx++] = "openid";
+
+        if (oauth2_state == OAUTH2_GET_DEVICE_CODE) {
+            /* DARC: the terminal accepts an alphanumeric code; only this
+             * user may approve (hint lock); the KDC asserts what is
+             * requested. */
+            details = krb5_tgt_details(child_ctx->principal);
+            if (details == NULL) {
+                ret = ENOMEM;
+                otpd_log_req((*item)->req, "Failed to build krb5_tgt details");
+                goto done;
+            }
+
+            args[args_idx++] = "--confirmation-input";
+            args[args_idx++] = "alphanumeric";
+
+            args[args_idx++] = "--login-hint";
+            args[args_idx++] = child_ctx->principal;
+
+            args[args_idx++] = "--authorization-details";
+            args[args_idx++] = details;
+        } else {
+            args[args_idx++] = "--auth-context";
+        }
     } else {
         if ((*item)->idp.ipaidpIssuerURL != NULL) {
             args[args_idx++] = "--issuer-url";
@@ -674,6 +1086,19 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
     ret = 0;
 done:
     free(ahdapa_client_id);
+    free(details);
+    if (password != NULL) {
+        explicit_bzero(password, strlen(password));
+        free(password);
+    }
+    if (code != NULL) {
+        explicit_bzero(code, strlen(code));
+        free(code);
+    }
+    if (state_line != NULL) {
+        explicit_bzero(state_line, strlen(state_line));
+        free(state_line);
+    }
     if (ret == 0) {
         *item = NULL;
     } else {
@@ -685,7 +1110,7 @@ done:
         if (pipefd_to_child[1] >= 0) close(pipefd_to_child[1]);
         if (pipefd_from_child[0] >= 0) close(pipefd_from_child[0]);
         if (pipefd_from_child[1] >= 0) close(pipefd_from_child[1]);
-        free(child_ctx);
+        child_ctx_free(child_ctx);
     }
 
     return ret;
