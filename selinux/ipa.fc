@@ -25,6 +25,8 @@
 
 /var/lib/ipa/gssproxy/http.keytab -- gen_context(system_u:object_r:ipa_http_keytab_t,s0)
 
+/var/lib/ipa/ipa-otpd(/.*)?   gen_context(system_u:object_r:ipa_otpd_key_t,s0)
+
 /var/lib/ipa/dnssec/tokens -- gen_context(system_u:object_r:ipa_dnskey_t,s0)
 /var/lib/ipa/dnssec/softhsm_pin -- gen_context(system_u:object_r:ipa_dnskey_t,s0)
 

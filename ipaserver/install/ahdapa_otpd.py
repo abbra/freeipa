@@ -27,6 +27,7 @@ from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.x509.oid import NameOID
 
 from ipaplatform.paths import paths
+from ipaplatform.tasks import tasks
 from ipapython import ipautil
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,15 @@ def _load(p12_path, password_path):
     return key
 
 
+def _restore_context():
+    """Label the credential ipa_otpd_key_t, which only ipa-otpd and
+    oidc_child may read (restorecon does not recurse here)."""
+    for path in (paths.IPA_OTPD_STATE_DIR, paths.IPA_OTPD_AHDAPA_P12,
+                 paths.IPA_OTPD_AHDAPA_P12_PASSWORD):
+        if os.path.exists(path):
+            tasks.restore_context(path)
+
+
 def ensure_credential(fqdn):
     """Create the PKCS#12 key and its password once; return the public key.
 
@@ -108,8 +118,10 @@ def ensure_credential(fqdn):
     if (os.path.exists(paths.IPA_OTPD_AHDAPA_P12)
             and os.path.exists(paths.IPA_OTPD_AHDAPA_P12_PASSWORD)):
         try:
-            return _load(paths.IPA_OTPD_AHDAPA_P12,
-                         paths.IPA_OTPD_AHDAPA_P12_PASSWORD).public_key()
+            public_key = _load(paths.IPA_OTPD_AHDAPA_P12,
+                               paths.IPA_OTPD_AHDAPA_P12_PASSWORD).public_key()
+            _restore_context()
+            return public_key
         except (ValueError, OSError) as e:
             logger.warning('Replacing unreadable ipa-otpd client key: %s', e)
 
@@ -117,6 +129,7 @@ def ensure_credential(fqdn):
     _write_private(paths.IPA_OTPD_AHDAPA_P12_PASSWORD,
                    password.encode('utf-8') + b'\n')
     _write_private(paths.IPA_OTPD_AHDAPA_P12, blob)
+    _restore_context()
     logger.debug('Created ipa-otpd client key %s', paths.IPA_OTPD_AHDAPA_P12)
     return _load(paths.IPA_OTPD_AHDAPA_P12,
                  paths.IPA_OTPD_AHDAPA_P12_PASSWORD).public_key()

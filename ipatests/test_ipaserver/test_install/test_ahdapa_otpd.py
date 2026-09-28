@@ -24,7 +24,15 @@ FQDN = 'kdc1.example.test'
 
 
 @pytest.fixture
-def statedir(tmp_path, monkeypatch):
+def relabelled(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ahdapa_otpd.tasks, 'restore_context',
+                        lambda path, force=False: calls.append(path))
+    return calls
+
+
+@pytest.fixture
+def statedir(tmp_path, monkeypatch, relabelled):
     d = tmp_path / 'ipa-otpd'
     monkeypatch.setattr(paths, 'IPA_OTPD_STATE_DIR', str(d))
     monkeypatch.setattr(paths, 'IPA_OTPD_AHDAPA_P12',
@@ -59,6 +67,18 @@ def test_credential_is_private_and_loadable(statedir):
             f.read(), password)
     assert cert is not None
     assert key.public_key().public_numbers() == public_key.public_numbers()
+
+
+def test_credential_is_relabelled(statedir, relabelled):
+    # ipa_otpd_key_t: the directory and both files, also when the
+    # credential already exists (upgrades fix the labels).
+    expected = [paths.IPA_OTPD_STATE_DIR, paths.IPA_OTPD_AHDAPA_P12,
+                paths.IPA_OTPD_AHDAPA_P12_PASSWORD]
+    ahdapa_otpd.ensure_credential(FQDN)
+    assert sorted(relabelled) == sorted(expected)
+    del relabelled[:]
+    ahdapa_otpd.ensure_credential(FQDN)
+    assert sorted(relabelled) == sorted(expected)
 
 
 def test_credential_is_kept_across_runs(statedir):

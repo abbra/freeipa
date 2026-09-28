@@ -46,6 +46,10 @@ logging_log_file(ipa_log_t)
 type ipa_var_lib_t;
 files_type(ipa_var_lib_t)
 
+# /var/lib/ipa/ipa-otpd: ipa-otpd's private_key_jwt credential for ahdapa
+type ipa_otpd_key_t;
+files_type(ipa_otpd_key_t)
+
 type ipa_public_pki_t;
 files_type(ipa_public_pki_t)
 
@@ -127,6 +131,14 @@ allow ipa_otpd_t self:fifo_file rw_fifo_file_perms;
 allow ipa_otpd_t self:unix_stream_socket create_stream_socket_perms;
 
 read_files_pattern(ipa_otpd_t, ipa_cert_t, ipa_cert_t)
+
+# DARC: ipa-otpd reads the PKCS#12 password of its ahdapa client and hands
+# it to oidc_child (sssd_mfa_t), which reads the PKCS#12 file itself.
+files_search_var_lib(ipa_otpd_t)
+allow ipa_otpd_t ipa_var_lib_t:dir search_dir_perms;
+read_files_pattern(ipa_otpd_t, ipa_otpd_key_t, ipa_otpd_key_t)
+allow sssd_mfa_t ipa_var_lib_t:dir search_dir_perms;
+read_files_pattern(sssd_mfa_t, ipa_otpd_key_t, ipa_otpd_key_t)
 read_files_pattern(ipa_otpd_t, ipa_public_pki_t, ipa_public_pki_t)
 read_lnk_files_pattern(ipa_otpd_t, ipa_cert_t, ipa_cert_t)
 
