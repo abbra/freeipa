@@ -146,7 +146,7 @@ accepted from RADIUS):
 |-----------|------|
 | `idp` | always (configured on the principal as today) |
 | `idp-confirmed` | the DARC confirmation code was verified |
-| `idp-mfa` | the upstream `amr` contains `mfa`, `otp`, `hwk` or `sc` |
+| `idp-mfa` | the upstream `amr` contains `mfa`, or methods of two different factors (RFC 8176: knowledge `pwd`/`pin`/`kba`, possession `otp`/`sms`/`tel`/`hwk`/`swk`/`sc`, inherence `fpt`/`face`/`iris`/`retina`/`vbm`); a single method is one factor |
 | `idp-phr` | the upstream `amr` contains `hwk`, or `acr` is `phr`/`phrh` |
 
 Services that must not accept unconfirmed IdP tickets require
