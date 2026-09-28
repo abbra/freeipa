@@ -435,6 +435,10 @@ class BasePathNamespace:
     AHDAPA_CCACHE = '/run/ahdapa/ahdapa.ccache'
     AHDAPA_GSSPROXY_CONF = '/etc/gssproxy/20-ahdapa.conf'
     AHDAPACTL = '/usr/bin/ahdapactl'
+    # DARC: per-KDC-host private_key_jwt credential of ipa-otpd at ahdapa
+    IPA_OTPD_STATE_DIR = '/var/lib/ipa/ipa-otpd'
+    IPA_OTPD_AHDAPA_P12 = '/var/lib/ipa/ipa-otpd/ahdapa-client.p12'
+    IPA_OTPD_AHDAPA_P12_PASSWORD = '/var/lib/ipa/ipa-otpd/ahdapa-client.pwd'
     HTTPD_IPA_IDP_PROXY_CONF = '/etc/httpd/conf.d/ipa-idp-proxy.conf'
     AKAMU_CONF_DIR = '/etc/akamu'
     AKAMU_CONF = '/etc/akamu/config.toml'
