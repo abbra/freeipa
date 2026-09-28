@@ -44,10 +44,12 @@ addresses browser-based Web UI authentication using the standard Authorization
 Code flow with PKCE, with Ahdapa serving as both the authorization server and
 authentication frontend. When Ahdapa is deployed, it also serves as the
 integrated IdP for the external-IdP device-code flow: `ipa-otpd` routes the
-OAuth 2.0 Device Authorization Grant through Ahdapa using the same
-per-replica public Web UI client (`ipa-webui-<fqdn>`, no client secret),
-with Ahdapa performing the federation to the external IdP (see
-[external identity provider](external-idp/external-idp.md)).
+OAuth 2.0 Device Authorization Grant through Ahdapa as its own per-KDC-host
+confidential client (`ipa-otpd-<fqdn>`, `private_key_jwt`), hardened with a
+return confirmation code, with Ahdapa performing the federation to the
+external IdP (see [external identity provider](external-idp/external-idp.md)
+and [DARC](external-idp/darc.md)). The public Web UI client
+(`ipa-webui-<fqdn>`) is limited to the authorization code grant.
 
 That routing is a property of the deployment, not of the request: it is
 switched on by the `ahdapa_issuer_url` key that the installer writes to
