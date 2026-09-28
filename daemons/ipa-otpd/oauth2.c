@@ -35,7 +35,6 @@
 #include <string.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
-#include <time.h>
 #include <jansson.h>
 
 #include "internal.h"
@@ -57,15 +56,6 @@
 #define OAUTH2_IND_CONFIRMED "idp-confirmed"
 #define OAUTH2_IND_MFA "idp-mfa"
 #define OAUTH2_IND_PHR "idp-phr"
-
-/* Per-principal initiation budget: at most OAUTH2_THROTTLE_BURST device
- * flows per OAUTH2_THROTTLE_WINDOW seconds, so that anyone able to start a
- * Kerberos login for a principal cannot flood the IdP (or the user) with
- * sign-in requests. Per-KDC-host limits are applied by the IdP, which sees
- * one client per host. */
-#define OAUTH2_THROTTLE_BURST 5
-#define OAUTH2_THROTTLE_WINDOW 300
-#define OAUTH2_THROTTLE_SLOTS 256
 
 struct child_ctx {
     int read_from_child;
@@ -303,48 +293,6 @@ static char *accept_indicators(bool confirmed, const char *auth_context)
     json_decref(jctx);
 
     return out;
-}
-
-/* Per-principal throttling of device flow initiation. */
-static bool oauth2_throttle(const char *principal)
-{
-    static struct {
-        char *principal;
-        time_t window_start;
-        unsigned int count;
-    } slots[OAUTH2_THROTTLE_SLOTS];
-    time_t now = time(NULL);
-    size_t oldest = 0;
-    size_t i;
-
-    for (i = 0; i < OAUTH2_THROTTLE_SLOTS; i++) {
-        if (slots[i].principal != NULL
-                && strcmp(slots[i].principal, principal) == 0) {
-            if (now - slots[i].window_start >= OAUTH2_THROTTLE_WINDOW) {
-                slots[i].window_start = now;
-                slots[i].count = 0;
-            }
-            if (slots[i].count >= OAUTH2_THROTTLE_BURST) {
-                return true;
-            }
-            slots[i].count++;
-            return false;
-        }
-        if (slots[i].principal == NULL
-                || slots[i].window_start < slots[oldest].window_start) {
-            oldest = i;
-            if (slots[i].principal == NULL) {
-                break;
-            }
-        }
-    }
-
-    free(slots[oldest].principal);
-    slots[oldest].principal = strdup(principal);
-    slots[oldest].window_start = now;
-    slots[oldest].count = 1;
-
-    return false;
 }
 
 static int set_fd_nonblocking(int fd)
@@ -810,14 +758,11 @@ int oauth2(struct otpd_queue_item **item, enum oauth2_state oauth2_state)
             goto done;
         }
 
-        if (oauth2_state == OAUTH2_GET_DEVICE_CODE
-                && oauth2_throttle(child_ctx->principal)) {
-            ret = EACCES;
-            otpd_log_req((*item)->req,
-                         "Too many IdP sign-in requests for %s, rejecting",
-                         child_ctx->principal);
-            goto done;
-        }
+        /* No per-principal limit on starting flows: the principal is
+         * unauthenticated input (anonymous PKINIT can ask for anyone), so
+         * any such limit would let a stranger lock a user out. Starting a
+         * flow has no effect the user sees; ahdapa bounds the volume per
+         * KDC host (its client) and source address. */
 
         password = read_secret_file(AHDAPA_OTPD_P12_PASSWORD);
         if (password == NULL) {

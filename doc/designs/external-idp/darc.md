@@ -154,12 +154,21 @@ Services that must not accept unconfirmed IdP tickets require
 
 ## Throttling
 
-* `ipa-otpd` allows at most 5 device flows per principal in 5 minutes.
-* Ahdapa lets one hinted flow per (client, principal) stay open: a new one
-  cancels the pending one.
+The principal in an AS-REQ is not authenticated: with anonymous PKINIT
+anyone can start an IdP login for any user. A limit keyed on the
+principal would therefore let a stranger lock that user out, and
+cancelling a pending flow when a new one starts would let a stranger
+cancel the user's sign-in. Neither is done. Starting a flow has no effect
+the user sees (there is no push; the code needs the approver), so the
+remaining concern is volume:
+
 * Ahdapa counts requests per source address (`auth_rate_limit`, raised to
   300 per 5 minutes in the FreeIPA template because every IdP login of a
-  KDC host comes from that host).
+  KDC host comes from that host), and sees one client per KDC host.
+* Per-terminal limits need the client address, which the KDC does not
+  expose to preauth plugins yet (phase 2).
+* Delivery modes that notify the user at initiation (CIBA push) must not be
+  enabled without per-terminal limits and host armor.
 
 ## Configuration and rollout
 
