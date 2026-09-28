@@ -7,11 +7,14 @@ import logging
 import os
 import pwd
 
+from configparser import RawConfigParser
+
 from ipalib import api
 from ipalib.kinit import kinit_password
 from ipaplatform import services
 from ipaplatform.paths import paths
 from ipaserver.install.service import SimpleServiceInstance
+from ipaserver.install import ahdapa_otpd
 from ipaserver.install import sysupgrade
 from ipapython import ipautil
 from ipapython import ipaldap
@@ -20,6 +23,12 @@ logger = logging.getLogger(__name__)
 
 AHDAPA_USER = 'ahdapa'
 HBAC_RULE_NAME = 'IPA Web UI access'
+
+# /etc/ipa/default.conf [global] settings read by ipa-otpd (systemd
+# EnvironmentFile) and by this installer.
+OTPD_ISSUER_OPTION = 'ahdapa_issuer_url'
+DARC_OPTION = 'ahdapa_darc_confirmation'
+DARC_VALUES = ('required', 'off')
 
 
 def idp_client_id(fqdn):
@@ -31,6 +40,42 @@ def idp_client_id(fqdn):
     install/upgrade overwrite the redirect_uris the others depend on.
     """
     return 'ipa-webui-{}'.format(fqdn)
+
+
+def _read_global_option(name):
+    parser = RawConfigParser()
+    parser.read(paths.IPA_DEFAULT_CONF)
+    if parser.has_option('global', name):
+        return parser.get('global', name).strip()
+    return None
+
+
+def _set_global_options(options):
+    """Set [global] options in default.conf that are not set yet.
+
+    Returns True when the file changed.
+    """
+    parser = RawConfigParser()
+    parser.read(paths.IPA_DEFAULT_CONF)
+    changed = False
+    for name, value in options.items():
+        if not parser.has_option('global', name):
+            parser.set('global', name, value)
+            changed = True
+    if changed:
+        with open(paths.IPA_DEFAULT_CONF, 'w') as f:
+            parser.write(f)
+    return changed
+
+
+def darc_confirmation():
+    """DARC rollout setting: 'required' (default) or 'off'."""
+    value = (_read_global_option(DARC_OPTION) or 'required').lower()
+    if value not in DARC_VALUES:
+        logger.warning('Ignoring %s = %s in %s, using "required"',
+                       DARC_OPTION, value, paths.IPA_DEFAULT_CONF)
+        value = 'required'
+    return value
 
 
 def _get_ahdapa_user():
@@ -52,6 +97,7 @@ class AhdapaInstance(SimpleServiceInstance):
         self.domain = None
         self.admin_principal = None
         self.admin_password = None
+        self.otpd_public_key = None
 
     def configure_instance(self, realm, host_name, domain,
                            ldap_suffix=None,
@@ -68,8 +114,12 @@ class AhdapaInstance(SimpleServiceInstance):
                   self._enable_delegation)
         self.step("granting ahdapa service role membership",
                   self._grant_role_membership)
+        self.step("creating ipa-otpd client key for ahdapa",
+                  self._configure_otpd_client)
         self.step("configuring ahdapa",
                   self._configure_ahdapa)
+        self.step("routing Kerberos IdP logins through ahdapa",
+                  self._configure_otpd_routing)
         self.step("configuring gssproxy for ahdapa",
                   self._configure_gssproxy)
         self.step("configuring httpd proxy for ahdapa",
@@ -115,9 +165,36 @@ class AhdapaInstance(SimpleServiceInstance):
             f.flush()
             os.fsync(f.fileno())
 
+    def _configure_otpd_client(self):
+        """Key pair for ipa-otpd's private_key_jwt client at ahdapa."""
+        self.otpd_public_key = ahdapa_otpd.ensure_credential(self.fqdn)
+
+    def _configure_otpd_routing(self):
+        """Send Kerberos IdP logins (ipa-otpd) through ahdapa with DARC.
+
+        Only on a new installation: an existing deployment switches when
+        its external IdP registrations allow ahdapa's redirect URIs, by
+        setting ahdapa_issuer_url in default.conf.
+        """
+        changed = _set_global_options({
+            OTPD_ISSUER_OPTION: 'https://{}/idp'.format(self.fqdn),
+            DARC_OPTION: 'required',
+        })
+        if changed:
+            # ipa-otpd reads default.conf when the KDC starts it.
+            services.knownservices.krb5kdc.try_restart()
+
     def _configure_ahdapa(self):
         ahdapa_pw = _get_ahdapa_user()
         ldapi_socket = ipaldap.realm_to_ldapi_uri(self.realm)
+        otpd_client_id = ahdapa_otpd.otpd_client_id(self.fqdn)
+        if self.otpd_public_key is None:
+            self._configure_otpd_client()
+        public_key = self.otpd_public_key
+        # Rollout: while Kerberos clients without DARC support remain, this
+        # host's ipa-otpd client may run plain RFC 8628.
+        darc_exempt = ('"{}"'.format(otpd_client_id)
+                       if darc_confirmation() == 'off' else '')
 
         sub_dict = dict(
             REALM=self.realm,
@@ -130,6 +207,9 @@ class AhdapaInstance(SimpleServiceInstance):
             LDAPI_SOCKET=ldapi_socket,
             HTTP_KEYTAB=paths.HTTP_KEYTAB,
             IDP_CLIENT_ID=idp_client_id(self.fqdn),
+            OTPD_CLIENT_ID=otpd_client_id,
+            OTPD_CLIENT_JWKS=ahdapa_otpd.jwks_toml(public_key),
+            DARC_EXEMPT_CLIENTS=darc_exempt,
         )
 
         os.makedirs(paths.AHDAPA_CONF_DIR, mode=0o755, exist_ok=True)
@@ -269,6 +349,8 @@ class AhdapaInstance(SimpleServiceInstance):
             else:
                 ipautil.remove_file(filepath)
 
+        ahdapa_otpd.remove_credential()
+
         sysupgrade.set_upgrade_state('ahdapa', 'installed', False)
 
     def upgrade_instance(self):
@@ -293,6 +375,18 @@ class AhdapaInstance(SimpleServiceInstance):
                 domain=self.domain,
             )
         else:
+            # Existing deployments that already route IdP logins through
+            # ahdapa may still have Kerberos clients without DARC support:
+            # keep them working until the admin sets
+            # ahdapa_darc_confirmation = required.
+            if (_read_global_option(OTPD_ISSUER_OPTION)
+                    and _set_global_options({DARC_OPTION: 'off'})):
+                logger.warning(
+                    'DARC return confirmation is off for Kerberos IdP '
+                    'logins. Set %s = required in %s and run '
+                    'ipa-server-upgrade once all clients run SSSD with '
+                    'DARC support.', DARC_OPTION, paths.IPA_DEFAULT_CONF)
+            self._configure_otpd_client()
             self._configure_ahdapa()
             self._configure_gssproxy()
             self._configure_httpd_proxy()

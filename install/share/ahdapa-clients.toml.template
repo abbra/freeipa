@@ -6,9 +6,10 @@ client_id                  = "$IDP_CLIENT_ID"
 client_name                = "FreeIPA Web UI"
 token_endpoint_auth_method = "none"
 scopes                     = ["openid", "profile", "krb5:ccache"]
-# The Web UI client is also used by ipa-otpd for the OAuth 2.0 Device
-# Authorization Grant flow (RFC 8628), hence the device_code grant type.
-grant_types                = ["authorization_code", "urn:ietf:params:oauth:grant-type:device_code"]
+# Public client: no device_code grant. Anyone can use a public client_id,
+# so it must not be able to start device flows (consent phishing). ipa-otpd
+# uses its own confidential client below.
+grant_types                = ["authorization_code"]
 redirect_uris              = [
     "https://$FQDN/ipa/ui/",
     "https://$FQDN/ipa/modern-ui/",
@@ -17,3 +18,17 @@ redirect_uris              = [
 # users against its own backend, not a third party requesting delegated
 # access, so there is nothing for the user to meaningfully consent to.
 skip_consent                = true
+
+# ipa-otpd on this KDC host: the DARC client for Kerberos IdP
+# pre-authentication (PA-152). Confidential (private_key_jwt with a key
+# created by the installer in /var/lib/ipa/ipa-otpd), one client per KDC
+# host, allowed only the device grant and to assert krb5_tgt details, which
+# the verification page shows as "Asserted by <client_name>".
+[[client]]
+client_id                   = "$OTPD_CLIENT_ID"
+client_name                 = "$REALM KDC ($FQDN)"
+token_endpoint_auth_method  = "private_key_jwt"
+jwks                        = $OTPD_CLIENT_JWKS
+scopes                      = ["openid"]
+grant_types                 = ["urn:ietf:params:oauth:grant-type:device_code"]
+authorization_details_types = ["krb5_tgt"]

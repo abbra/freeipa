@@ -6,7 +6,13 @@ issuer       = "https://$FQDN/idp"
 realm        = "$REALM"
 display_name = "$REALM Identity"
 listen       = "unix:$AHDAPA_SOCKET"
-auth_rate_limit = 20
+# Per source address, 5-minute window. ipa-otpd on this host reaches ahdapa
+# through httpd for every Kerberos IdP login (device authorization and token
+# polls), so the limit covers all IdP logins handled by this KDC. There is
+# no per-principal limit in ipa-otpd -- the principal in an unauthenticated
+# AS-REQ is not proof of who is asking -- what protects a user is that a
+# DARC flow does nothing until the approver acts on it, plus IPA lockout.
+auth_rate_limit = 300
 
 [db]
 url             = "sqlite://$AHDAPA_STATE_DIR/ahdapa.db"
@@ -33,6 +39,33 @@ access_token_ttl  = 900
 refresh_token_ttl = 28800
 auth_code_ttl     = 60
 session_ttl       = 36000
+
+# DARC — device authorization with return confirmation. After the user
+# approves a Kerberos IdP login on the verification page, the page shows a
+# code the user types at the terminal; without it no TGT is issued. Set
+# ahdapa_darc_confirmation = off in /etc/ipa/default.conf (then run
+# ipa-server-upgrade) while Kerberos clients without DARC support remain.
+[device_flow]
+confirmation                = "required"
+confirmation_exempt_clients = [$DARC_EXEMPT_CLIENTS]
+confirmation_code_length    = 6
+confirmation_charset        = "alphanumeric"
+
+# What a KDC host asserts about a Kerberos TGT request (RFC 9396). Only
+# clients listing the type in authorization_details_types (ipa-otpd) may
+# send it.
+[[authorization_details.types]]
+type_id     = "krb5_tgt"
+description = "Kerberos ticket-granting ticket"
+schema = { type = "object", required = ["realm", "principal"], additionalProperties = false, properties = { type = { const = "krb5_tgt" }, realm = { type = "string", pattern = "^[A-Z0-9.-]+$$" }, principal = { type = "string", maxLength = 255 }, armor = { enum = ["anonymous", "host"] }, client_host = { type = "string", pattern = "^[A-Za-z0-9./@-]+$$" }, client_addr = { type = "string", pattern = "^[0-9A-Fa-f.:]+$$" } } }
+
+[[authorization_details.rules]]
+name        = "krb5-tgt-$REALM"
+description = "Kerberos TGTs for this realm"
+type_id     = "krb5_tgt"
+conditions  = [
+  { field = { path = "$$.realm", operator = "Equals", value = "$REALM" } },
+]
 
 [gossip]
 ipa_topology               = true
