@@ -70,7 +70,12 @@
 %global krb5_kdb_version 9.0
 # 0.7.16: https://github.com/drkjam/netaddr/issues/71
 %global python_netaddr_version 0.7.19
+%if 0%{?rhel} >= 10
+# RHEL 10.2 ships 4.23.5 (CRB); nothing needs a newer Samba API
+%global samba_version 4.23.5-110
+%else
 %global samba_version 4.24.3-1
+%endif
 %global slapi_nis_version 0.56.4
 %global python_ldap_version 3.1.0-1
 # version supporting Allow Uniqueness plugin to search uniqueness attributes
