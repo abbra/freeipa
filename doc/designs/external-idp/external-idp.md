@@ -165,32 +165,27 @@ through it instead of reaching the external IdP directly.
 
 When the `ahdapa_issuer_url` environment variable is set on `ipa-otpd`,
 the daemon routes the OAuth 2.0 Device Authorization Grant flow through
-the local Ahdapa instance. The Ahdapa installer writes this variable to
-`/etc/ipa/default.conf`, and the `ipa-otpd` systemd service loads it
-through the `EnvironmentFile` directive.
+the local Ahdapa instance. A new installation with Ahdapa writes this
+variable to `/etc/ipa/default.conf`; existing deployments set it once their
+external IdP registrations allow Ahdapa's redirect URIs. The `ipa-otpd`
+systemd service loads it through the `EnvironmentFile` directive.
 
-In this mode, `ipa-otpd` launches `oidc_child` with `--issuer-url`
-pointing at Ahdapa and `--client-id` set to the per-replica public Web
-UI client `ipa-webui-<fqdn>` -- the same client the installer registers
-with Ahdapa for the Web UI, using the `none` token endpoint
-authentication method. The installer registers this client with both
-the `authorization_code` and
-`urn:ietf:params:oauth:grant-type:device_code` grant types, since
-Ahdapa enforces the per-client `grant_types` list on both the
-device authorization request and the device code token polling.
-No client secret is passed: `oidc_child`
-authenticates to Ahdapa as a public client, and Ahdapa itself holds the
-per-user credentials for the external IdP and performs the federation
-to it.
-
-The device code JSON returned by the first `oidc_child` call is passed
-to the second one on stdin as a single JSON line terminated with a
-newline, as `oidc_child` expects in `--issuer-url` mode.
+In this mode the flow is hardened with DARC (Device Authorization with
+Return Confirmation), described in [DARC](darc.md): `ipa-otpd` on each
+KDC host is a confidential client of Ahdapa, `ipa-otpd-<fqdn>`,
+authenticated with `private_key_jwt` using a key the installer creates in
+`/var/lib/ipa/ipa-otpd`. It asks for a device code with
+`confirmation_input=numeric`, `login_hint=<uid>@<REALM>` (only that user
+may approve) and a `krb5_tgt` authorization detail, and it sends the
+confirmation code the user typed at the terminal with the token request.
+The public Web UI client `ipa-webui-<fqdn>` no longer has the device code
+grant. Ahdapa itself holds the external IdP registration and federates to
+it with the authorization code flow, so the external IdP never runs the
+device grant.
 
 Ahdapa identifies users with the `uid@REALM` subject claim, so
-`ipa-otpd` compares the resource owner identity against the RADIUS
-`User-Name` attribute (the Kerberos principal) of the request instead
-of the `ipaidpSub` value stored in the user entry.
+`ipa-otpd` compares the resource owner identity against `uid@REALM`
+built from the user entry instead of the `ipaidpSub` value.
 
 When the environment variable is not set, the behavior is unchanged:
 `ipa-otpd` uses the external IdP details from the user's `ipaidp*`
