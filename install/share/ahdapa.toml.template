@@ -3,6 +3,9 @@
 
 [server]
 issuer       = "https://$FQDN/idp"
+# Cluster identity; must match the host name peers are reached at
+# (https://<replica fqdn>/idp from the IPA topology).
+node_id      = "$FQDN"
 realm        = "$REALM"
 display_name = "$REALM Identity"
 listen       = "unix:$AHDAPA_SOCKET"
@@ -66,6 +69,13 @@ type_id     = "krb5_tgt"
 conditions  = [
   { field = { path = "$$.realm", operator = "Equals", value = "$REALM" } },
 ]
+
+# ipa-ca.$DOMAIN is served by every IPA server: requests for flows another
+# server started (authorization code exchanges, device authorization polls
+# and verification) are forwarded to that server, which alone can enforce
+# single use.
+[cluster]
+distributed_mode = "forwarding"
 
 [gossip]
 ipa_topology               = true
