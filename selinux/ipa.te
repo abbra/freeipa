@@ -180,6 +180,11 @@ allow ipa_otpd_t sssd_mfa_t:process { noatsecure rlimitinh siginh };
 # for oidc_child communication with IdPs
 corenet_tcp_connect_http_port(sssd_mfa_t)
 kernel_dgram_send(sssd_mfa_t)
+# libcurl/glibc probe /proc/net (a symlink to self/net) and
+# /proc/sys/net/ipv6/conf/all/disable_ipv6 for the available address
+# families before connecting to the IdP
+kernel_read_network_state(sssd_mfa_t)
+kernel_read_net_sysctls(sssd_mfa_t)
 allow sssd_mfa_t self:unix_dgram_socket { create getopt setopt };
 allow sssd_mfa_t sssd_mfa_exec_t:file execute_no_trans;
 allow sssd_mfa_exec_t fs_t:filesystem associate;
