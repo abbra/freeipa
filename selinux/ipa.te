@@ -171,6 +171,16 @@ logging_send_syslog_msg(ipa_otpd_t)
 domtrans_pattern(ipa_otpd_t, sssd_mfa_exec_t, sssd_mfa_t)
 allow ipa_otpd_t sssd_mfa_t:process { noatsecure rlimitinh siginh };
 
+# SSSD runs the same helpers for its own logins: sssd_pam runs passkey_child
+# for passkey authentication and sssd_be runs oidc_child for IdP users.  They
+# keep running in sssd_t there, as they did before being labeled.
+optional_policy(`
+	gen_require(`
+		type sssd_t;
+	')
+	can_exec(sssd_t, sssd_mfa_exec_t)
+')
+
 ########################################
 #
 # sssd_mfa local policy
