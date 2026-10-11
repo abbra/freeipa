@@ -52,6 +52,14 @@ confirmation_exempt_clients = [$DARC_EXEMPT_CLIENTS]
 confirmation_code_length    = 6
 confirmation_charset        = "alphanumeric"
 
+# Passkey registration. ML-DSA (post-quantum) is offered first, also to IPA
+# users whose passkeys are stored in ipapasskey, when this host's SSSD
+# passkey_child supports it (built against a libfido2 with ML-DSA support).
+# The installer and ipa-server-upgrade detect that.
+[passkey]
+algorithms       = [$PASSKEY_ALGORITHMS]
+ipa_allow_ml_dsa = $PASSKEY_IPA_ALLOW_ML_DSA
+
 # What a KDC host asserts about a Kerberos TGT request (RFC 9396). Only
 # clients listing the type in authorization_details_types (ipa-otpd) may
 # send it.

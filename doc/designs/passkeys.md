@@ -248,6 +248,15 @@ using the WebUI will not be part of the original implementation.
 
 The global settings can be read or modified using `ipa passkeyconfig-[show|mod]`.
 
+Passkeys registered through Ahdapa's web pages are stored in `ipapasskey`
+as well. The installer and `ipa-server-upgrade` make Ahdapa offer the
+post-quantum ML-DSA-65, ML-DSA-44 and ML-DSA-87 algorithms (before ES256,
+EdDSA and RS256, with `ipa_allow_ml_dsa = true`) when the server's SSSD
+`passkey_child` lists them among its `--type` values, that is when it is
+built against a libfido2 with ML-DSA support. Clients need such an SSSD as
+well to use ML-DSA passkeys. Passkeys registered earlier keep working
+whatever algorithms are offered.
+
 ## Upgrade
 
 During upgrade, the new LDAP schema is automatically added and replicated to the replicas.

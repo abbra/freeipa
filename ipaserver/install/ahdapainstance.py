@@ -6,6 +6,7 @@ import contextlib
 import logging
 import os
 import pwd
+import re
 
 from configparser import RawConfigParser
 
@@ -29,6 +30,12 @@ HBAC_RULE_NAME = 'IPA Web UI access'
 OTPD_ISSUER_OPTION = 'ahdapa_issuer_url'
 DARC_OPTION = 'ahdapa_darc_confirmation'
 DARC_VALUES = ('required', 'off')
+
+# Passkey signature algorithms offered at registration, in preference order.
+# ML-DSA (post-quantum) comes first so that authenticators supporting it
+# pick it; the classic ones remain for the others.
+PASSKEY_CLASSIC_ALGORITHMS = ('ES256', 'EdDSA', 'RS256')
+PASSKEY_ML_DSA_ALGORITHMS = ('ML-DSA-65', 'ML-DSA-44', 'ML-DSA-87')
 
 
 def idp_client_id(fqdn):
@@ -76,6 +83,31 @@ def darc_confirmation():
                        DARC_OPTION, value, paths.IPA_DEFAULT_CONF)
         value = 'required'
     return value
+
+
+def passkey_child_supports_ml_dsa():
+    """Whether SSSD's passkey_child can register ML-DSA passkeys.
+
+    passkey_child lists the COSE types it was built with in its --type
+    help; the ML-DSA ones appear only when its libfido2 supports them.
+    """
+    if not os.path.exists(paths.PASSKEY_CHILD):
+        return False
+    try:
+        result = ipautil.run([paths.PASSKEY_CHILD, '--help'],
+                             capture_output=True, raiseonerr=False)
+    except OSError as e:
+        logger.debug('Cannot run %s: %s', paths.PASSKEY_CHILD, e)
+        return False
+    return re.search(r'--type=\S*\bmldsa\d+', result.output) is not None
+
+
+def passkey_algorithms_toml(ml_dsa):
+    """TOML list of the passkey algorithms ahdapa offers."""
+    algorithms = PASSKEY_CLASSIC_ALGORITHMS
+    if ml_dsa:
+        algorithms = PASSKEY_ML_DSA_ALGORITHMS + algorithms
+    return ', '.join('"{}"'.format(a) for a in algorithms)
 
 
 def _get_ahdapa_user():
@@ -195,6 +227,11 @@ class AhdapaInstance(SimpleServiceInstance):
         # host's ipa-otpd client may run plain RFC 8628.
         darc_exempt = ('"{}"'.format(otpd_client_id)
                        if darc_confirmation() == 'off' else '')
+        # Passkeys ahdapa registers for IPA users are stored in ipapasskey
+        # and used by SSSD: offer ML-DSA when this host's SSSD supports it.
+        ml_dsa = passkey_child_supports_ml_dsa()
+        if ml_dsa:
+            logger.debug('SSSD supports ML-DSA passkeys, offering them')
 
         sub_dict = dict(
             REALM=self.realm,
@@ -210,6 +247,8 @@ class AhdapaInstance(SimpleServiceInstance):
             OTPD_CLIENT_ID=otpd_client_id,
             OTPD_CLIENT_JWKS=ahdapa_otpd.jwks_toml(public_key),
             DARC_EXEMPT_CLIENTS=darc_exempt,
+            PASSKEY_ALGORITHMS=passkey_algorithms_toml(ml_dsa),
+            PASSKEY_IPA_ALLOW_ML_DSA='true' if ml_dsa else 'false',
         )
 
         os.makedirs(paths.AHDAPA_CONF_DIR, mode=0o755, exist_ok=True)
