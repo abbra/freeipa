@@ -29,6 +29,15 @@
 
 #include "internal.h"
 
+/* The KDC reaches ipa-otpd over a stream socket, which carries packets larger
+ * than RFC 2865 allows (RFC 7930) when libkrad supports them: passkey
+ * assertions with post-quantum signatures need several kilobytes. */
+#ifdef KRAD_PACKET_SIZE_MAX_STREAM
+#define OTPD_PACKET_SIZE_MAX KRAD_PACKET_SIZE_MAX_STREAM
+#else
+#define OTPD_PACKET_SIZE_MAX KRAD_PACKET_SIZE_MAX
+#endif
+
 static const struct otpd_queue *const queues[] = {
     &ctx.stdio.responses,
     &ctx.query.requests,
@@ -41,7 +50,7 @@ static const struct otpd_queue *const queues[] = {
 /* Read a RADIUS request from stdin. */
 void otpd_on_stdin_readable(verto_ctx *vctx, verto_ev *ev)
 {
-    static char _buffer[KRAD_PACKET_SIZE_MAX];
+    static char _buffer[OTPD_PACKET_SIZE_MAX];
     static krb5_data buffer = { .data = _buffer, .length = 0 };
     (void)vctx;
 
