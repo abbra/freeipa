@@ -18,6 +18,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import base64
+from cryptography.exceptions import UnsupportedAlgorithm
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
 import re
@@ -184,6 +185,10 @@ def validate_passkey(ugettext, key):
                             backend=default_backend())
     except ValueError:
         return '"%s" is not a valid passkey mapping, invalid key' % key
+    except UnsupportedAlgorithm:
+        # e.g. ML-DSA keys with a python-cryptography lacking ML-DSA support
+        return ('"%s" is not a valid passkey mapping, unsupported key '
+                'algorithm' % key)
     # Validate the (optional) userid
     try:
         userid = result.group('userid')
