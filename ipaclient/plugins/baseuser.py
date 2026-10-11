@@ -31,7 +31,8 @@ class baseuser_add_passkey(MethodOverride):
             'cosetype?',
             cli_name='cose_type',
             doc=_('COSE type to use for registration'),
-            values=('es256', 'rs256', 'eddsa'),
+            values=('es256', 'es384', 'rs256', 'eddsa',
+                    'mldsa44', 'mldsa65', 'mldsa87'),
         ),
         StrEnum(
             'credtype?',

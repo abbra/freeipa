@@ -58,7 +58,12 @@ the permission "System: Manage User passkeys") can register
 credentials for another user.
 
 During the registration process, it is possible to specify
-- a COSE type: `es256`, `rs256` or `eddsa`
+- a COSE type: `es256`, `es384`, `rs256`, `eddsa`, or one of the
+post-quantum ML-DSA (FIPS 204) types `mldsa44`, `mldsa65` and `mldsa87`.
+`es384` and the ML-DSA types require SSSD's `passkey_child` built against a
+libfido2 version supporting them, and an authenticator implementing the
+algorithm. Storing ML-DSA public keys requires python-cryptography with
+ML-DSA support on the IPA servers.
 - request user verification: true or false
 the authentication will force to execute the user verification check even if
 the passkey settings do not set this flag. If credentials are registered without
@@ -230,11 +235,11 @@ using the WebUI will not be part of the original implementation.
 | passkeyconfig-mod | --require-user-verification=BOOL | This command modifies the Passkey settings |
 | **User Mapping** | | |
 | user-add-passkey | LOGIN [PASSKEY...] | This command does not require the device to be inserted and can directly add the mapping data, obtained through another mean (for instance through sssctl passkey-exec --register) |
-| user-add-passkey | LOGIN --register [--cose-type=['es256', 'rs256', 'eddsa']] [--require-user-verification=BOOL] | This command requires the insertion of the device, performs the registration with the specified cose type + user verification requirement, and adds the mapping data to the user entry |
+| user-add-passkey | LOGIN --register [--cose-type=['es256', 'es384', 'rs256', 'eddsa', 'mldsa44', 'mldsa65', 'mldsa87']] [--require-user-verification=BOOL] | This command requires the insertion of the device, performs the registration with the specified cose type + user verification requirement, and adds the mapping data to the user entry |
 | user-remove-passkey | LOGIN PASSKEY... | |
 | user-show | LOGIN | This command displays the passkey mapping if set, with the label `Passkey mapping` |
 | stageuser-add-passkey | LOGIN [PASSKEY...] | This command does not require the device to be inserted and can directly add the mapping data, obtained through another mean (for instance through sssctl passkey-exec --register) |
-| stageuser-add-passkey | LOGIN --register [--cose-type=['es256', 'rs256', 'eddsa']] [--require-user-verification=BOOL] | This command requires the insertion of the passkey, performs the registration with the specified cose type + user verification requirement, and adds the mapping data to the user entry |
+| stageuser-add-passkey | LOGIN --register [--cose-type=['es256', 'es384', 'rs256', 'eddsa', 'mldsa44', 'mldsa65', 'mldsa87']] [--require-user-verification=BOOL] | This command requires the insertion of the passkey, performs the registration with the specified cose type + user verification requirement, and adds the mapping data to the user entry |
 | stageuser-remove-passkey | LOGIN PASSKEY... | |
 | stageuser-show | LOGIN | This command displays the passkey mapping if set, with the label `Passkey mapping` |
 
