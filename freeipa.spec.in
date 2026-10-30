@@ -534,6 +534,9 @@ Requires: oddjob
 # 0.7.0-2: https://pagure.io/gssproxy/pull-request/172
 Requires: gssproxy >= 0.7.0-2
 Requires: ahdapa
+# kuipa-server provides kuipad (the post-quantum enrollment daemon), its
+# systemd units and the /ipa/ku/ endpoints ipa-server-install configures.
+Requires: kuipa-server
 Requires: sssd-dbus >= %{sssd_version}
 Requires: libpwquality
 Requires: cracklib-dicts
@@ -1743,6 +1746,8 @@ fi
 %attr(644,root,root) %{_unitdir}/ipa-ccache-sweep.service
 %attr(644,root,root) %{_unitdir}/ipa-ccache-sweep.timer
 %attr(644,root,root) %{_journalcatalogdir}/ipa.catalog
+%dir %{_unitdir}/kuipad.service.d
+%attr(644,root,root) %{_unitdir}/kuipad.service.d/socket-activation.conf
 # END
 %attr(755,root,root) %{plugin_dir}/libipa_pwd_extop.so
 %attr(755,root,root) %{plugin_dir}/libipa_enrollment_extop.so
