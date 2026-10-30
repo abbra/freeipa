@@ -22,6 +22,13 @@ dist_systemdcatalog_DATA =		\
 	ipa.catalog			\
 	$(NULL)
 
+# kuipad.service and kuipad.socket are shipped by the kuipa-server package;
+# only the drop-in that ties them together belongs to freeipa-server.
+kuipserviceunitdir = $(systemdsystemunitdir)/kuipad.service.d
+kuipserviceunit_DATA =				\
+	kuipad.service.d/socket-activation.conf	\
+	$(NULL)
+
 CLEANFILES = $(systemdsystemunit_DATA)
 
 %: %.in Makefile
