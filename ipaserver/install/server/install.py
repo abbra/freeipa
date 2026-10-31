@@ -41,7 +41,7 @@ from ipaserver.install import (
     adtrust, adtrustinstance, bindinstance, ca, dns, dsinstance,
     httpinstance, installutils, kra, krbinstance,
     otpdinstance, custodiainstance, ahdapainstance, akamuinstance,
-    replication, service, sysupgrade, cainstance)
+    kuipadinstance, replication, service, sysupgrade, cainstance)
 from ipaserver.install.installutils import (
     BadHostError, get_server_ip_address,
     load_pkcs12, read_password, verify_fqdn, update_hosts_file,
@@ -1050,6 +1050,11 @@ def install(installer):
             admin_principal='admin',
             admin_password=admin_password)
 
+    kuipad = kuipadinstance.KuipadInstance(fstore)
+    kuipad.configure_instance(
+        realm_name, host_name, domain_name,
+        ldap_suffix=ipautil.realm_to_suffix(realm_name))
+
     # Call client install script
     service.print_msg("Configuring client side components")
     try:
@@ -1295,6 +1300,7 @@ def uninstall(installer):
     custodiainstance.CustodiaInstance(realm='REALM.INVALID').uninstall()
     ahdapainstance.AhdapaInstance(fstore).uninstall()
     akamuinstance.AkamuInstance(fstore).uninstall()
+    kuipadinstance.KuipadInstance(fstore).uninstall()
     otpdinstance.OtpdInstance().uninstall()
     tasks.restore_hostname(fstore, sstore)
     tasks.restore_pkcs11_modules(fstore)
