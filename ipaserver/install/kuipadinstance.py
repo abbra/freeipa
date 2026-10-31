@@ -47,12 +47,18 @@ class KuipadInstance(SimpleServiceInstance):
         self.suffix = ldap_suffix or ipautil.realm_to_suffix(realm)
 
         self.step("creating kuipa containers", self._create_container)
+        # _configure_kuipad must precede the keytab request: it is what
+        # creates /var/lib/ipa/ku, and ipa-getkeytab exits 11 ('Failed to
+        # add key to the keytab') when that directory is absent.
+        self.step("configuring kuipad", self._configure_kuipad)
         self.step("setting up kuipad keytab", self.request_service_keytab)
+        # the keys too, before the daemon is started below: 'serve' loads
+        # them before binding the socket httpd proxies /ipa/ku to.
+        self.step("generating kuipad realm keys", self._generate_keys)
         self.step("adding kuipad to the kuipa server group",
                   self._join_server_group)
         self.step("allowing kuipad to act as the joining principal",
                   self._enable_delegation)
-        self.step("configuring kuipad", self._configure_kuipad)
         self.step("configuring httpd proxy for kuipad",
                   self._configure_httpd_proxy)
 
@@ -129,6 +135,25 @@ class KuipadInstance(SimpleServiceInstance):
             ipautil.flush_sync(f)
         # root-only: the file names the keytab and the key directory.
         os.chmod(paths.KUIPA_CONFIG, 0o600)
+
+    def _generate_keys(self):
+        """Create this server's anchor and realm keys in /var/lib/ipa/ku.
+
+        kuipad 'serve' loads its keys before it binds the socket httpd
+        proxies /ipa/ku to, so a server installed without them never serves
+        it.  generate-keys refuses to overwrite existing keys, so only ask
+        for them when they are missing -- a reinstalled server keeps its key
+        material (see uninstall()).
+        """
+        if os.path.exists(os.path.join(paths.KUIPA_STATE_DIR, 'signing.jwk')):
+            logger.info('kuipad keys already exist in %s',
+                        paths.KUIPA_STATE_DIR)
+            return
+
+        result = ipautil.run([paths.KUIPAD, 'generate-keys'],
+                             capture_output=True)
+        logger.info('Created kuipad keys, anchor thumbprint %s',
+                    result.output.strip())
 
     def _configure_httpd_proxy(self):
         sub_dict = dict(KUIPA_SOCKET=paths.KUIPA_SOCKET)
