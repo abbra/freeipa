@@ -70,6 +70,7 @@ app_DATA =				\
 	73-certmap.update		\
 	73-passkey.update		\
 	73-service-rbcd.update		\
+	74-kuipa.update			\
 	75-user-trust-attributes.update	\
 	78-ahdapa.update		\
 	79-akamu.update			\

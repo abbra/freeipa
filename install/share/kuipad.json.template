@@ -1,0 +1,22 @@
+{
+  "realm": "$REALM",
+  "domain": "$DOMAIN",
+  "basedn": "$BASEDN",
+  "server": "$FQDN",
+  "ldap_uri": "$LDAP_URI",
+  "principal": "ipa-ku/$FQDN@$REALM",
+  "service": "ipa-ku@$FQDN",
+  "keytab": "$KUIPA_KEYTAB",
+  "ca_file": "$IPA_CA_CRT",
+  "pkinit_anchors_file": "$KDC_CA_BUNDLE_PEM",
+  "key_dir": "$KUIPA_STATE_DIR",
+  "keys": {
+    "enabled": true,
+    "handlers": {
+      "dm":         { "command": "$IPA_CUSTODIA_HANDLER/ipa-custodia-dmldap", "runas": "root" },
+      "ra":         { "command": "$IPA_CUSTODIA_HANDLER/ipa-custodia-ra-agent", "runas": "root" },
+      "ca":         { "command": "$IPA_CUSTODIA_HANDLER/ipa-custodia-pki-tomcat", "runas": "pkiuser" },
+      "ca_wrapped": { "command": "$IPA_CUSTODIA_HANDLER/ipa-custodia-pki-tomcat-wrapped", "runas": "pkiuser" }
+    }
+  }
+}
