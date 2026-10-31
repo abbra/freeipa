@@ -1,0 +1,57 @@
+#
+# VERSION 1 - DO NOT REMOVE THIS LINE
+#
+# kuipa (post-quantum enrollment daemon) reverse proxy — managed by the
+# FreeIPA installer. This file may be overwritten on upgrades.
+#
+# The placeholder hostname after "|" is mod_proxy's worker-pool key, not a
+# real destination -- the actual socket comes from the unix: prefix. It must
+# be unique across every Unix-socket-backed ProxyPass FreeIPA configures
+# (compare ipa-idp-proxy.conf.template, ipa-akamu-proxy.conf.template):
+# mod_proxy has a long-standing worker-sharing bug where two UDS workers
+# with the same logical URL can have their pooled connections
+# cross-contaminated, silently routing a request to the wrong backend socket.
+#
+# The enrollment endpoints are called by hosts that have no Kerberos
+# credentials yet -- with a one-time password from an enrollment string or
+# with a voucher. This Location therefore must not inherit the GSSAPI auth
+# of "/ipa" in ipa.conf.template. A Location for the longer prefix
+# "/ipa/ku/" overrides it: per-Location config merges with the longest
+# matching prefix winning for AuthType/Require, as ipa.conf's own
+# "/ipa/config" and "/ipa/crl" blocks do for the WSGI handler.
+#
+# mod_proxy adds X-Forwarded-For (ProxyAddHeaders, on by default); the
+# daemon's per-address rate limit uses its last entry.
+#
+# No http-to-https rewrite here, unlike ipa-idp-proxy.conf.template:
+# /ipa/ku/ is covered by the "/ipa/(.*)" rule of ipa-rewrite.conf, which
+# already redirects any non-443 request that is not an error page, a config
+# file or a static asset.
+
+RedirectMatch permanent ^/ipa/ku$$ /ipa/ku/
+
+<Location "/ipa/ku/">
+    AuthType None
+    Require all granted
+
+    # No ProxyPassReverse/ProxyPassReverseCookiePath here: kuipad sets no
+    # cookies and issues no redirect Location headers. Declaring them at top
+    # level would also steal the cookie rewrite of ipa-idp-proxy.conf or
+    # ipa-akamu-proxy.conf (mod_proxy matches those globally on the internal
+    # path alone -- see the comment in those files).
+    ProxyPass        unix:$KUIPA_SOCKET|http://kuipa-local/ipa/ku/ nocanon
+    ProxyPreserveHost On
+
+    SSLOptions +StdEnvVars +ExportCertData +StrictRequire
+    SSLVerifyClient none
+
+    RequestHeader set X-Forwarded-Proto "https"
+
+    # Advertisements, vouchers and sealed responses are mostly random bytes;
+    # their base64 compresses well and advertisements are fetched repeatedly
+    # by imaging systems.
+    SetOutputFilter DEFLATE
+
+    Header always set    X-Content-Type-Options "nosniff"
+    Header always append X-Frame-Options "DENY"
+</Location>
