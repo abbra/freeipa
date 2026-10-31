@@ -1,5 +1,5 @@
 #
-# VERSION 1 - DO NOT REMOVE THIS LINE
+# VERSION 2 - DO NOT REMOVE THIS LINE
 #
 # kuipa (post-quantum enrollment daemon) reverse proxy — managed by the
 # FreeIPA installer. This file may be overwritten on upgrades.
@@ -15,10 +15,17 @@
 # The enrollment endpoints are called by hosts that have no Kerberos
 # credentials yet -- with a one-time password from an enrollment string or
 # with a voucher. This Location therefore must not inherit the GSSAPI auth
-# of "/ipa" in ipa.conf.template. A Location for the longer prefix
-# "/ipa/ku/" overrides it: per-Location config merges with the longest
-# matching prefix winning for AuthType/Require, as ipa.conf's own
-# "/ipa/config" and "/ipa/crl" blocks do for the WSGI handler.
+# of "/ipa" in ipa.conf.template.
+#
+# Overriding that auth needs `Satisfy Any` below, not merely a longer
+# prefix: Apache merges per-Location config by config-file load order, so
+# the container-level `AuthType GSSAPI` + `Require valid-user` of "/ipa"
+# still denies "/ipa/ku/" when this block only sets `AuthType None`
+# (verified against httpd 2.4.69 on a master, with this file installed as
+# both ipa-kuipa-proxy.conf and zz-ipa-kuipa-proxy.conf -- 401 either
+# way). ipa.conf.template's own unauthenticated blocks,
+# "/ipa/session/login_password" and "/ipa/session/login_oidc", override
+# with Satisfy Any for the same reason.
 #
 # mod_proxy adds X-Forwarded-For (ProxyAddHeaders, on by default); the
 # daemon's per-address rate limit uses its last entry.
@@ -31,6 +38,10 @@
 RedirectMatch permanent ^/ipa/ku$$ /ipa/ku/
 
 <Location "/ipa/ku/">
+    # Satisfy Any: see the note above -- without it the "/ipa" GSSAPI
+    # Require still applies and every enrollment request is answered 401
+    # before it ever reaches the daemon.
+    Satisfy Any
     AuthType None
     Require all granted
 
