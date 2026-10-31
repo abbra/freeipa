@@ -200,6 +200,8 @@ class Backup(admintool.AdminTool):
         paths.AKAMU_CONF,
         paths.AKAMU_GSSPROXY_CONF,
         paths.HTTPD_IPA_AKAMU_PROXY_CONF,
+        paths.KUIPA_CONFIG,
+        paths.HTTPD_IPA_KUIPA_PROXY_CONF,
         paths.HOSTS,
         paths.SYSTEMD_PKI_TOMCAT_IPA_CONF,
         paths.NETWORK_MANAGER_IPA_CONF,
