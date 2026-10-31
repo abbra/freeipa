@@ -51,6 +51,7 @@ from ipaserver.install import certs
 from ipaserver.install import otpdinstance
 from ipaserver.install import ahdapainstance
 from ipaserver.install import akamuinstance
+from ipaserver.install import kuipadinstance
 from ipaserver.install import schemaupdate
 from ipaserver.install import custodiainstance
 from ipaserver.install import sysupgrade
@@ -1978,6 +1979,9 @@ def upgrade_configuration():
 
     ahdapa = ahdapainstance.AhdapaInstance()
     ahdapa.upgrade_instance()
+
+    kuipad = kuipadinstance.KuipadInstance()
+    kuipad.upgrade_instance()
 
     # Don't include schema upgrades in restart consideration, see
     # https://codeberg.org/freeipa/freeipa/issues/9204
