@@ -39,6 +39,7 @@ SERVICES = [
     service_definition('httpd', 40, 'HTTP'),
     service_definition('ipa-custodia', 41, 'KEYS'),
     service_definition('ahdapa', 42, 'IDP'),
+    service_definition('kuipad', 43, 'KU'),
     service_definition('pki-tomcatd', 50, 'CA'),
     service_definition('pki-tomcatd', 51, 'KRA'),
     service_definition('akamu', 55, 'AKAMU'),
