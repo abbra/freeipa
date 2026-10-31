@@ -40,7 +40,7 @@ from ipaclient.install.client import configure_krb5_conf, purge_host_keytab
 from ipaserver.install import (
     adtrust, bindinstance, ca, cainstance, dns, dsinstance, httpinstance,
     installutils, kra, krainstance, krbinstance, otpdinstance,
-    custodiainstance, ahdapainstance, akamuinstance, service,)
+    custodiainstance, ahdapainstance, akamuinstance, kuipadinstance, service,)
 from ipaserver.install import certs
 from ipaserver.install.installutils import (
     ReplicaConfig, load_pkcs12, validate_mask)
@@ -1454,6 +1454,14 @@ def install(installer):
     ds.apply_updates()
     service.print_msg("Finalize replication settings")
     ds.finalize_replica_config()
+
+    # The kuipa schema and containers only exist after the update run above,
+    # so the daemon can be configured no earlier than here; enable_services()
+    # below is what turns the service on.
+    kuipad = kuipadinstance.KuipadInstance(fstore)
+    kuipad.configure_instance(
+        config.realm_name, config.host_name, config.domain_name,
+        ldap_suffix=ipautil.realm_to_suffix(config.realm_name))
 
     if kra_enabled:
         # The KRA installer checks for itself the status of setup_kra
