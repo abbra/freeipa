@@ -20,11 +20,6 @@ logger = logging.getLogger(__name__)
 # unit (shipped by kuipa-server) declares User=root as well.
 KUIPA_USER = 'root'
 
-# LDAP group whose members are the ipa-ku/<server> principals of every server
-# running the daemon; created by 74-kuipa.update, and every ACI of that file
-# binds as this group.
-KUIPA_SERVERS_GROUP = DN(('cn', 'kuipa servers'), ('cn', 'groups'),
-                         ('cn', 'accounts'))
 
 
 class KuipadInstance(SimpleServiceInstance):
@@ -80,14 +75,16 @@ class KuipadInstance(SimpleServiceInstance):
         self._ldap_update(['74-kuipa.update'])
 
     def _join_server_group(self):
-        # Created by 74-kuipa.update with the same object classes as
-        # 'adtrust agents'; here only the member is written.
-        # ipa group-add-member accepts users and groups only; groupdn ACIs
-        # in 389-ds also only match on a real group entry, so write the
-        # value directly, as adtrustinstance does for 'adtrust agents'.
+        # 'kuipa servers' is created by 74-kuipa.update inside the accounts
+        # groups container, with the same object classes as 'adtrust agents';
+        # every ACI of that file binds as this group.  Here only the member
+        # is written: ipa group-add-member accepts users and groups only, and
+        # groupdn ACIs in 389-ds match on a real group entry only, so write
+        # the value directly as adtrustinstance does for 'adtrust agents'.
         add_principals_to_group(
-            api.Backend.ldap2, KUIPA_SERVERS_GROUP, 'member',
-            [self.get_principal_dn()])
+            api.Backend.ldap2,
+            DN(('cn', 'kuipa servers'), api.env.container_group, self.suffix),
+            'member', [self.get_principal_dn()])
 
     def _enable_delegation(self):
         """S4U2Self requires the flag on the daemon's own principal; the
