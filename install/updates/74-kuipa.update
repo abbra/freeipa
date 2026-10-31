@@ -1,0 +1,234 @@
+# kuipa (IPA Key Unwrap Service): containers, daemon group, ACIs, indices.
+#
+# The schema itself is install/share/schema.d/74-kuipa.ldif; schema files are
+# applied before any update file, so every attribute used here exists already.
+# Access model: kuipa docs/DESIGN-schema.md S8. The daemon ACIs bind as
+# cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX, the group holding each
+# server's ipa-ku/<fqdn> service principal; like Certificate Managers, that
+# group is filled by the installer (kuipadinstance), not by this file.
+
+dn: cn=kuipa,cn=etc,$SUFFIX
+default: objectClass: top
+default: objectClass: nsContainer
+default: cn: kuipa
+
+dn: cn=seals,cn=kuipa,cn=etc,$SUFFIX
+default: objectClass: top
+default: objectClass: nsContainer
+default: objectClass: ipaKUSealContainer
+default: cn: seals
+
+dn: cn=trusts,cn=kuipa,cn=etc,$SUFFIX
+default: objectClass: top
+default: objectClass: nsContainer
+default: objectClass: ipaKUTrust
+default: cn: trusts
+
+dn: cn=recovery,cn=kuipa,cn=etc,$SUFFIX
+default: objectClass: top
+default: objectClass: nsContainer
+default: objectClass: ipaKURealmConfig
+default: cn: recovery
+
+dn: cn=vouchers,cn=kuipa,cn=etc,$SUFFIX
+default: objectClass: top
+default: objectClass: nsContainer
+default: objectClass: ipaKURealmConfig
+default: cn: vouchers
+
+dn: cn=seal-limits,cn=kuipa,cn=etc,$SUFFIX
+default: objectClass: top
+default: objectClass: nsContainer
+default: objectClass: ipaKURealmConfig
+default: cn: seal-limits
+
+dn: cn=sign-policy,cn=kuipa,cn=etc,$SUFFIX
+default: objectClass: top
+default: objectClass: nsContainer
+default: objectClass: ipaKURealmConfig
+default: cn: sign-policy
+
+# The daemon group: every ACI below binds as this group. Members are each
+# server's ipa-ku/<fqdn> service principal, added by the installer at
+# ipa-server-install / ipa-replica-install, as for cn=Certificate Managers.
+# groupOfNames requires only `cn`, so the group is creatable before its
+# first member; defaults apply on creation only, so a replica's run of this
+# file leaves an existing group alone.
+dn: cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX
+default: objectClass: top
+default: objectClass: groupOfNames
+default: objectClass: nestedGroup
+default: objectClass: ipaUserGroup
+default: objectClass: ipaobject
+default: cn: kuipa servers
+default: description: kuipad daemons (ipa-ku/<server> principals)
+default: ipaUniqueID: autogenerate
+
+# The escrow key of this server lives on its own master entry (S5, DESIGN.md
+# §4.1); ipaKUMasterEscrow is auxiliary, so this adds it to the entry the
+# installer has already created, and each replica adds it to its own.
+dn: cn=$FQDN,cn=masters,cn=ipa,cn=etc,$SUFFIX
+add: objectClass: ipaKUMasterEscrow
+
+dn: $SUFFIX
+remove:aci:(targetfilter = "(objectClass=ipaKUPrincipalEscrow)")(targetattr = "ipaKUEscrowBinding || ipaKUEscrowFileBinding || ipaKUStaged || ipaKUVoucherSpent || ipaKULease || ipaKUDeviceEscrow")(version 3.0; acl "kuipa daemons manage escrow state on principals"; allow (write, read, search, compare) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+add:aci:(targetfilter = "(objectClass=ipaKUPrincipalEscrow)")(targetattr = "ipaKUEscrowBinding || ipaKUEscrowFileBinding || ipaKUStaged || ipaKUVoucherSpent || ipaKULease || ipaKUDeviceEscrow")(version 3.0; acl "kuipa daemons manage escrow state on principals"; allow (write, read, search, compare) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+
+# First contact and staging on host entries: the one-time password as Kerberos
+# key is consumed by deleting userPassword, staging replaces
+# krbPrincipalExpiration.
+remove:aci:(target = "ldap:///fqdn=*,cn=computers,cn=accounts,$SUFFIX")(targetattr = "userPassword || krbPrincipalExpiration || enrolledBy")(version 3.0; acl "kuipa daemons finish enrollment on hosts"; allow (write, read, search, compare) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+add:aci:(target = "ldap:///fqdn=*,cn=computers,cn=accounts,$SUFFIX")(targetattr = "userPassword || krbPrincipalExpiration || enrolledBy")(version 3.0; acl "kuipa daemons finish enrollment on hosts"; allow (write, read, search, compare) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+
+# Voucher joins create hosts exactly as host-add lays them out; the
+# krbPrincipalKey write is what KEYTAB_GET checks, as the join extended
+# operation does for a self-enrolling host. Lease purge is narrowed by
+# targetfilter to entries carrying a lease, which only the daemon sets.
+remove:aci:(target = "ldap:///fqdn=*,cn=computers,cn=accounts,$SUFFIX")(targetattr = "objectClass || cn || fqdn || serverHostName || ipaUniqueID || managedBy || userPassword || krbPrincipalName || krbCanonicalName || krbPrincipalExpiration || krbPrincipalKey || ipaKUVoucherSpent || ipaKULease || enrolledBy || memberOf || userClass || ipaClientVersion")(version 3.0; acl "kuipa daemons add hosts for voucher joins"; allow (add, write) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+add:aci:(target = "ldap:///fqdn=*,cn=computers,cn=accounts,$SUFFIX")(targetattr = "objectClass || cn || fqdn || serverHostName || ipaUniqueID || managedBy || userPassword || krbPrincipalName || krbCanonicalName || krbPrincipalExpiration || krbPrincipalKey || ipaKUVoucherSpent || ipaKULease || enrolledBy || memberOf || userClass || ipaClientVersion")(version 3.0; acl "kuipa daemons add hosts for voucher joins"; allow (add, write) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+remove:aci:(target = "ldap:///cn=*,cn=hostgroups,cn=accounts,$SUFFIX")(targetattr = "member")(version 3.0; acl "kuipa daemons add voucher hosts to host groups"; allow (write) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+add:aci:(target = "ldap:///cn=*,cn=hostgroups,cn=accounts,$SUFFIX")(targetattr = "member")(version 3.0; acl "kuipa daemons add voucher hosts to host groups"; allow (write) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+remove:aci:(target = "ldap:///fqdn=*,cn=computers,cn=accounts,$SUFFIX")(targetfilter = "(ipaKULease=*)")(version 3.0; acl "kuipa daemons purge expired leases"; allow (delete) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+add:aci:(target = "ldap:///fqdn=*,cn=computers,cn=accounts,$SUFFIX")(targetfilter = "(ipaKULease=*)")(version 3.0; acl "kuipa daemons purge expired leases"; allow (delete) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+
+# The seal subtree: full control of seals, deposits and releases. Nothing
+# else in cn=kuipa is covered, and no read right is granted to anyone else:
+# seal entries carry sealed session keys and per-device public keys (S8.5).
+remove:aci:(target = "ldap:///cn=seals,cn=kuipa,cn=etc,$SUFFIX")(targetattr = "objectClass || cn || ipaKUSealOwner || ipaKUSealName || ipaKUSealPolicy || ipaKUSealManager || ipaKUSealMember || ipaKUSealDepositor || ipaKUSealApprover || ipaKUSealDevice || ipaKUSealState || ipaKUSealUnlocks || ipaKUSealSessionKey || ipaKUSealBinding || ipaKUDepositData || ipaKUReleaseRequest || ipaKUReleaseApproval || ipaKUReleaseDenied || ipaKUReleaseUses")(version 3.0; acl "kuipa daemons manage seals"; allow (add, delete, write, read, search, compare) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+add:aci:(target = "ldap:///cn=seals,cn=kuipa,cn=etc,$SUFFIX")(targetattr = "objectClass || cn || ipaKUSealOwner || ipaKUSealName || ipaKUSealPolicy || ipaKUSealManager || ipaKUSealMember || ipaKUSealDepositor || ipaKUSealApprover || ipaKUSealDevice || ipaKUSealState || ipaKUSealUnlocks || ipaKUSealSessionKey || ipaKUSealBinding || ipaKUDepositData || ipaKUReleaseRequest || ipaKUReleaseApproval || ipaKUReleaseDenied || ipaKUReleaseUses")(version 3.0; acl "kuipa daemons manage seals"; allow (add, delete, write, read, search, compare) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+
+# Server escrow keys: a daemon replaces only its own key. 389-ds cannot
+# relate the master's cn to the principal's name, so this ACI names the
+# server running the updater: each ipa-server-install / ipa-replica-install
+# adds one ACI for its own $FQDN and touches nobody else's.
+remove:aci:(target = "ldap:///cn=$FQDN,cn=masters,cn=ipa,cn=etc,$SUFFIX")(targetattr = "ipaKUServerEscrowKey")(version 3.0; acl "kuipa daemon $FQDN sets its escrow key"; allow (write, read, search, compare) userdn = "ldap:///krbprincipalname=ipa-ku/$FQDN@$REALM,cn=services,cn=accounts,$SUFFIX";)
+add:aci:(target = "ldap:///cn=$FQDN,cn=masters,cn=ipa,cn=etc,$SUFFIX")(targetattr = "ipaKUServerEscrowKey")(version 3.0; acl "kuipa daemon $FQDN sets its escrow key"; allow (write, read, search, compare) userdn = "ldap:///krbprincipalname=ipa-ku/$FQDN@$REALM,cn=services,cn=accounts,$SUFFIX";)
+
+# Trusts: an invitation is consumed by deleting one exact value, so the group
+# gets write (add + delete) on those two attributes only, and the daemons
+# create the cross-realm krbtgt principals with keys as ipa-getkeytab -P does.
+remove:aci:(target = "ldap:///cn=trusts,cn=kuipa,cn=etc,$SUFFIX")(targetattr = "ipaKUTrustInvitation || ipaKUTrustedRealm")(version 3.0; acl "kuipa daemons manage trust invitations and partners"; allow (write, read, search, compare) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+add:aci:(target = "ldap:///cn=trusts,cn=kuipa,cn=etc,$SUFFIX")(targetattr = "ipaKUTrustInvitation || ipaKUTrustedRealm")(version 3.0; acl "kuipa daemons manage trust invitations and partners"; allow (write, read, search, compare) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+remove:aci:(target = "ldap:///cn=*,cn=kerberos,$SUFFIX")(targetfilter = "(objectClass=krbPrincipal)")(targetattr = "objectClass || cn || krbPrincipalName || krbCanonicalName || krbPrincipalKey || krbPasswordExpiration")(version 3.0; acl "kuipa daemons create cross-realm krbtgt principals"; allow (add, write) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+add:aci:(target = "ldap:///cn=*,cn=kerberos,$SUFFIX")(targetfilter = "(objectClass=krbPrincipal)")(targetattr = "objectClass || cn || krbPrincipalName || krbCanonicalName || krbPrincipalKey || krbPasswordExpiration")(version 3.0; acl "kuipa daemons create cross-realm krbtgt principals"; allow (add, write) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+
+# Realm settings are read-only for the daemons; administrators write them
+# through managed permissions (S8.6), not raw ACIs.
+remove:aci:(target = "ldap:///cn=*,cn=kuipa,cn=etc,$SUFFIX")(targetattr = "ipaKURecovery || ipaKUVouchers || ipaKUSealLimits || ipaKUSignPolicy")(version 3.0; acl "kuipa daemons read realm settings"; allow (read, search, compare) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+add:aci:(target = "ldap:///cn=*,cn=kuipa,cn=etc,$SUFFIX")(targetattr = "ipaKURecovery || ipaKUVouchers || ipaKUSealLimits || ipaKUSignPolicy")(version 3.0; acl "kuipa daemons read realm settings"; allow (read, search, compare) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+
+# The anchor exchange gossips with the servers a server is connected to in
+# the replication topology; without read access it finds no neighbours and
+# servers never exchange anchors.
+remove:aci:(target = "ldap:///cn=*,cn=*,cn=topology,cn=ipa,cn=etc,$SUFFIX")(targetfilter = "(objectClass=ipaReplTopoSegment)")(targetattr = "objectClass || cn || ipaReplTopoSegmentLeftNode || ipaReplTopoSegmentRightNode")(version 3.0; acl "kuipa daemons read topology segments"; allow (read, search, compare) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+add:aci:(target = "ldap:///cn=*,cn=*,cn=topology,cn=ipa,cn=etc,$SUFFIX")(targetfilter = "(objectClass=ipaReplTopoSegment)")(targetattr = "objectClass || cn || ipaReplTopoSegmentLeftNode || ipaReplTopoSegmentRightNode")(version 3.0; acl "kuipa daemons read topology segments"; allow (read, search, compare) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+
+# Registration (protect --keytab/--file) arrives as the principal itself,
+# proxied by the daemon's delegated ticket, so it writes its own bindings.
+# Staging runs as the admin who stages and is a framework permission instead.
+dn: cn=accounts,$SUFFIX
+remove:aci:(target = "ldap:///cn=*,cn=accounts,$SUFFIX")(targetfilter = "(objectClass=ipaKUPrincipalEscrow)")(targetattr = "ipaKUEscrowBinding || ipaKUEscrowFileBinding")(version 3.0; acl "principals register their own escrow bindings"; allow (write) userdn = "ldap:///self";)
+add:aci:(target = "ldap:///cn=*,cn=accounts,$SUFFIX")(targetfilter = "(objectClass=ipaKUPrincipalEscrow)")(targetattr = "ipaKUEscrowBinding || ipaKUEscrowFileBinding")(version 3.0; acl "principals register their own escrow bindings"; allow (write) userdn = "ldap:///self";)
+
+# Constrained delegation: kuipad transitions the caller's Kerberos ticket
+# (S4U2Self) and then acts towards this server's directory (S4U2Proxy to
+# ldap/<server>), so FreeIPA's own access controls decide what the caller
+# may do. The rule and its target are realm-wide and replicated: each
+# ipa-server-install / ipa-replica-install adds its own server's
+# ipa-ku/ and ldap/ principals to them, exactly as 30-s4u2proxy.update
+# does for HTTP/. The ipakrboktoauthasdelegate flag on the service
+# principal -- required for S4U2Self -- is set by kuipadinstance.
+dn: cn=kuipa,cn=s4u2proxy,cn=etc,$SUFFIX
+default: objectClass: ipaKrb5DelegationACL
+default: objectClass: groupOfPrincipals
+default: objectClass: top
+default: cn: kuipa
+default: memberPrincipal: ipa-ku/$FQDN@$REALM
+default: ipaAllowedTarget: cn=kuipa-ldap,cn=s4u2proxy,cn=etc,$SUFFIX
+
+dn: cn=kuipa-ldap,cn=s4u2proxy,cn=etc,$SUFFIX
+default: objectClass: groupOfPrincipals
+default: objectClass: top
+default: cn: kuipa-ldap
+default: memberPrincipal: ldap/$FQDN@$REALM
+
+dn: cn=kuipa,cn=s4u2proxy,cn=etc,$SUFFIX
+add: memberPrincipal: ipa-ku/$FQDN@$REALM
+
+dn: cn=kuipa-ldap,cn=s4u2proxy,cn=etc,$SUFFIX
+add: memberPrincipal: ldap/$FQDN@$REALM
+
+# Indices (alphanumeric order, as in 20-indices.update). The escrow-binding
+# indexes serve escrow_allowed, answered per unlock; without them every unlock
+# is a full entry scan of the binding set. The lease presence index serves
+# the purge sweep.
+dn: cn=ipaKUEscrowBinding,cn=index,cn=userRoot,cn=ldbm database,cn=plugins,cn=config
+only:cn: ipaKUEscrowBinding
+default:objectClass: nsIndex
+default:objectClass: top
+default:nsSystemIndex: false
+add:nsIndexType: eq
+
+dn: cn=ipaKUEscrowFileBinding,cn=index,cn=userRoot,cn=ldbm database,cn=plugins,cn=config
+only:cn: ipaKUEscrowFileBinding
+default:objectClass: nsIndex
+default:objectClass: top
+default:nsSystemIndex: false
+add:nsIndexType: eq
+
+dn: cn=ipaKULease,cn=index,cn=userRoot,cn=ldbm database,cn=plugins,cn=config
+only:cn: ipaKULease
+default:objectClass: nsIndex
+default:objectClass: top
+default:nsSystemIndex: false
+add:nsIndexType: eq
+add:nsIndexType: pres
+
+dn: cn=ipaKUServerEscrowKey,cn=index,cn=userRoot,cn=ldbm database,cn=plugins,cn=config
+only:cn: ipaKUServerEscrowKey
+default:objectClass: nsIndex
+default:objectClass: top
+default:nsSystemIndex: false
+add:nsIndexType: pres
+
+dn: cn=ipaKUSealApprover,cn=index,cn=userRoot,cn=ldbm database,cn=plugins,cn=config
+only:cn: ipaKUSealApprover
+default:objectClass: nsIndex
+default:objectClass: top
+default:nsSystemIndex: false
+add:nsIndexType: eq
+
+dn: cn=ipaKUSealDepositor,cn=index,cn=userRoot,cn=ldbm database,cn=plugins,cn=config
+only:cn: ipaKUSealDepositor
+default:objectClass: nsIndex
+default:objectClass: top
+default:nsSystemIndex: false
+add:nsIndexType: eq
+
+dn: cn=ipaKUSealManager,cn=index,cn=userRoot,cn=ldbm database,cn=plugins,cn=config
+only:cn: ipaKUSealManager
+default:objectClass: nsIndex
+default:objectClass: top
+default:nsSystemIndex: false
+add:nsIndexType: eq
+
+dn: cn=ipaKUSealMember,cn=index,cn=userRoot,cn=ldbm database,cn=plugins,cn=config
+only:cn: ipaKUSealMember
+default:objectClass: nsIndex
+default:objectClass: top
+default:nsSystemIndex: false
+add:nsIndexType: eq
+
+dn: cn=ipaKUSealOwner,cn=index,cn=userRoot,cn=ldbm database,cn=plugins,cn=config
+only:cn: ipaKUSealOwner
+default:objectClass: nsIndex
+default:objectClass: top
+default:nsSystemIndex: false
+add:nsIndexType: eq
+
+dn: cn=ipaKUVoucherSpent,cn=index,cn=userRoot,cn=ldbm database,cn=plugins,cn=config
+only:cn: ipaKUVoucherSpent
+default:objectClass: nsIndex
+default:objectClass: top
+default:nsSystemIndex: false
+add:nsIndexType: eq
