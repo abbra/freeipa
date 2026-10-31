@@ -844,12 +844,12 @@ class CertDB:
         """
         if client_certfile is None:
             pk12pwfile = ipautil.write_tmp_file(dm_password)
-            agent_key = ipautil.write_tmp_file("")
-            agent_cert = ipautil.write_tmp_file("")
+            agent_key_file = ipautil.write_tmp_file("")
+            agent_cert_file = ipautil.write_tmp_file("")
             cmd = [
                 paths.OPENSSL, 'pkcs12',
                 '-in', paths.DOGTAG_ADMIN_P12,
-                '-out', agent_cert.name,
+                '-out', agent_cert_file.name,
                 '-nokeys',
                 '-password', f"file:{pk12pwfile.name}",
             ]
@@ -864,7 +864,7 @@ class CertDB:
             cmd = [
                 paths.OPENSSL, 'pkcs12',
                 '-in', paths.DOGTAG_ADMIN_P12,
-                '-out', agent_key.name,
+                '-out', agent_key_file.name,
                 '-nocerts',
                 '-noenc',
                 '-password', f"file:{pk12pwfile.name}",
@@ -872,8 +872,11 @@ class CertDB:
             if fips_enabled:
                 cmd.append('-nomacver')
             ipautil.run(cmd)
-            agent_cert = agent_cert.name
-            agent_key = agent_key.name
+            # keep the NamedTemporaryFile objects referenced: binding .name
+            # here alone would unlink the pair before the enrollment below
+            # reads them
+            agent_cert = agent_cert_file.name
+            agent_key = agent_key_file.name
         else:
             agent_cert = client_certfile
             agent_key = client_keyfile
