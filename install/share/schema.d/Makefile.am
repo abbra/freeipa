@@ -5,6 +5,7 @@ SUBDIRS =  				\
 
 appdir = $(IPA_DATA_DIR)/schema.d
 app_DATA = README			\
+	74-kuipa.ldif			\
 	$(NULL)
 
 EXTRA_DIST =				\
