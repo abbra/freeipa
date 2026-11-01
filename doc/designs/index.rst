@@ -41,3 +41,4 @@ FreeIPA design documentation
    pw-expiration.md
    webui-oauth2-login.md
    akamu-acme-integration.md
+   kuipa-enrollment.md
