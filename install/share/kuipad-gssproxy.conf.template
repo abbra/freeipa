@@ -1,0 +1,9 @@
+# Managed by the FreeIPA installer.
+[service/kuipad]
+  mechs = krb5
+  cred_store = keytab:$KUIPA_KEYTAB
+  cred_store = client_keytab:$KUIPA_KEYTAB
+  allow_protocol_transition = true
+  allow_constrained_delegation = true
+  cred_usage = both
+  euid = $KUIPA_USER
