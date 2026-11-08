@@ -7,11 +7,13 @@
   "principal": "ipa-ku/$FQDN@$REALM",
   "service": "ipa-ku@$FQDN",
   "keytab": "$KUIPA_KEYTAB",
+  "gssproxy": true,
   "ca_file": "$IPA_CA_CRT",
   "pkinit_anchors_file": "$KDC_CA_BUNDLE_PEM",
   "key_dir": "$KUIPA_STATE_DIR",
   "keys": {
     "enabled": true,
+    "broker": "$KUIPA_KEYS_SOCKET",
     "handlers": {
       "dm":         { "command": "$IPA_CUSTODIA_HANDLER/ipa-custodia-dmldap", "runas": "root" },
       "ra":         { "command": "$IPA_CUSTODIA_HANDLER/ipa-custodia-ra-agent", "runas": "root" },

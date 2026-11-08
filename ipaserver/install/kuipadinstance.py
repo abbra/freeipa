@@ -2,12 +2,20 @@
 
 from __future__ import absolute_import
 
+import json
 import logging
 import os
+import pwd
+import shutil
+import stat
+import tempfile
 
 from ipalib import api
+from ipalib.kinit import kinit_keytab
 from ipaplatform import services
+from ipaplatform.base.constants import User
 from ipaplatform.paths import paths
+from ipaplatform.tasks import tasks
 from ipapython import ipautil, ipaldap
 from ipapython.dn import DN
 from ipaserver.install import sysupgrade
@@ -15,11 +23,46 @@ from ipaserver.install.service import SimpleServiceInstance, add_principals_to_g
 
 logger = logging.getLogger(__name__)
 
-# kuipad runs as root: it writes the realm's key material under
-# /var/lib/ipa/ku and reads only root-owned files there, and the daemon's
-# unit (shipped by kuipa-server) declares User=root as well.
-KUIPA_USER = 'root'
+KUIPA_USER = 'kuipad'
 
+
+def _get_kuipa_user():
+    try:
+        return pwd.getpwnam(KUIPA_USER)
+    except KeyError:
+        raise RuntimeError(
+            "System user '{}' does not exist. "
+            "Ensure the kuipa-server package is installed.".format(KUIPA_USER))
+
+def _migrate_state_directory(fd, user):
+    info = os.fstat(fd)
+    if info.st_uid != 0 or info.st_mode & 0o022:
+        raise RuntimeError("Unsafe legacy kuipad state directory")
+    for name in os.listdir(fd):
+        info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+        if info.st_uid != 0:
+            raise RuntimeError("Unsafe legacy kuipad state entry")
+        if stat.S_ISDIR(info.st_mode):
+            child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                            dir_fd=fd)
+            try:
+                _migrate_state_directory(child, user)
+            finally:
+                os.close(child)
+        elif stat.S_ISREG(info.st_mode) and info.st_nlink == 1:
+            child = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                            dir_fd=fd)
+            try:
+                current = os.fstat(child)
+                if (current.st_uid != 0 or not stat.S_ISREG(current.st_mode)
+                        or current.st_nlink != 1):
+                    raise RuntimeError("Unsafe legacy kuipad state entry")
+                os.fchown(child, user.pw_uid, user.pw_gid)
+            finally:
+                os.close(child)
+        else:
+            raise RuntimeError("Unsafe legacy kuipad state entry")
+    os.fchown(fd, user.pw_uid, user.pw_gid)
 
 
 class KuipadInstance(SimpleServiceInstance):
@@ -31,6 +74,7 @@ class KuipadInstance(SimpleServiceInstance):
             service_prefix='ipa-ku',
             keytab=paths.KUIPA_KEYTAB,
             service_user=KUIPA_USER)
+        self.keytab_user = User('root')
         self.fqdn = None
         self.realm = None
         self.domain = None
@@ -42,11 +86,10 @@ class KuipadInstance(SimpleServiceInstance):
         self.suffix = ldap_suffix or ipautil.realm_to_suffix(realm)
 
         self.step("creating kuipa containers", self._create_container)
-        # _configure_kuipad must precede the keytab request: it is what
-        # creates /var/lib/ipa/ku, and ipa-getkeytab exits 11 ('Failed to
-        # add key to the keytab') when that directory is absent.
+        # Migrate an old keytab before handing the state directory to kuipad.
         self.step("configuring kuipad", self._configure_kuipad)
         self.step("setting up kuipad keytab", self.request_service_keytab)
+        self.step("configuring gssproxy for kuipad", self._configure_gssproxy)
         # the keys too, before the daemon is started below: 'serve' loads
         # them before binding the socket httpd proxies /ipa/ku to.
         self.step("generating kuipad realm keys", self._generate_keys)
@@ -69,6 +112,7 @@ class KuipadInstance(SimpleServiceInstance):
         # proxy to a socket that is not listening yet.
         ipautil.wait_for_open_socket(paths.KUIPA_SOCKET, timeout=60)
         services.knownservices.httpd.reload_or_restart()
+        self._enroll_host()
         sysupgrade.set_upgrade_state('kuipa', 'installed', True)
 
     def _create_container(self):
@@ -97,15 +141,69 @@ class KuipadInstance(SimpleServiceInstance):
             logger.debug('Enabled ok_to_auth_as_delegate on %s', principal)
 
     def _configure_kuipad(self):
-        """Create /var/lib/ipa/ku and write /etc/ipa/kuipad.json.
+        """Secure existing state and configure the unprivileged daemon."""
+        user = _get_kuipa_user()
+        os.makedirs(paths.KUIPA_STATE_DIR, mode=0o700, exist_ok=True)
+        state = os.open(paths.KUIPA_STATE_DIR,
+                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            state_info = os.fstat(state)
+            owner = state_info.st_uid
+            if owner not in (0, user.pw_uid):
+                raise RuntimeError("Unsafe kuipad state directory owner")
+            if owner == 0 and state_info.st_mode & 0o022:
+                raise RuntimeError("Unsafe legacy kuipad state directory")
+            if owner != 0 and os.path.lexists(paths.KUIPA_KEYTAB):
+                try:
+                    os.unlink('kuipa.keytab', dir_fd=state)
+                except FileNotFoundError:
+                    pass
+            try:
+                legacy = os.open('kuipa.keytab', os.O_RDONLY | os.O_NOFOLLOW
+                                 | os.O_NONBLOCK, dir_fd=state)
+            except FileNotFoundError:
+                legacy = None
+            if legacy is not None:
+                try:
+                    info = os.fstat(legacy)
+                    if (owner != 0 or info.st_uid != 0
+                            or not stat.S_ISREG(info.st_mode)
+                            or info.st_nlink != 1):
+                        raise RuntimeError("Unsafe legacy kuipad keytab")
+                    if not os.path.exists(paths.KUIPA_KEYTAB):
+                        with os.fdopen(os.dup(legacy), 'rb') as source:
+                            with tempfile.NamedTemporaryFile(
+                                    dir=os.path.dirname(paths.KUIPA_KEYTAB),
+                                    delete=False) as target:
+                                try:
+                                    shutil.copyfileobj(source, target)
+                                    ipautil.flush_sync(target)
+                                    os.replace(target.name, paths.KUIPA_KEYTAB)
+                                except BaseException:
+                                    ipautil.remove_file(target.name)
+                                    raise
+                    os.unlink('kuipa.keytab', dir_fd=state)
+                finally:
+                    os.close(legacy)
+            if owner == 0:
+                _migrate_state_directory(state, user)
+            os.fchmod(state, 0o700)
+        finally:
+            os.close(state)
 
-        kuipa-server ships neither a config nor a tmpfiles.d entry for the
-        key directory, so the installer creates it: ipa-getkeytab writes the
-        daemon's keytab into it and the daemon writes its realm keys there,
-        under ProtectSystem=strict.  Root-owned, as created, is what kuipad
-        needs -- its unit runs as root.
-        """
-        os.makedirs(paths.KUIPA_STATE_DIR, mode=0o750, exist_ok=True)
+        try:
+            keytab = os.open(paths.KUIPA_KEYTAB, os.O_RDONLY | os.O_NOFOLLOW)
+        except FileNotFoundError:
+            pass
+        else:
+            try:
+                if not stat.S_ISREG(os.fstat(keytab).st_mode):
+                    raise RuntimeError("Unsafe kuipad keytab")
+                os.fchown(keytab, 0, 0)
+                os.fchmod(keytab, 0o600)
+            finally:
+                os.close(keytab)
+            tasks.restore_context(paths.KUIPA_KEYTAB)
 
         sub_dict = dict(
             REALM=self.realm,
@@ -114,6 +212,7 @@ class KuipadInstance(SimpleServiceInstance):
             FQDN=self.fqdn,
             LDAP_URI=ipaldap.realm_to_ldapi_uri(self.realm),
             KUIPA_KEYTAB=paths.KUIPA_KEYTAB,
+            KUIPA_KEYS_SOCKET=paths.KUIPA_KEYS_SOCKET,
             KUIPA_STATE_DIR=paths.KUIPA_STATE_DIR,
             IPA_CA_CRT=paths.IPA_CA_CRT,
             KDC_CA_BUNDLE_PEM=paths.KDC_CA_BUNDLE_PEM,
@@ -130,8 +229,36 @@ class KuipadInstance(SimpleServiceInstance):
         with open(paths.KUIPA_CONFIG, 'w') as f:
             f.write(conf)
             ipautil.flush_sync(f)
-        # root-only: the file names the keytab and the key directory.
-        os.chmod(paths.KUIPA_CONFIG, 0o600)
+        os.chown(paths.KUIPA_CONFIG, 0, user.pw_gid)
+        os.chmod(paths.KUIPA_CONFIG, 0o640)
+
+    def request_service_keytab(self):
+        if os.path.islink(paths.KUIPA_KEYTAB):
+            os.unlink(paths.KUIPA_KEYTAB)
+        super(KuipadInstance, self).request_service_keytab()
+        fd = os.open(paths.KUIPA_KEYTAB, os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            os.fchown(fd, 0, 0)
+            os.fchmod(fd, 0o600)
+        finally:
+            os.close(fd)
+        tasks.restore_context(paths.KUIPA_KEYTAB)
+
+    def _configure_gssproxy(self):
+        user = _get_kuipa_user()
+        template = os.path.join(
+            paths.USR_SHARE_IPA_DIR, "kuipad-gssproxy.conf.template")
+        conf = ipautil.template_file(template, {
+            'KUIPA_KEYTAB': paths.KUIPA_KEYTAB,
+            'KUIPA_USER': user.pw_uid,
+        })
+        if self.fstore:
+            self.fstore.backup_file(paths.KUIPA_GSSPROXY_CONF)
+        with open(paths.KUIPA_GSSPROXY_CONF, 'w') as f:
+            f.write(conf)
+            ipautil.flush_sync(f)
+        os.chmod(paths.KUIPA_GSSPROXY_CONF, 0o644)
+        services.knownservices.gssproxy.restart()
 
     def _generate_keys(self):
         """Create this server's anchor and realm keys in /var/lib/ipa/ku.
@@ -148,9 +275,33 @@ class KuipadInstance(SimpleServiceInstance):
             return
 
         result = ipautil.run([paths.KUIPAD, 'generate-keys'],
-                             capture_output=True)
+                             capture_output=True, runas=KUIPA_USER)
         logger.info('Created kuipad keys, anchor thumbprint %s',
                     result.output.strip())
+
+    def _enroll_host(self):
+        if os.path.exists(paths.KUIPA_CLIENT_STATE):
+            with open(paths.KUIPA_CLIENT_STATE) as f:
+                state = json.load(f)
+            if state.get('realm') != self.realm or state.get('fqdn') != self.fqdn:
+                raise RuntimeError('Existing kuipa enrollment belongs to another host or realm')
+            return
+
+        service_principal = 'host/{}@{}'.format(self.fqdn, self.realm)
+        enrollment = ipautil.run(
+            [paths.KUIPAD, 'enrollment-string'], capture_output=True
+        ).output.strip()
+        with tempfile.TemporaryDirectory(prefix='ipa-kuipa-enroll-') as directory:
+            ccache = 'FILE:' + os.path.join(directory, 'ccache')
+            kinit_keytab(service_principal, paths.KRB5_KEYTAB, ccache)
+            env = os.environ.copy()
+            env['KRB5CCNAME'] = ccache
+            for name in ('KRB5_CONFIG', 'KUIPA_ROOT', 'KUIPA_KDC'):
+                env.pop(name, None)
+            ipautil.run([
+                paths.KUIPA, 'enroll', '--enrollment-file', '-', '--use-ccache',
+                '--server', self.fqdn, '--hostname', self.fqdn, '--domain', self.domain,
+            ], stdin=enrollment + '\n', env=env)
 
     def _configure_httpd_proxy(self):
         sub_dict = dict(KUIPA_SOCKET=paths.KUIPA_SOCKET)
@@ -170,11 +321,13 @@ class KuipadInstance(SimpleServiceInstance):
     def uninstall(self):
         super(KuipadInstance, self).uninstall()
 
-        for filepath in (paths.HTTPD_IPA_KUIPA_PROXY_CONF, paths.KUIPA_CONFIG):
+        for filepath in (paths.HTTPD_IPA_KUIPA_PROXY_CONF,
+                         paths.KUIPA_GSSPROXY_CONF, paths.KUIPA_CONFIG):
             if self.fstore and self.fstore.has_file(filepath):
                 self.fstore.restore_file(filepath)
             else:
                 ipautil.remove_file(filepath)
+        services.knownservices.gssproxy.restart()
 
         # /var/lib/ipa/ku keeps its key material: sealed realm keys outlive a
         # server uninstall, and nothing here backs that directory up.
@@ -188,6 +341,7 @@ class KuipadInstance(SimpleServiceInstance):
         self.fqdn = api.env.host
         self.realm = api.env.realm
         self.domain = api.env.domain
+        self.suffix = ipautil.realm_to_suffix(self.realm)
 
         if not os.path.isfile(paths.KUIPA_CONFIG):
             logger.warning("kuipad config is missing, forcing reinstallation")
@@ -203,12 +357,15 @@ class KuipadInstance(SimpleServiceInstance):
         else:
             # The containers, the daemon group membership and the delegation
             # rule arrived with the IPAUpgrade run that precedes this.
+            self.stop()
             self._configure_kuipad()
+            self._configure_gssproxy()
             self._configure_httpd_proxy()
             logger.info("Restarting kuipad")
             self.restart()
             # Reload httpd so a rewritten ipa-kuipa-proxy.conf takes effect;
             # the daemon's restart alone does not pick up new proxy config.
             services.knownservices.httpd.reload_or_restart()
+            self._enroll_host()
 
 
