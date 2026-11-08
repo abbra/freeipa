@@ -48,6 +48,15 @@ default: objectClass: nsContainer
 default: objectClass: ipaKURealmConfig
 default: cn: sign-policy
 
+dn: cn=KUIPA Seal Administrators,cn=privileges,cn=pbac,$SUFFIX
+default: objectClass: top
+default: objectClass: groupOfNames
+default: objectClass: nestedGroup
+default: cn: KUIPA Seal Administrators
+default: description: Manage kuipa seals and realm limits
+add: member: cn=admins,cn=groups,cn=accounts,$SUFFIX
+add: aci: (targetattr = "cn || objectClass || member")(version 3.0; acl "kuipa daemons check seal administrator privilege"; allow (read, search, compare) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+
 # The daemon group: every ACI below binds as this group. Members are each
 # server's ipa-ku/<fqdn> service principal, added by the installer at
 # ipa-server-install / ipa-replica-install, as for cn=Certificate Managers.
@@ -157,6 +166,17 @@ add: memberPrincipal: ipa-ku/$FQDN@$REALM
 
 dn: cn=kuipa-ldap,cn=s4u2proxy,cn=etc,$SUFFIX
 add: memberPrincipal: ldap/$FQDN@$REALM
+
+# The IPA HTTP API forwards the caller's identity only to kuipad services.
+dn: cn=kuipa-http-targets,cn=s4u2proxy,cn=etc,$SUFFIX
+default: objectClass: groupOfPrincipals
+default: objectClass: top
+default: cn: kuipa-http-targets
+default: memberPrincipal: ipa-ku/$FQDN@$REALM
+add: memberPrincipal: ipa-ku/$FQDN@$REALM
+
+dn: cn=ipa-http-delegation,cn=s4u2proxy,cn=etc,$SUFFIX
+add: ipaAllowedTarget: cn=kuipa-http-targets,cn=s4u2proxy,cn=etc,$SUFFIX
 
 # Indices (alphanumeric order, as in 20-indices.update). The escrow-binding
 # indexes serve escrow_allowed, answered per unlock; without them every unlock

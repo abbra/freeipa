@@ -316,6 +316,11 @@ IPA API Commands
    role_remove_privilege.md
    role_show.md
    schema.md
+   seal_find.md
+   seal_revoke.md
+   seal_show.md
+   sealconfig_mod.md
+   sealconfig_show.md
    selfservice_add.md
    selfservice_del.md
    selfservice_find.md
