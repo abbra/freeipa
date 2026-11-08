@@ -10,10 +10,12 @@ dist_noinst_DATA =		\
 	org.freeipa.server.config-enable-sid.in \
 	etc/oddjobd.conf.d/oddjobd-ipa-trust.conf.in	\
 	etc/oddjobd.conf.d/ipa-server.conf.in		\
+	etc/oddjobd.conf.d/ipa-kuipa.conf.in		\
 	$(NULL)
 
 dist_oddjob_SCRIPTS =				\
 	org.freeipa.server.conncheck		\
+	org.freeipa.kuipa-enrollment-string	\
 	$(NULL)
 
 nodist_oddjob_SCRIPTS =				\
@@ -26,11 +28,13 @@ nodist_oddjob_SCRIPTS =				\
 dist_dbusconf_DATA =					\
 	etc/dbus-1/system.d/oddjob-ipa-trust.conf	\
 	etc/dbus-1/system.d/org.freeipa.server.conf	\
+	etc/dbus-1/system.d/org.freeipa.kuipa.conf	\
 	$(NULL)
 
 dist_oddjobconf_DATA =					\
 	etc/oddjobd.conf.d/oddjobd-ipa-trust.conf	\
 	etc/oddjobd.conf.d/ipa-server.conf		\
+	etc/oddjobd.conf.d/ipa-kuipa.conf		\
 	$(NULL)
 
 $(dist_oddjobconf_DATA):%: %.in Makefile

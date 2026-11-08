@@ -777,9 +777,19 @@ class TestHostFalsePwdChange(XMLRPC_test):
         random_pass = result['result']['randompassword']
 
         host.attrs['randompassword'] = random_pass
+        enrollment = result['result'].get('enrollmentstring')
+        if enrollment is not None:
+            version, realm, anchor, expiry, password = enrollment.split(':')
+            assert version == 'ipa-ku1'
+            assert realm == api.env.realm
+            assert len(base64.urlsafe_b64decode(anchor + '=')) == 32
+            assert int(expiry) > 0
+            assert password == random_pass
+            host.attrs['enrollmentstring'] = enrollment
         host.check_create(result)
 
         del host.attrs['randompassword']
+        host.attrs.pop('enrollmentstring', None)
 
         # joint the host with the bulk password
         new_args = [

@@ -126,6 +126,11 @@ class host(Object):
             required=False,
             label=_('Random password'),
         ),
+        parameters.Password(
+            'enrollmentstring',
+            required=False,
+            label=_('Enrollment string'),
+        ),
         parameters.Bytes(
             'usercertificate',
             required=False,

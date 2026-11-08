@@ -1,9 +1,9 @@
 # Post-quantum enrollment of IPA clients through kuipa
 
-This document proposes how an IPA host gets its Kerberos keys without those keys crossing the
+This document describes how an IPA host gets its Kerberos keys without those keys crossing the
 network in a form a later adversary can read back. The mechanism is provided by
-[kuipa](https://github.com/abbra/kuipa), a separate project; what is designed here is the FreeIPA
-side. Command and option names are proposals; the behaviours they name are the design.
+[kuipa](https://github.com/abbra/kuipa), a separate project. The OTP workflow below is implemented
+in this branch; staging, recovery management and other commands marked planned remain proposals.
 
 ## Overview
 
@@ -52,25 +52,17 @@ this design.
 
 ### UC1: A host known in advance
 
-The host record is created and authorized in one command, and everything the host
-needs comes back on stdout, in the shape `--random` already produces:
+On a configured server, `ipa host-add client12.ipa.test --random` returns both a random
+password and an enrollment string containing that password. Transfer the string securely
+to the client. It is a credential, not a public identifier.
 
-```console
-$ ipa host-add client12.ipa.test --random --pq-days 14
-----------------------------
-Added host "client12.ipa.test"
-----------------------------
-  Host name: client12.ipa.test
-  Random password: 1Fzop138ftt6TCcfpMs56Ql
-  Enrollment string: ipa-ku1:EXAMPLE.TEST:dgt-VqrSdFC64H8R98ehg3kLJ8FzijPp84MmUJHHKMk:1793575335
-```
-
-The provisioning system puts that string on the host with the password appended as a
-fifth field, and the host installs itself:
-
-```console
-# ipa-client-install --domain ipa.test --server replica1.ipa.test --pq-enroll
-```
+Run `ipa-client-install --domain ipa.test --server replica1.ipa.test -W` and enter the
+enrollment string at the password prompt. In unattended mode `-W` reads the string from
+standard input. The installer invokes kuipa, checks the realm against the pinned anchor,
+then continues normal client configuration. A failed kuipa join does not fall back to
+`ipa-join`. Ordinary passwords, Kerberos credentials and keytabs retain their existing paths.
+Uninstalling a kuipa-enrolled client runs `kuipa leave` first, restoring any
+protected files before normal IPA unenrollment and removing kuipa's local state.
 
 The host ends with a normal `/etc/krb5.keytab` for
 `host/client12.ipa.test@EXAMPLE.TEST`, and with the realm's CA, anchors and Kerberos
@@ -82,7 +74,7 @@ A template host record authorizes many hosts when the credential is a secret the
 server generates, because the string then carries the credential itself:
 
 ```console
-$ ipa host-add template.ipa.example --random --pq-stage --pq-days 30
+$ ipa host-add template.ipa.example --random --stage --enrollment-days 30
   Enrollment string: ipa-ku1:EXAMPLE.TEST:dgt-VqrSdFC64H8R98ehg3kLJ8FzijPp84MmUJHHKMk:1793575335:YBn2vK4pR8sT1uW6xYzB3cDqa7fHgJsLdNpQeStUvWx
 ```
 
@@ -104,8 +96,8 @@ locally, with no server to talk to:
 ```console
 # kuipa prepare                       # on the host, offline
 $ scp /var/lib/ipa-client/ku/recipient.pub.jwk admin@master1.ipa.test:/tmp/
-$ ipa host-mod offline17.ipa.test --pq-stage \
-      --pq-recipient=/tmp/recipient.pub.jwk --pq-bundle=staged-bundle.json
+$ ipa host-mod offline17.ipa.test --stage \
+      --recipient=/tmp/recipient.pub.jwk --bundle=staged-bundle.json
 # … the bundle is copied to the host …
 # kuipa enroll --bundle staged-bundle.json      # opens the keytab, no network
 ```
@@ -127,8 +119,8 @@ without re-enrolling — outlives the keytab it was made for. Decommissioning a 
 to drop those registrations without touching the key itself:
 
 ```console
-$ ipa host-mod decommissioned.ipa.test --clear-pq-escrow
-$ ipa service-mod HTTP/web1.ipa.test --clear-pq-escrow
+$ ipa host-mod decommissioned.ipa.test --clear-escrow
+$ ipa service-mod HTTP/web1.ipa.test --clear-escrow
 ```
 
 And a disabled host should be unable to open what it was registered for. Today `ipa host-disable`
@@ -140,8 +132,14 @@ enabled.
 
 ### What works today, and the fallback this design must keep
 
-What exists today is the daemon's own command line, on the server and on the host. This is the
-path exercised against a real FreeIPA deployment, and it stays working:
+On a configured kuipa server, `ipa host-add --random` returns both the random password and an
+`Enrollment string` containing that password as its fifth field. The string is a credential: deliver
+it securely and protect it just as the password. It pins the local server's anchor and expires after
+the daemon's default seven days. If kuipa is not configured, host-add returns only the password;
+if it is configured but cannot produce a valid string, host-add fails rather than silently falling
+back. The privileged oddjob service must be running and have loaded its kuipa configuration.
+
+The daemon's command line also remains available for manual enrollment:
 
 ```console
 $ ipa host-add client1.ipa.test --random
@@ -158,25 +156,46 @@ Kerberos key, only an LDAP password, and the KDC cannot authenticate a principal
 so the password is spent as an LDAP bind credential and the keytab operation creates the keys — the
 same two steps `ipa-join` performs. Until that gap is closed the LDAP path is the one that works.
 
-Everything else below is planned and exists in no release yet; the commands are listed in the CLI
-section under Feature Management.
+With an enrollment string, `ipa-client-install -W` performs the kuipa join using the LDAP
+OTP path and obtains the CA from the verified advertisement instead of an unauthenticated
+download. Explicit `--ca-cert-file` certificates must be present in that verified CA chain.
+The enrollment string cannot be used with `--force-join`. Server self-enrollment
+and seal administration are also implemented; other workflows below remain proposals.
 
-### Minting a string and enrolling with it (UC1, UC2)
+### Minting a string and enrolling with it (UC1)
 
-1. Prepare the host and get the credential in one call:
-   `ipa host-add client12.ipa.test --random --pq-days 14`, or add `--pq-stage` to a template
-   record for a fleet.
-2. Put the printed string on the host — kickstart, cloud user-data, a configuration-management
-   variable — appending the password as a fifth field when the string did not carry a secret.
-3. Install: `ipa-client-install --domain ipa.test --server replica1.ipa.test --pq-enroll`.
-4. Check from the server: `ipa host-show client12.ipa.test --all --raw` has a key and no
-   `userPassword`; `ipa pq-anchor-show` lists the anchors hosts are pinning.
+1. Run `ipa host-add client12.ipa.test --random` and deliver its enrollment string to the
+   host through a secure channel.
+2. Run `ipa-client-install --domain ipa.test --server replica1.ipa.test -W`, and enter the
+   string when prompted. For unattended installation, pipe the string into the same `-W`
+   option rather than exposing it in process arguments.
+3. Check the host's keytab and pinned anchors. The string and OTP are single-use credentials.
+
+### Enrolling an IPA server itself
+
+After configuring its local kuipad and HTTP proxy, `ipa-server-install` and
+`ipa-replica-install` enroll the server's host identity through kuipa. The
+initial IPA bootstrap creates or obtains the host keytab as before. The
+installer then obtains the local daemon's anchor, authenticates with a
+temporary Kerberos cache made from that host keytab, and runs
+`kuipa enroll --use-ccache`. The daemon recognizes the host's own ticket
+and rekeys that host; it does not grant the host authority to enroll others.
+The resulting keytab keeps existing entries, including previous host keys
+and entries for other principals.
+
+A replica already enrolled through kuipa keeps its existing enrollment;
+promotion and later upgrades do not rotate it again. An upgrade of a
+kuipa-enabled server that lacks client state enrolls it the same way.
+An existing enrollment for a different realm or hostname is refused.
+`kuipa status` shows the resulting identity. The self-enrollment cannot
+bootstrap the first host key: it protects the subsequent rekey and records
+the verified realm state.
 
 ### Enrolling a host that never reaches the network (UC3)
 
 1. On the host, offline: `kuipa prepare`, which creates its key pair.
 2. Copy `/var/lib/ipa-client/ku/recipient.pub.jwk` to a server.
-3. `ipa host-mod offline17.ipa.test --pq-stage --pq-recipient=/tmp/recipient.pub.jwk --pq-bundle=staged-bundle.json`.
+3. `ipa host-mod offline17.ipa.test --stage --recipient=/tmp/recipient.pub.jwk --bundle=staged-bundle.json`.
 4. Copy the bundle to the host and `kuipa enroll --bundle staged-bundle.json`. The keytab appears
    with no contact; realm configuration and anchor pins arrive on the host's first contact.
 
@@ -189,12 +208,51 @@ section's `Directory authorization`.
 
 ### Retiring registrations, locking and unlocking (UC5)
 
-1. `ipa host-mod decommissioned.ipa.test --clear-pq-escrow` — or `service-mod`, `user-mod` — drops
+1. `ipa host-mod decommissioned.ipa.test --clear-escrow` — or `service-mod`, `user-mod` — drops
    the recovery registrations and nothing else.
 2. `ipa host-disable`, then confirm with `ipa host-show --all`: `nsAccountLock` present, and the
    host's sealed keytabs refuse to open.
 3. `ipa host-enable` removes the lock and they open again; a second `host-enable` reports the host
    was not locked.
+
+### Managing user seals
+
+The `KUIPA Seal Administrators` privilege grants seal metadata access and
+realm-limit administration; the `admins` group has it by default. Grant the
+privilege through an IPA role to delegate it. User data and device keys are
+not exposed by the framework commands.
+
+Users create seals and protect files with `kuipa seal`; the IPA commands
+inspect or revoke those seals. `ipa help seal` shows both workflows.
+
+```console
+$ ipa seal-find --owner=alice@EXAMPLE.TEST
+$ ipa seal-show SEAL_ID
+$ ipa seal-revoke SEAL_ID
+$ ipa sealconfig-show
+$ ipa sealconfig-mod --limits='{"max_lifetime":34560000,"max_seals":16,"max_devices":8,"max_reauth":43200,"without_device":true,"descriptor_age":2592000}'
+```
+
+`seal-find` and `seal-show` display policy factors, expiry, sessions, sealing
+and approval settings as labeled fields. Use `--raw` to retrieve the
+original `ipaKUSealPolicy` JSON, including when scripting against the LDAP
+representation. Unknown future policy fields remain visible as raw JSON.
+
+Limits are a complete JSON object, with optional group overrides and factors
+as defined in kuipa's seal-limits documentation. An empty `--limits=` restores
+the daemon defaults. Policy changes affect existing seals according to the
+daemon's limits rules.
+
+Revocation is sent to the local kuipad as the authenticated IPA caller using
+constrained Kerberos delegation. The daemon independently checks the privilege,
+records the revocation in its transparency log before updating the directory,
+and records the acting administrator in its service log. The transparency-log
+head is normally published on an hourly schedule; an owner may observe the
+revocation only when the next head is published. An unavailable daemon,
+credential, anchor, or transparency log causes revocation to fail closed.
+Existing offline session keys that have already been released cannot be recalled.
+The feature requires matching kuipa client and server packages that provide
+`kuipa-admin-revoke`.
 
 ## Design
 
@@ -215,7 +273,7 @@ SSSD, automount, SSH, NTP and the resumable staging of the installation itself.
 
 `ipa-join` and `ipa-getkeytab` are not removed: re-enrollment of an already-known host,
 `ipa-getkeytab` rekeying and every installation without the option keep using them. An explicit
-opt-out (`--no-pq`) is proposed so a scripted install can state which path it wants rather than
+opt-out (`--no-kuipa`) is proposed so a scripted install can state which path it wants rather than
 relying on the absence of another option.
 
 ### Trust: how a host with no realm configuration verifies a server
@@ -234,7 +292,7 @@ Two properties of the anchor model are FreeIPA's to provide, and both shape the 
 Accepted anchors are kept in `/etc/ipa/ku-anchors`; the daemon rotates its own anchor and
 publishes the replacement in the anchor log. Rotation needs no FreeIPA command; being unable to
 answer "is this anchor still current?" does. `ipa server-show` therefore gains this server's anchor
-thumbprint and validity and the anchors it vouches for, and `ipa pq-anchor-show` is the realm-wide
+thumbprint and validity and the anchors it vouches for, and `ipa kuipa-anchor-show` is the realm-wide
 listing assembled from the same read: the daemon's signed advertisement naming the peer anchors it
 delegates for, and its anchor log recording successors. Nothing is stored for these
 commands and no attribute is added to the master entry; an answer is verifiable as stale because it
@@ -299,14 +357,14 @@ and generates the recipient key pair or bundle secret in its key ring, and the c
 daemon's own staging path — authenticate the caller, run the join extended operation to set the
 principal names, generate the keys, record the stage with `krbPrincipalExpiration` — carrying the
 administrator's identity through instead of the host's. Staging requires the entry to exist, hence
-the order in the diagram: mint in `pre_callback`, stage in `post_callback`. `host-add --pq-stage`
-stages the host it creates and `host-mod --pq-stage` re-stages an existing one; the result is
+the order in the diagram: mint in `pre_callback`, stage in `post_callback`. `host-add --stage`
+stages the host it creates and `host-mod --stage` re-stages an existing one; the result is
 indistinguishable in the directory from a stage a host asked the daemon for. There is one staged
 state, not two.
 
 .. uml::
 
-  participant "ipa host-add --random --pq-stage" as CLI
+  participant "ipa host-add --random --stage" as CLI
   participant "host_add plugin\n(API worker)" as P
   participant "oddjob helper\n(root)" as H
   participant "kuipad\n(key ring, anchor)" as K
@@ -335,18 +393,18 @@ deciding the failure before anything is sent.
 | option | effect on the host entry | who holds the secret |
 |---|---|---|
 | `--random` | `userPassword` as today, no key and no expiry; the string carries the password as its fifth field | the holder of the string |
-| `--pq-stage` | the server generates the bundle secret, the daemon creates the host's keys and records the stage with an expiry; the string carries the secret | the holder of the string |
-| `--pq-stage --pq-recipient=FILE` | the same, with the stage naming the supplied public key; `--pq-bundle=FILE` writes the signed bundle the response returns | the host, from its own key pair |
+| `--stage` | the server generates the bundle secret, the daemon creates the host's keys and records the stage with an expiry; the string carries the secret | the holder of the string |
+| `--stage --recipient=FILE` | the same, with the stage naming the supplied public key; `--bundle=FILE` writes the signed bundle the response returns | the host, from its own key pair |
 
 A fourth mode — a bundle protected only by its signature, with nothing to open it — is
 reachable from the host's own enrollment command and deliberately gets no framework option: it
 protects nothing in transit.
 
-A host has at most one active stage; re-staging replaces it, and `--pq-days` bounds a staged
+A host has at most one active stage; re-staging replaces it, and `--enrollment-days` bounds a staged
 key exactly as it bounds a string. `host-show` reports the stage — recipient thumbprint, valid
 until — and never repeats the password, the bundle secret or the recipient key. An
-out-of-range `--pq-days` is a validation error. On a server whose daemon has no anchor role
-`--random` prints nothing extra, as today, and `--pq-stage` reports the daemon's reason rather
+out-of-range `--enrollment-days` is a validation error. On a server whose daemon has no anchor role
+`--random` prints nothing extra, as today, and `--stage` reports the daemon's reason rather
 than a traceback: the anchor role decides where a host can be enrolled from, not the client.
 
 ### Server-side behaviour this design needs
@@ -418,10 +476,10 @@ helper `user-disable` uses — makes the lock part of the same operation, and `i
 No new domain level, and no requirement that both sides run the same version: nothing new is
 stored, and the stage record and the escrow bindings replicate as ordinary attributes. New
 behaviour lives in each server's own command layer, so an older replica simply does not offer
-`--pq-stage` or `pq-anchor-show`, and the option-less change works against any master. A stage is
-bound to the anchor of the server that minted it, so hosts enrolled from a replica's string pin
-that replica; a replica installing itself is untouched, because a server's own identity never goes
-through this enrollment path.
+`--stage` or `kuipa-anchor-show`, and the option-less change works against any master. A stage is
+bound to the anchor of the server that minted it, so hosts enrolled from a
+replica's string pin that replica. Server self-enrollment uses its own local
+anchor and an already established host identity.
 
 ## Implementation
 
@@ -429,7 +487,7 @@ through this enrollment path.
 
 No new dependencies: the server package already requires the enrollment daemon package, oddjob
 and its dependency are present, and the schema and access control these commands read are already
-installed. `ipa-client-install --pq-enroll` is the design's only new package relationship — the
+installed. `ipa-client-install --kuipa` is the design's only new package relationship — the
 client package gains a dependency on the host-side kuipa package, without which the client has no
 enrollment command and keeps using `ipa-join`. No post-quantum algorithm is implemented in
 Python, so no Python cryptography library gains a version floor.
@@ -439,8 +497,8 @@ Python, so no Python cryptography library gains a version floor.
 | the staging options and the enrollment string in the output | the host plugin's parameters, `pre_callback` and `post_callback`, beside the existing random-password pair; the bundle is written by the client after the call returns |
 | `host-show` reporting the staged state | the host plugin's attribute list, secrets excluded |
 | the oddjob helper | one helper program beside the four already registered, one method registration, one file-list entry |
-| `pq-anchor-show`, the anchor section of `server-show` | a new command module reading the advertisement and anchor log over the daemon's local socket; an option on the existing server command, which already composes derived state |
-| `--clear-pq-escrow` | the `post_callback` of the host, service and user modify commands, as a value-less delete |
+| `kuipa-anchor-show`, the anchor section of `server-show` | a new command module reading the advertisement and anchor log over the daemon's local socket; an option on the existing server command, which already composes derived state |
+| `--clear-escrow` | the `post_callback` of the host, service and user modify commands, as a value-less delete |
 | `nsAccountLock`, new `host-enable` / `service-enable` | the disable commands, plus the backend activate helper the user commands already use |
 | the new permissions | the enrollment update file the installer already runs |
 | the client-install enrollment step | the join block of the client installer and its option set; `ipa-join` stays in the code path |
@@ -451,9 +509,17 @@ The installers already write the daemon's configuration: containers and schema,
 `/etc/ipa/kuipad.json`, its service principal and keytab, its membership of the servers' group,
 the delegation it needs to act as the joining principal, and the proxy path the host reaches it
 through; the socket-activation drop-in without which the socket has permissions httpd cannot use
-is installed by the packaging, not written by the installer. Two omissions are in scope because
-this design is what makes them observable, and each is packaging work independent of the client
-option:
+is installed by the packaging, not written by the installer.
+
+The daemon runs as `kuipad`; its state directory is private to that account and
+its configuration is root-owned and readable by the `kuipad` group. The
+`ipa-ku` keytab is root-only at `/etc/ipa/kuipad.keytab`; gssproxy supplies
+Kerberos credentials, including protocol transition and constrained delegation.
+Privileged key handlers run through the root-owned broker socket
+`/run/ipa/kuipad-keys.sock`. Reconfiguration preserves existing realm keys.
+Two omissions are in scope because this design is what makes them observable,
+and each is packaging work independent of the client option:
+
 
 * **No firewall rule.** Enrollment is served on the HTTP port the installer already opens, so
   nothing is unreachable today; a deployment that restricts that port silently breaks
@@ -475,8 +541,8 @@ Nothing new needs to be backed up and `ipa-backup` / `ipa-restore` need no chang
 these commands: the stage record and the escrow bindings are directory data, and the
 daemon's configuration and key directory are already archived. A host staged before a
 backup restores as a stage; if its validity passed while the server was down it is
-simply expired, and `ipa host-mod --pq-stage` mints a new one. A restored server
-keeps its anchor, so `pq-anchor-show` after a restore reports the thumbprint hosts
+simply expired, and `ipa host-mod --stage` mints a new one. A restored server
+keeps its anchor, so `kuipa-anchor-show` after a restore reports the thumbprint hosts
 already pinned — no re-pinning, no re-issued strings.
 
 Two consequences a restore makes visible: a host disabled before the backup is still
@@ -491,7 +557,7 @@ backup does not retire a credential.
 The classic Web UI already carries the one-time-password workflow end to end: the option on the host
 add dialog, the panel that prints the password after a successful add, and the Disable action.
 Extending it is mechanical — the enrollment string joins that panel, and an Enable action appears
-beside Disable when the entry is locked. The classic UI shows no server state, so `pq-anchor-show`
+beside Disable when the entry is locked. The classic UI shows no server state, so `kuipa-anchor-show`
 has no classic-UI surface.
 
 The modern Web UI has host settings and a user enable/disable modal but no pages for these objects.
@@ -501,32 +567,34 @@ page listing the realm's anchors is out of scope.
 
 ### CLI
 
-These names are proposals for behaviour, to be renamed during implementation. The
-first group is what runs today and is the path this design must keep working; the
-rest is not implemented.
+The first group describes the implemented OTP and seal-administration paths.
+The later entries are proposals and are not implemented.
 
 | Command | Options | Description |
 | --- | --- | --- |
-| **Today: the daemon's own commands** | | |
-| `ipa host-add` | `--random` | This command creates a host and its one-time password and prints the password. It writes no Kerberos key. |
+| **Implemented** | | |
+| `ipa host-add` | `--random` | Creates a host and OTP; on a configured kuipa server also prints an enrollment string containing the OTP. It writes no Kerberos key. |
+| `ipa-client-install` | `-W` | Accepts an enrollment string at the password prompt or from stdin in unattended mode and invokes kuipa for the join. |
 | `kuipad enrollment-string` | `--days N` | Run on a server, this command prints `ipa-ku1:REALM:anchor:expiry` for that server's anchor. The string carries no secret, so the caller appends the password. |
 | `kuipa enroll` | `--enrollment-file FILE`, `--hostname HOST`, `--ldap-otp` | Run on the host, this command spends a string and installs the keytab. `--ldap-otp` is required for a password-only host because the KDC cannot authenticate one. |
 | `kuipa prepare`, `kuipa enroll --bundle` | | Run on the host, these commands create a key pair and open a staged bundle with no network. |
 | `kuipa status`, `kuipa check` | | Host-side diagnosis of enrollment state, anchors and seals; not framework commands and not intended to become one. |
+| `ipa seal-find`, `ipa seal-show`, `ipa seal-revoke` | `--owner` (find) | Inspect and revoke seals using delegated authorization and an audited daemon operation. |
+| `ipa sealconfig-show`, `ipa sealconfig-mod` | `--limits JSON` | Inspect and set realm-wide seal limits; an empty value restores defaults. |
 | **Planned on the server** | | |
-| `ipa host-add`, `ipa host-mod` | `--random`, `--pq-days N` | This command also mints an enrollment string for this server's anchor and prints it beside the random password, so the authorization and the credential come from one call. |
-| `ipa host-add`, `ipa host-mod` | `--pq-stage` | This command stages a host: the server generates the shared secret, the string carries it, and the host's keys are created before its first contact. |
-| `ipa host-add`, `ipa host-mod` | `--pq-recipient=FILE`, `--pq-bundle=FILE` | This command stages a host against a public key the host generated, and writes the signed bundle the host will open offline. |
+| `ipa host-add`, `ipa host-mod` | `--enrollment-days N` | Choose the lifetime of the enrollment string; `host-mod` string output is also planned. |
+| `ipa host-add`, `ipa host-mod` | `--stage` | This command stages a host: the server generates the shared secret, the string carries it, and the host's keys are created before its first contact. |
+| `ipa host-add`, `ipa host-mod` | `--recipient=FILE`, `--bundle=FILE` | This command stages a host against a public key the host generated, and writes the signed bundle the host will open offline. |
 | `ipa host-show` | (output) | This command reports a host's staged state — recipient and expiry — and never prints a secret. |
-| `ipa pq-anchor-show` | `[--name THUMBPRINT]` | This command lists the anchors of the server it is run against, the anchors that server vouches for, and their validity. |
+| `ipa kuipa-anchor-show` | `[--name THUMBPRINT]` | This command lists the anchors of the server it is run against, the anchors that server vouches for, and their validity. |
 | `ipa server-show` | (output) | This command shows this server's own anchor thumbprint and validity. |
-| `ipa host-mod`, `ipa service-mod`, `ipa user-mod` | `--clear-pq-escrow` | This command removes an entry's recovery registrations and nothing else. |
+| `ipa host-mod`, `ipa service-mod`, `ipa user-mod` | `--clear-escrow` | This command removes an entry's recovery registrations and nothing else. |
 | `ipa host-disable`, `ipa service-disable` | (behaviour) | These commands also mark the principal inactive, so a disabled host cannot recover its sealed keytabs. |
 | `ipa host-enable`, `ipa service-enable` | | This command removes that mark again. |
 | **Planned on the client** | | |
-| `ipa-client-install` | `--pq-enroll` | This installation enrolls the host through the post-quantum exchange instead of `ipa-join`, using a string the provisioning system supplied. |
-| `ipa-client-install` | `--no-pq` | This installation uses `ipa-join` even where the realm offers the post-quantum path. An opt-out, not a default. |
-| `ipa-client-install` | `--pq-bundle=FILE` | This installation opens a staged bundle instead of contacting a server. |
+| `ipa-client-install` | `--kuipa` | A proposed explicit selector; the implemented OTP flow instead recognizes an enrollment string at the password prompt. |
+| `ipa-client-install` | `--no-kuipa` | This installation uses `ipa-join` even where the realm offers the post-quantum path. An opt-out, not a default. |
+| `ipa-client-install` | `--bundle=FILE` | This installation opens a staged bundle instead of contacting a server. |
 
 Trust enrollment — an invitation from one realm consumed by another — is a separate
 design and is not specified here.
@@ -538,10 +606,10 @@ command option; the daemon's settings stay in `/etc/ipa/kuipad.json`, written by
 installer. Two of those settings decide what the commands can do, and explain a refusal an
 administrator would otherwise chase: the anchor role, without which a server cannot mint a
 string or stage a host (there `--random` still works exactly as today); and the peer list,
-which is what the advertisement publishes and `pq-anchor-show` displays, written by the
+which is what the advertisement publishes and `kuipa-anchor-show` displays, written by the
 installer and the daemon rather than by an administrator.
 
-Nothing turns staging on for a realm: `--pq-stage` is per host, per call. The client
+Nothing turns staging on for a realm: `--stage` is per host, per call. The client
 enrollment step is opt-in per installation, so no realm-wide default changes and a client
 without the option installs exactly as today. `nsAccountLock` on disable gets no switch: a
 lock an administrator could turn off would not be a lock, and the escape hatch is
@@ -564,21 +632,21 @@ configuration; an upgrade alone does not add the daemon.
 
 Unit, in the host and service plugin suites:
 
-* `host-add --random --pq-days 14` returns the password **and** a string whose anchor field
+* `host-add --random --enrollment-days 14` returns the password **and** a string whose anchor field
   equals the thumbprint the daemon reports for that server; the entry has `userPassword` and no
-  `krbPrincipalKey`. An out-of-range `--pq-days` is a validation error.
-* `--pq-stage` adds a full-length random secret as the string's fifth field, and
+  `krbPrincipalKey`. An out-of-range `--enrollment-days` is a validation error.
+* `--stage` adds a full-length random secret as the string's fifth field, and
   `host-show --all --raw` shows the stage with that expiry and no secret or password.
-  `--pq-recipient=FILE` records that key's thumbprint and writes the bundle; a malformed key is a
+  `--recipient=FILE` records that key's thumbprint and writes the bundle; a malformed key is a
   validation error; re-staging leaves one record.
 * On a server whose daemon has no anchor role, `--random` returns the password and no string, and
-  `--pq-stage` reports the daemon's reason, not a traceback.
+  `--stage` reports the daemon's reason, not a traceback.
 * `host-disable` then `host-show --all` shows `nsAccountLock`; `host-enable` removes it and a
   second `host-enable` reports it was not locked — the pair behaves like `user-disable` /
   `user-enable`. A master is still refused; a host with no key and no certificate now succeeds.
-* `--clear-pq-escrow` is a no-op without bindings, removes them otherwise while leaving the key
+* `--clear-escrow` is a no-op without bindings, removes them otherwise while leaving the key
   and stage untouched, and is refused without the new permission.
-* `pq-anchor-show` returns the anchors of the server that answered; `--name` with an unknown
+* `kuipa-anchor-show` returns the anchors of the server that answered; `--name` with an unknown
   thumbprint is an empty result.
 
 Integration: the forced client re-enrollment suite gains the counterpart of its disabled-host test
@@ -586,8 +654,8 @@ Integration: the forced client re-enrollment suite gains the counterpart of its 
 must still pass. The backup-and-restore suite disables a host with recovery registrations,
 restores, and asserts it stays locked until `host-enable` runs.
 
-End-to-end, in the kuipa deployment: hosts prepared by `host-add --random --pq-days 14` and by
-`--pq-stage` enroll against a real server, and after the join `host-show --all --raw` shows no
+End-to-end, in the kuipa deployment: hosts prepared by `host-add --random --enrollment-days 14` and by
+`--stage` enroll against a real server, and after the join `host-show --all --raw` shows no
 `userPassword` and no `krbPrincipalExpiration` for either. Such a host fails to open its
 sealed keytab after `host-disable` and opens it after `host-enable`.
 
@@ -595,21 +663,22 @@ sealed keytab after `host-disable` and opens it after `host-enable`.
 
 No new daemons and no new files, so the diagnosis path is the existing one with one extra hop.
 
-* **Files relied on**: `/etc/ipa/kuipad.json` and `/var/lib/ipa/ku/`, both root-only and read only
-  by the helper, the daemon's own keytab, and the target host's entry. A staging failure is almost
-  always one of those being absent on that server.
+* **Files relied on**: `/etc/ipa/kuipad.json`, `/var/lib/ipa/ku/`,
+  `/etc/ipa/kuipad.keytab`, the gssproxy configuration, and the target host's
+  entry. A staging failure is almost always one of those being absent on that
+  server.
 * **Where a failure surfaces**: the helper's output is returned as command messages, as the
   connection-check command already does, so a staging failure appears in `ipa` output rather than
   only in a log; the daemon logs each stage it writes and consumes to the journal.
 * **Which step failed**: run the daemon's own command on the server. "This server has no anchor
   role" is a configuration answer, not a framework bug; a thumbprint from the daemon that differs
-  from `pq-anchor-show` means the command reached a different server. The daemon's local socket
+  from `kuipa-anchor-show` means the command reached a different server. The daemon's local socket
   answers a staging request from a shell when the helper path is suspect.
 * **Sealed keytabs that stop opening**: the unseal check consults the host's lock, the registered
   binding and the key's expiry, so `host-show --all` and the journal refusals separate the new
   cause from the old ones.
 * **Debug logging**: there is no `ipa server-mod` debug setting; use the per-command debug flag or
   the IPA debug setting, and run the helper by hand as root — it prints exactly what the plugin saw.
-  A `--clear-pq-escrow` refusal naming access control means the caller lacks the new privilege,
+  A `--clear-escrow` refusal naming access control means the caller lacks the new privilege,
   which `ipa permission-show` confirms.
 

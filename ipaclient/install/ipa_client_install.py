@@ -44,7 +44,8 @@ class StandaloneClientInstall(client.ClientInstall):
 
     prompt_password = knob(
         None,
-        description="Prompt for a password to join the IPA realm",
+        description=("Prompt for a password or enrollment string to join "
+                     "the IPA realm"),
         cli_names='-W',
     )
 

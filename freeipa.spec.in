@@ -538,6 +538,7 @@ Requires: ahdapa
 # systemd units and the /ipa/ku/ endpoints ipa-server-install configures.
 Requires: kuipa-server
 Requires: kuipa-admin-revoke >= 1
+Requires: kuipa-host-self-enroll >= 1
 Requires: sssd-dbus >= %{sssd_version}
 Requires: libpwquality
 Requires: cracklib-dicts
@@ -856,6 +857,7 @@ dependencies at once.
 Summary: IPA authentication for use on clients
 Requires: %{name}-client-common = %{version}-%{release}
 Requires: %{name}-common = %{version}-%{release}
+Requires: kuipa
 Requires: python3-gssapi >= 1.2.0-5
 Requires: python3-ipaclient = %{version}-%{release}
 Requires: python3-ldap >= %{python_ldap_version}
@@ -1736,8 +1738,11 @@ fi
 %attr(0755,root,root) %{_libexecdir}/ipa/oddjob/org.freeipa.server.conncheck
 %attr(0755,root,root) %{_libexecdir}/ipa/oddjob/org.freeipa.server.trust-enable-agent
 %attr(0755,root,root) %{_libexecdir}/ipa/oddjob/org.freeipa.server.config-enable-sid
+%attr(0755,root,root) %{_libexecdir}/ipa/oddjob/org.freeipa.kuipa-enrollment-string
 %config(noreplace) %{_sysconfdir}/dbus-1/system.d/org.freeipa.server.conf
 %config(noreplace) %{_sysconfdir}/oddjobd.conf.d/ipa-server.conf
+%config(noreplace) %{_sysconfdir}/dbus-1/system.d/org.freeipa.kuipa.conf
+%config(noreplace) %{_sysconfdir}/oddjobd.conf.d/ipa-kuipa.conf
 %dir %{_libexecdir}/ipa/certmonger
 %attr(755,root,root) %{_libexecdir}/ipa/certmonger/*
 # NOTE: systemd specific section

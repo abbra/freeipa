@@ -21,11 +21,17 @@
 from __future__ import absolute_import
 
 import logging
+import base64
+import binascii
+import os
+import time
+
+import dbus
 
 
 from ipalib import api, errors, util
 from ipalib import messages
-from ipalib import Str, StrEnum, Flag
+from ipalib import Str, StrEnum, Flag, Password
 from ipalib.parameters import Data, Principal, Certificate
 from ipalib.plugable import Registry
 from .baseldap import (LDAPQuery, LDAPObject, LDAPCreate,
@@ -63,6 +69,7 @@ from ipapython.ipautil import (
 )
 from ipapython.dnsutil import DNSName, zone_for_name
 from ipapython.ssh import SSHPublicKey
+from ipaplatform.paths import paths
 from ipapython.dn import DN
 from ipapython import kerberos
 from functools import reduce
@@ -127,6 +134,42 @@ EXAMPLES:
  Allow user to create a keytab:
    ipa host-allow-create-keytab test2 --users=tuser1
 """)
+
+
+def kuipa_enrollment_string(realm):
+    """Get a pin from the local anchor without exposing its key to httpd."""
+    try:
+        os.lstat(paths.KUIPA_CONFIG)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        raise errors.ExecutionError(
+            message=_('Unable to access kuipa configuration'))
+    try:
+        # private: SystemBus() is process-wide and a loop-less instance
+        # breaks server_conncheck's get_object(follow_name_owner_changes)
+        bus = dbus.SystemBus(private=True)
+        try:
+            obj = bus.get_object('org.freeipa.kuipa', '/')
+            server = dbus.Interface(obj, 'org.freeipa.kuipa')
+            ret, stdout, _stderr = server.kuipa_enrollment_string()
+        finally:
+            bus.close()
+        if ret != 0:
+            raise ValueError
+        value = str(stdout).strip()
+        version, string_realm, anchor, expiry = value.split(':')
+        decoded = base64.b64decode(anchor + '=', altchars=b'-_', validate=True)
+        if (version != 'ipa-ku1' or string_realm != realm
+                or len(decoded) != 32
+                or base64.urlsafe_b64encode(decoded).decode().rstrip('=') != anchor
+                or not expiry.isascii() or not expiry.isdecimal()
+                or int(expiry) <= time.time()):
+            raise ValueError
+        return value
+    except (dbus.DBusException, ValueError, binascii.Error):
+        raise errors.ExecutionError(
+            message=_('Unable to generate a valid kuipa enrollment string'))
 
 logger = logging.getLogger(__name__)
 
@@ -555,6 +598,10 @@ class host(LDAPObject):
             label=_('Random password'),
             flags=('no_create', 'no_update', 'no_search', 'virtual_attribute'),
         ),
+        Password('enrollmentstring?',
+            label=_('Enrollment string'),
+            flags=('no_create', 'no_update', 'no_search', 'virtual_attribute'),
+        ),
         Certificate('usercertificate*',
             cli_name='certificate',
             label=_('Certificate'),
@@ -783,6 +830,8 @@ class host_add(LDAPCreate):
             if 'krbprincipal' in entry_attrs['objectclass']:
                 entry_attrs['objectclass'].remove('krbprincipal')
         if options.get('random'):
+            context.kuipa_enrollment_string = kuipa_enrollment_string(
+                self.api.env.realm)
             entry_attrs['userpassword'] = ipa_generate_password(
                 entropy_bits=TMP_PWD_ENTROPY_BITS, special=None)
             # save the password so it can be displayed in post_callback
@@ -823,6 +872,10 @@ class host_add(LDAPCreate):
             try:
                 entry_attrs['randompassword'] = str(
                     getattr(context, 'randompassword'))
+                if getattr(context, 'kuipa_enrollment_string', None) is not None:
+                    entry_attrs['enrollmentstring'] = '{}:{}'.format(
+                        context.kuipa_enrollment_string,
+                        context.randompassword)
             except AttributeError:
                 # On the off-chance some other extension deletes this from the
                 # context, don't crash.
