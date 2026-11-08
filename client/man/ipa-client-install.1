@@ -96,6 +96,12 @@ Password for joining a machine to the IPA realm. Assumes bulk password unless pr
 .TP
 \fB\-W\fR
 Prompt for the password for joining a machine to the IPA realm.
+When an enrollment string containing a one-time password is supplied instead,
+the installer uses kuipa to verify the realm and enroll the host before
+continuing the normal client setup. An enrollment string is a credential;
+use the prompt rather than placing it on the command line. A failed kuipa
+enrollment does not fall back to the classical join.
+In unattended mode, \-W reads one line from standard input.
 .TP
 \fB\-k\fR, \fB\-\-keytab\fR
 Path to backed up host keytab from previous enrollment. Joins the host even if it is already enrolled.

@@ -13,6 +13,7 @@ from __future__ import (
     absolute_import,
 )
 
+import json
 import logging
 
 import dns
@@ -2898,6 +2899,28 @@ def configure_selinux_for_client(statestore):
                     "SELinux does not support SSSD boolean %s, ignoring", c)
 
 
+def enroll_with_kuipa(enrollment_string, servers, realm, domain, host, env):
+    """Enroll using the credential on stdin, without falling back to ipa-join."""
+    args = [
+        paths.KUIPA, '--json', 'enroll', '--enrollment-file', '-',
+        '--realm', realm, '--domain', domain, '--hostname', host, '--ldap-otp',
+    ]
+    for server in servers:
+        args.extend(('--server', server))
+    try:
+        return run(
+            args, stdin=enrollment_string + '\n', env=env,
+            nolog=(enrollment_string, enrollment_string.rsplit(':', 1)[-1]),
+            raiseonerr=False, capture_output=True, capture_error=True,
+            nolog_output=True, nolog_error=True,
+        )
+    except OSError as e:
+        raise ScriptError(
+            "Unable to run kuipa enrollment: {}".format(e),
+            rval=CLIENT_INSTALL_ERROR,
+        )
+
+
 def install(options):
     try:
         _install(options, dict())
@@ -2972,6 +2995,7 @@ def _install(options, tdict):
     host_principal = 'host/%s@%s' % (hostname, cli_realm)
     if not options.on_master:
         nolog = tuple()
+        kuipa_enrollment = None
         configure_krb5_conf(
             cli_realm=cli_realm,
             cli_domain=cli_domain,
@@ -3085,49 +3109,77 @@ def _install(options, tdict):
                 )
             finally:
                 remove_file(paths.CA_BUNDLE_PEM)
-        elif options.password:
-            nolog = (options.password,)
-            join_args.append("-w")
-            join_args.append(options.password)
-        elif options.prompt_password:
-            if options.unattended:
-                raise ScriptError(
-                    "Password must be provided in non-interactive mode",
-                    rval=CLIENT_INSTALL_ERROR)
-            try:
-                password = getpass.getpass("Password: ")
-            except EOFError:
-                password = None
+        elif options.password or options.prompt_password:
+            password = options.password
+            if not password and options.prompt_password:
+                if options.unattended and not sys.stdin.isatty():
+                    password = sys.stdin.readline().rstrip('\r\n')
+                elif options.unattended:
+                    raise ScriptError(
+                        "Password must be provided in non-interactive mode",
+                        rval=CLIENT_INSTALL_ERROR)
+                else:
+                    try:
+                        password = getpass.getpass("Password: ")
+                    except EOFError:
+                        password = None
             if not password:
                 raise ScriptError(
-                    "Password must be provided.",
-                    rval=CLIENT_INSTALL_ERROR)
-            join_args.append("-w")
-            join_args.append(password)
+                    "Password must be provided.", rval=CLIENT_INSTALL_ERROR)
             nolog = (password,)
+            if password.startswith('ipa-ku'):
+                if options.force_join:
+                    raise ScriptError(
+                        "An enrollment string cannot be used with --force-join.",
+                        rval=CLIENT_INSTALL_ERROR)
+                kuipa_enrollment = password
+            else:
+                join_args.extend(("-w", password))
 
         env['KRB5CCNAME'] = os.environ['KRB5CCNAME'] = ccache_name
-        # Get the CA certificate
-        try:
-            os.environ['KRB5_CONFIG'] = env['KRB5_CONFIG']
-            get_ca_certs(fstore, options, cli_server[0], cli_basedn,
-                         cli_realm)
-        except errors.FileError as e:
-            logger.error('%s', e)
-            raise ScriptError(rval=CLIENT_INSTALL_ERROR)
-        except Exception as e:
-            logger.error("Cannot obtain CA certificate\n%s", e)
-            raise ScriptError(rval=CLIENT_INSTALL_ERROR)
-
-        # Now join the domain
-        result = run(
-            join_args, raiseonerr=False, env=env, nolog=nolog,
-            capture_error=True)
-        stderr = result.error_output
+        os.environ['KRB5_CONFIG'] = env['KRB5_CONFIG']
+        if kuipa_enrollment is not None:
+            try:
+                supplied_ca = (
+                    x509.load_certificate_list_from_file(options.ca_cert_file)
+                    if options.ca_cert_file else None
+                )
+                result = enroll_with_kuipa(
+                    kuipa_enrollment, cli_server, cli_realm, cli_domain,
+                    hostname, env)
+                stderr = result.error_log
+                if result.returncode == 0:
+                    summary = json.loads(result.output)
+                    if DN(summary['basedn']) != cli_basedn:
+                        raise ValueError(
+                            "LDAP base does not match the verified realm")
+                    if supplied_ca is not None:
+                        received_ca = x509.load_certificate_list_from_file(
+                            paths.IPA_CA_CRT)
+                        if not set(supplied_ca).issubset(received_ca):
+                            raise ValueError(
+                                "Verified realm CA does not match --ca-cert-file")
+            except (OSError, ValueError, KeyError, TypeError) as e:
+                logger.error("Post-quantum enrollment failed: %s", e)
+                raise ScriptError(rval=CLIENT_INSTALL_ERROR)
+        else:
+            try:
+                get_ca_certs(fstore, options, cli_server[0], cli_basedn,
+                             cli_realm)
+            except errors.FileError as e:
+                logger.error('%s', e)
+                raise ScriptError(rval=CLIENT_INSTALL_ERROR)
+            except Exception as e:
+                logger.error("Cannot obtain CA certificate\n%s", e)
+                raise ScriptError(rval=CLIENT_INSTALL_ERROR)
+            result = run(
+                join_args, raiseonerr=False, env=env, nolog=nolog,
+                capture_error=True)
+            stderr = result.error_output
 
         if result.returncode != 0:
             logger.error("Joining realm failed: %s", stderr)
-            if not options.force:
+            if kuipa_enrollment is not None or not options.force:
                 if result.returncode == 13:
                     logger.info(
                         "Use --force-join option to override the host "
@@ -3577,6 +3629,14 @@ def uninstall_check(options):
 
 def uninstall(options):
     env = {'PATH': SECURE_PATH}
+
+    if os.path.exists(paths.KUIPA_CLIENT_STATE):
+        try:
+            run([paths.KUIPA, 'leave'], env=env)
+        except (OSError, CalledProcessError) as e:
+            raise ScriptError(
+                "Unable to restore kuipa-protected files: %s" % e,
+                rval=CLIENT_INSTALL_ERROR)
 
     fstore = sysrestore.FileStore(paths.IPA_CLIENT_SYSRESTORE)
     statestore = sysrestore.StateFile(paths.IPA_CLIENT_SYSRESTORE)
