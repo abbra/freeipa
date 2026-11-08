@@ -537,6 +537,7 @@ Requires: ahdapa
 # kuipa-server provides kuipad (the post-quantum enrollment daemon), its
 # systemd units and the /ipa/ku/ endpoints ipa-server-install configures.
 Requires: kuipa-server
+Requires: kuipa-admin-revoke >= 1
 Requires: sssd-dbus >= %{sssd_version}
 Requires: libpwquality
 Requires: cracklib-dicts

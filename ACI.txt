@@ -268,6 +268,12 @@ dn: cn=roles,cn=accounts,dc=ipa,dc=example
 aci: (targetattr = "businesscategory || cn || createtimestamp || description || entryusn || member || memberhost || memberof || memberuser || modifytimestamp || o || objectclass || ou || owner || seealso")(targetfilter = "(objectclass=groupofnames)")(version 3.0;acl "permission:System: Read Roles";allow (compare,read,search) groupdn = "ldap:///cn=System: Read Roles,cn=permissions,cn=pbac,dc=ipa,dc=example";)
 dn: cn=roles,cn=accounts,dc=ipa,dc=example
 aci: (targetfilter = "(objectclass=groupofnames)")(version 3.0;acl "permission:System: Remove Roles";allow (delete) groupdn = "ldap:///cn=System: Remove Roles,cn=permissions,cn=pbac,dc=ipa,dc=example";)
+dn: cn=seals,cn=kuipa,cn=etc,dc=ipa,dc=example
+aci: (targetattr = "cn || createtimestamp || entryusn || ipakusealname || ipakusealowner || ipakusealpolicy || ipakusealstate || modifytimestamp || objectclass")(targetfilter = "(objectclass=ipaKUSeal)")(version 3.0;acl "permission:System: Read kuipa Seals";allow (compare,read,search) groupdn = "ldap:///cn=System: Read kuipa Seals,cn=permissions,cn=pbac,dc=ipa,dc=example";)
+dn: cn=seal-limits,cn=kuipa,cn=etc,dc=ipa,dc=example
+aci: (targetattr = "ipakuseallimits")(targetfilter = "(objectclass=ipaKURealmConfig)")(version 3.0;acl "permission:System: Modify kuipa Seal Limits";allow (write) groupdn = "ldap:///cn=System: Modify kuipa Seal Limits,cn=permissions,cn=pbac,dc=ipa,dc=example";)
+dn: cn=seal-limits,cn=kuipa,cn=etc,dc=ipa,dc=example
+aci: (targetattr = "cn || createtimestamp || entryusn || ipakuseallimits || modifytimestamp || objectclass")(targetfilter = "(objectclass=ipaKURealmConfig)")(version 3.0;acl "permission:System: Read kuipa Seal Limits";allow (compare,read,search) groupdn = "ldap:///cn=System: Read kuipa Seal Limits,cn=permissions,cn=pbac,dc=ipa,dc=example";)
 dn: cn=usermap,cn=selinux,dc=ipa,dc=example
 aci: (targetfilter = "(objectclass=ipaselinuxusermap)")(version 3.0;acl "permission:System: Add SELinux User Maps";allow (add) groupdn = "ldap:///cn=System: Add SELinux User Maps,cn=permissions,cn=pbac,dc=ipa,dc=example";)
 dn: cn=usermap,cn=selinux,dc=ipa,dc=example
