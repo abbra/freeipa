@@ -162,7 +162,8 @@ def kuipa_enrollment_string(realm):
         decoded = base64.b64decode(anchor + '=', altchars=b'-_', validate=True)
         if (version != 'ipa-ku1' or string_realm != realm
                 or len(decoded) != 32
-                or base64.urlsafe_b64encode(decoded).decode().rstrip('=') != anchor
+                or (base64.urlsafe_b64encode(decoded).decode().rstrip('=')
+                    != anchor)
                 or not expiry.isascii() or not expiry.isdecimal()
                 or int(expiry) <= time.time()):
             raise ValueError
@@ -599,9 +600,10 @@ class host(LDAPObject):
             flags=('no_create', 'no_update', 'no_search', 'virtual_attribute'),
         ),
         Password('enrollmentstring?',
-            label=_('Enrollment string'),
-            flags=('no_create', 'no_update', 'no_search', 'virtual_attribute'),
-        ),
+                 label=_('Enrollment string'),
+                 flags=('no_create', 'no_update',
+                        'no_search', 'virtual_attribute'),
+                 ),
         Certificate('usercertificate*',
             cli_name='certificate',
             label=_('Certificate'),
@@ -872,7 +874,8 @@ class host_add(LDAPCreate):
             try:
                 entry_attrs['randompassword'] = str(
                     getattr(context, 'randompassword'))
-                if getattr(context, 'kuipa_enrollment_string', None) is not None:
+                if (getattr(context, 'kuipa_enrollment_string', None)
+                        is not None):
                     entry_attrs['enrollmentstring'] = '{}:{}'.format(
                         context.kuipa_enrollment_string,
                         context.randompassword)
@@ -1074,6 +1077,8 @@ class host_mod(LDAPUpdate):
             entry_attrs['usercertificate'] = certs
 
         if options.get('random'):
+            context.kuipa_enrollment_string = kuipa_enrollment_string(
+                self.api.env.realm)
             entry_attrs['userpassword'] = ipa_generate_password(
                 entropy_bits=TMP_PWD_ENTROPY_BITS)
             setattr(context, 'randompassword', entry_attrs['userpassword'])
@@ -1136,6 +1141,10 @@ class host_mod(LDAPUpdate):
             entry_attrs['randompassword'] = str(
                 getattr(context, 'randompassword')
             )
+            if getattr(context, 'kuipa_enrollment_string', None) is not None:
+                entry_attrs['enrollmentstring'] = '{}:{}'.format(
+                    context.kuipa_enrollment_string,
+                    context.randompassword)
         set_certificate_attrs(entry_attrs)
         set_kerberos_attrs(entry_attrs, options)
         rename_ipaallowedtoperform_from_ldap(entry_attrs, options)

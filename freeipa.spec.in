@@ -1542,7 +1542,6 @@ fi
 %selinux_relabel_pre -s %{selinuxtype}
 
 %post selinux
-semodule -d ipa_custodia &> /dev/null || true;
 %selinux_modules_install -s %{selinuxtype} %{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2
 
 %post selinux-nfast
@@ -1554,7 +1553,6 @@ semodule -d ipa_custodia &> /dev/null || true;
 %postun selinux
 if [ $1 -eq 0 ]; then
     %selinux_modules_uninstall -s %{selinuxtype} %{modulename}
-    semodule -e ipa_custodia &> /dev/null || true;
 fi
 
 %postun selinux-nfast
@@ -1719,8 +1717,6 @@ fi
 %{_libexecdir}/certmonger/ipa-server-guard
 %dir %{_libexecdir}/ipa
 %{_libexecdir}/ipa/ipa-ccache-sweeper
-%{_libexecdir}/ipa/ipa-custodia
-%{_libexecdir}/ipa/ipa-custodia-check
 %{_libexecdir}/ipa/ipa-httpd-kdcproxy
 %{_libexecdir}/ipa/ipa-httpd-pwdreader
 %{_libexecdir}/ipa/ipa-pki-retrieve-key
@@ -1817,7 +1813,6 @@ fi
 # NOTE: systemd specific section
 %{_sysusersdir}/ipa.conf
 %{_tmpfilesdir}/ipa.conf
-%attr(644,root,root) %{_unitdir}/ipa-custodia.service
 %ghost %attr(644,root,root) %{etc_systemd_dir}/httpd.d/ipa.conf
 # END
 %{_usr}/share/ipa/wsgi.py*
@@ -1893,7 +1888,6 @@ fi
 %attr(700,root,root) %dir %{_localstatedir}/lib/ipa/private
 %attr(700,root,root) %dir %{_localstatedir}/lib/ipa/passwds
 %ghost %attr(775,root,pkiuser) %{_localstatedir}/lib/ipa/pki-ca/publish
-%dir %attr(0700,root,root) %{_sysconfdir}/ipa/custodia
 %dir %{_usr}/share/ipa/schema.d
 %attr(0644,root,root) %{_usr}/share/ipa/schema.d/README
 %attr(0644,root,root) %{_usr}/share/ipa/schema.d/74-kuipa.ldif

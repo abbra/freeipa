@@ -112,7 +112,6 @@ extraction:
       requirements:
         - cffi
         - cryptography
-        - custodia
         - dbus-python
         - dnspython
         - jinja2

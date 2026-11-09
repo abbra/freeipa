@@ -174,22 +174,43 @@ and seal administration are also implemented; other workflows below remain propo
 ### Enrolling an IPA server itself
 
 After configuring its local kuipad and HTTP proxy, `ipa-server-install` and
-`ipa-replica-install` enroll the server's host identity through kuipa. The
-initial IPA bootstrap creates or obtains the host keytab as before. The
-installer then obtains the local daemon's anchor, authenticates with a
-temporary Kerberos cache made from that host keytab, and runs
-`kuipa enroll --use-ccache`. The daemon recognizes the host's own ticket
-and rekeys that host; it does not grant the host authority to enroll others.
-The resulting keytab keeps existing entries, including previous host keys
-and entries for other principals.
+`ipa-replica-install` record the server's kuipa state. The initial IPA
+bootstrap creates or obtains the host keytab as before. The installer then
+obtains the local daemon's anchor, proves the host identity with `kinit -k`
+on that keytab, and runs `kuipa adopt`. `adopt` first obtains a ticket from the KDC with that keytab, which must
+authenticate exactly `host/<fqdn>`, then verifies the realm through the
+enrollment string's pins and writes the local kuipa state. It does not rekey:
+the keytab is left as it is, and no host key is issued.
 
-A replica already enrolled through kuipa keeps its existing enrollment;
-promotion and later upgrades do not rotate it again. An upgrade of a
-kuipa-enabled server that lacks client state enrolls it the same way.
-An existing enrollment for a different realm or hostname is refused.
-`kuipa status` shows the resulting identity. The self-enrollment cannot
-bootstrap the first host key: it protects the subsequent rekey and records
-the verified realm state.
+A replica already enrolled through kuipa keeps its existing state; promotion
+and later upgrades skip the step. An upgrade of a kuipa-enabled server that
+lacks client state adopts it the same way. An existing state for a different
+realm or hostname is refused. `kuipa status` shows the resulting identity.
+
+### Promoting a replica
+
+`ipa-replica-install` needs the host enrolled before it touches the directory:
+
+1. **Already an IPA client.** The host's ccache or keytab authenticates; any
+   enrollment option is ignored with a notice.
+2. **A new host.** The installer runs `ipa-client-install` first. Either the
+   operator supplies the host's enrollment string (`--enrollment-string`, or the
+   string as `-w`), or supplies administrator credentials (`--principal`,
+   `--admin-password`). The latter fetches the realm with
+   `kuipa realm-info --trust-first-use`, obtains an administrator ticket
+   (made forwardable so the server can delegate it to LDAP), creates the host
+   with `host-add --random --force` (`host-mod --random` for a pre-created host)
+   and enrolls with the string the server returns. Trust on first use is the
+   weaker choice: the realm advertisement is not checked against a pin. Use the
+   enrollment string where that matters.
+
+kuipad serves keys only to hosts in `cn=masters`, and the replica enters it when
+`install_krb()` registers its KDC. The installer therefore fetches the CA, KRA,
+RA and Akamu RA keys after that point, retrying a refusal for up to 300 seconds
+while the entry replicates, and consumes them in `ca.install()` and
+`kra.install()`. The Directory Manager hash is fetched and imported last,
+because the CA and KRA installers still bind with the password the installer
+generated.
 
 ### Enrolling a host that never reaches the network (UC3)
 

@@ -39,8 +39,7 @@
 # - ipServiceProtocol: not used by SSSD at the moment and has a poor
 #                      selectivity ('tcp' or 'udp')
 # - ipaCertSubject: only queried in update_fix_duplicate_cacrt_in_ldap
-# - ipaKeyUsage: rarely used by ipa-custodia and poor selectivity
-#                ('digitalSignature' or 'dataEncipherment')
+# - ipaKeyUsage: poor selectivity ('digitalSignature' or 'dataEncipherment')
 #
 # Update rules
 # ------------

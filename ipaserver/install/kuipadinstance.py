@@ -9,6 +9,7 @@ import pwd
 import shutil
 import stat
 import tempfile
+import time
 
 from ipalib import api
 from ipalib.kinit import kinit_keytab
@@ -19,11 +20,40 @@ from ipaplatform.tasks import tasks
 from ipapython import ipautil, ipaldap
 from ipapython.dn import DN
 from ipaserver.install import sysupgrade
-from ipaserver.install.service import SimpleServiceInstance, add_principals_to_group
+from ipaserver.install.service import (
+    SimpleServiceInstance, add_principals_to_group)
 
 logger = logging.getLogger(__name__)
 
 KUIPA_USER = 'kuipad'
+
+
+def fetch_key(name, alg=None, wait=0):
+    """Return the value of kuipa secret '<namespace>/<nickname>'.
+
+    kuipad refuses a host that is not in cn=masters yet; with `wait` > 0 a
+    refusal is retried for that many seconds, until the host's own entry has
+    replicated to the server answering.
+    """
+    argv = [paths.KUIPA, 'keys', 'fetch', name]
+    if alg is not None:
+        argv += ['--alg', alg]
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            return ipautil.run(argv, capture_output=True).output
+        except ipautil.CalledProcessError as e:
+            if time.monotonic() >= deadline:
+                raise
+            logger.debug("kuipa keys fetch %s refused, retrying: %s", name, e)
+            time.sleep(5)
+
+
+def import_key(handler, value):
+    """Store a fetched value with a local key handler (--import -)."""
+    ipautil.run(
+        [os.path.join(paths.IPA_CUSTODIA_HANDLER, handler), '--import', '-'],
+        stdin=value)
 
 
 def _get_kuipa_user():
@@ -33,6 +63,7 @@ def _get_kuipa_user():
         raise RuntimeError(
             "System user '{}' does not exist. "
             "Ensure the kuipa-server package is installed.".format(KUIPA_USER))
+
 
 def _migrate_state_directory(fd, user):
     info = os.fstat(fd)
@@ -79,7 +110,7 @@ class KuipadInstance(SimpleServiceInstance):
         self.realm = None
         self.domain = None
 
-    def configure_instance(self, realm, host_name, domain, ldap_suffix=None):
+    def prepare_instance(self, realm, host_name, domain, ldap_suffix=None):
         self.fqdn = host_name
         self.realm = realm
         self.domain = domain
@@ -90,8 +121,8 @@ class KuipadInstance(SimpleServiceInstance):
         self.step("configuring kuipad", self._configure_kuipad)
         self.step("setting up kuipad keytab", self.request_service_keytab)
         self.step("configuring gssproxy for kuipad", self._configure_gssproxy)
-        # the keys too, before the daemon is started below: 'serve' loads
-        # them before binding the socket httpd proxies /ipa/ku to.
+        # the keys too, before the daemon is started by start_instance():
+        # 'serve' loads them before binding the socket httpd proxies /ipa/ku to.
         self.step("generating kuipad realm keys", self._generate_keys)
         self.step("adding kuipad to the kuipa server group",
                   self._join_server_group)
@@ -100,6 +131,7 @@ class KuipadInstance(SimpleServiceInstance):
         self.step("configuring httpd proxy for kuipad",
                   self._configure_httpd_proxy)
 
+    def start_instance(self):
         super(KuipadInstance, self).create_instance(
             gensvc_name='KU',
             fqdn=self.fqdn,
@@ -114,6 +146,10 @@ class KuipadInstance(SimpleServiceInstance):
         services.knownservices.httpd.reload_or_restart()
         self._enroll_host()
         sysupgrade.set_upgrade_state('kuipa', 'installed', True)
+
+    def configure_instance(self, realm, host_name, domain, ldap_suffix=None):
+        self.prepare_instance(realm, host_name, domain, ldap_suffix)
+        self.start_instance()
 
     def _create_container(self):
         self._ldap_update(['74-kuipa.update'])
@@ -283,15 +319,19 @@ class KuipadInstance(SimpleServiceInstance):
         if os.path.exists(paths.KUIPA_CLIENT_STATE):
             with open(paths.KUIPA_CLIENT_STATE) as f:
                 state = json.load(f)
-            if state.get('realm') != self.realm or state.get('fqdn') != self.fqdn:
-                raise RuntimeError('Existing kuipa enrollment belongs to another host or realm')
+            if (state.get('realm') != self.realm
+                    or state.get('fqdn') != self.fqdn):
+                raise RuntimeError(
+                    'Existing kuipa enrollment belongs to another host '
+                    'or realm')
             return
 
         service_principal = 'host/{}@{}'.format(self.fqdn, self.realm)
         enrollment = ipautil.run(
             [paths.KUIPAD, 'enrollment-string'], capture_output=True
         ).output.strip()
-        with tempfile.TemporaryDirectory(prefix='ipa-kuipa-enroll-') as directory:
+        with tempfile.TemporaryDirectory(
+                prefix='ipa-kuipa-enroll-') as directory:
             ccache = 'FILE:' + os.path.join(directory, 'ccache')
             kinit_keytab(service_principal, paths.KRB5_KEYTAB, ccache)
             env = os.environ.copy()
@@ -299,8 +339,9 @@ class KuipadInstance(SimpleServiceInstance):
             for name in ('KRB5_CONFIG', 'KUIPA_ROOT', 'KUIPA_KDC'):
                 env.pop(name, None)
             ipautil.run([
-                paths.KUIPA, 'enroll', '--enrollment-file', '-', '--use-ccache',
-                '--server', self.fqdn, '--hostname', self.fqdn, '--domain', self.domain,
+                paths.KUIPA, 'adopt', '--enrollment-file', '-',
+                '--server', self.fqdn, '--hostname', self.fqdn,
+                '--domain', self.domain,
             ], stdin=enrollment + '\n', env=env)
 
     def _configure_httpd_proxy(self):
@@ -367,5 +408,3 @@ class KuipadInstance(SimpleServiceInstance):
             # the daemon's restart alone does not pick up new proxy config.
             services.knownservices.httpd.reload_or_restart()
             self._enroll_host()
-
-

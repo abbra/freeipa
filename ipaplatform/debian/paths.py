@@ -120,10 +120,7 @@ class DebianPathNamespace(BasePathNamespace):
     VAR_OPENDNSSEC_DIR = "/var/lib/opendnssec"
     OPENDNSSEC_KASP_DB = "/var/lib/opendnssec/db/kasp.db"
     IPA_ODS_EXPORTER_CCACHE = "/var/lib/opendnssec/tmp/ipa-ods-exporter.ccache"
-    IPA_CUSTODIA_SOCKET = "/run/apache2/ipa-custodia.sock"
-    IPA_CUSTODIA_AUDIT_LOG = '/var/log/ipa-custodia.audit.log'
     IPA_CUSTODIA_HANDLER = "/usr/lib/ipa/custodia"
-    IPA_CUSTODIA_CHECK = "/usr/lib/ipa/ipa-custodia-check"
     WSGI_PREFIX_DIR = "/run/apache2/wsgi"
     A2ENMOD = "/usr/sbin/a2enmod"
     A2DISMOD = "/usr/sbin/a2dismod"

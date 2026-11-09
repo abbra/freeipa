@@ -423,13 +423,7 @@ class BasePathNamespace:
     SYSTEMD_RESOLVED_IPA_CONF = '/etc/systemd/resolved.conf.d/zzz-ipa.conf'
     SYSTEMD_RESOLVED_CONF = '/etc/systemd/resolved.conf'
     SYSTEMD_RESOLVED_CONF_DIR = '/etc/systemd/resolved.conf.d'
-    IPA_CUSTODIA_CONF_DIR = '/etc/ipa/custodia'
-    IPA_CUSTODIA_CONF = '/etc/ipa/custodia/custodia.conf'
-    IPA_CUSTODIA_KEYS = '/etc/ipa/custodia/server.keys'
-    IPA_CUSTODIA_SOCKET = '/run/httpd/ipa-custodia.sock'
-    IPA_CUSTODIA_AUDIT_LOG = '/var/log/ipa-custodia.audit.log'
     IPA_CUSTODIA_HANDLER = "/usr/libexec/ipa/custodia"
-    IPA_CUSTODIA_CHECK = "/usr/libexec/ipa/ipa-custodia-check"
     AHDAPA_CONF_DIR = '/etc/ahdapa'
     AHDAPA_CONF = '/etc/ahdapa/ahdapa.toml'
     AHDAPA_CLIENTS_CONF = '/etc/ahdapa/clients.toml'

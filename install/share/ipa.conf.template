@@ -169,14 +169,6 @@ Alias /ipa/session/cookie "/usr/share/ipa/gssapi.login"
   Require all granted
 </Location>
 
-# Custodia stuff is redirected to the custodia daemon
-# after authentication
-<Location "/ipa/keys/">
-    ProxyPass "unix:${IPA_CUSTODIA_SOCKET}|http://localhost/keys/"
-    RequestHeader set GSS_NAME %{GSS_NAME}s
-    RequestHeader set REMOTE_USER %{REMOTE_USER}s
-</Location>
-
 # This is where we redirect on failed auth
 Alias /ipa/errors "/usr/share/ipa/html"
 

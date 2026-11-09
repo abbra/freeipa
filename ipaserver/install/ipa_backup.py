@@ -190,8 +190,6 @@ class Backup(admintool.AdminTool):
         paths.DNSSEC_SOFTHSM_PIN_SO,
         paths.IPA_ODS_EXPORTER_KEYTAB,
         paths.IPA_DNSKEYSYNCD_KEYTAB,
-        paths.IPA_CUSTODIA_KEYS,
-        paths.IPA_CUSTODIA_CONF,
         paths.GSSPROXY_CONF,
         paths.AHDAPA_CONF,
         paths.AHDAPA_CLIENTS_CONF,

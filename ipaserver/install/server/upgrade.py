@@ -53,7 +53,6 @@ from ipaserver.install import ahdapainstance
 from ipaserver.install import akamuinstance
 from ipaserver.install import kuipadinstance
 from ipaserver.install import schemaupdate
-from ipaserver.install import custodiainstance
 from ipaserver.install import sysupgrade
 from ipaserver.install import dnskeysyncinstance
 from ipaserver.install import dogtaginstance
@@ -305,6 +304,19 @@ def cleanup_kdcinfo():
         for fname in glob.glob(os.path.join(paths.SSSD_PUBCONF_DIR, pattern)):
             logger.debug('Removing stale info file %s', fname)
             os.unlink(fname)
+
+
+def remove_custodia_store():
+    """Delete the retired cn=custodia key store, deepest entries first."""
+    base = DN(('cn', 'custodia'), ('cn', 'ipa'), ('cn', 'etc'),
+              api.env.basedn)
+    try:
+        entries = api.Backend.ldap2.get_entries(base)
+    except ipalib.errors.NotFound:
+        return
+    for entry in sorted(entries, key=lambda e: len(e.dn), reverse=True):
+        logger.info('Removing retired Custodia key store entry %s', entry.dn)
+        api.Backend.ldap2.delete_entry(entry)
 
 
 def upgrade_adtrust_config():
@@ -1751,7 +1763,6 @@ def upgrade_configuration():
         FONTS_OPENSANS_DIR=paths.FONTS_OPENSANS_DIR,
         FONTS_FONTAWESOME_DIR=paths.FONTS_FONTAWESOME_DIR,
         IPA_CCACHES=paths.IPA_CCACHES,
-        IPA_CUSTODIA_SOCKET=paths.IPA_CUSTODIA_SOCKET,
         KDCPROXY_CONFIG=paths.KDCPROXY_CONFIG,
         DOMAIN=api.env.domain,
     )
@@ -1974,8 +1985,7 @@ def upgrade_configuration():
 
     upgrade_bind(fstore)
 
-    custodia = custodiainstance.CustodiaInstance(api.env.host, api.env.realm)
-    custodia.upgrade_instance()
+    remove_custodia_store()
 
     ahdapa = ahdapainstance.AhdapaInstance()
     ahdapa.upgrade_instance()
@@ -2024,20 +2034,13 @@ def upgrade_configuration():
         ca.setup_acme()
 
         akamu = akamuinstance.AkamuInstance()
-        akamu_custodia = None
-        if not ca.is_renewal_master():
-            akamu_peer = cainstance.get_ca_renewal_master_fqdn()
-            if akamu_peer:
-                akamu_custodia = custodiainstance.CustodiaInstance(
-                    host_name=api.env.host, realm=api.env.realm,
-                    custodia_peer=akamu_peer)
         # Only __init__ ran for the CA here (never configure_instance), so
         # subject_base and ca_subject are unset; the Akamu RA enrollment reads
         # both. Populate them the same way configure_instance does.
         ca.subject_base = subject_base or \
             installutils.default_subject_base(api.env.realm)
         ca.ca_subject = installutils.default_ca_subject_dn(ca.subject_base)
-        akamu.upgrade_instance(ca=ca, custodia=akamu_custodia)
+        akamu.upgrade_instance(ca=ca)
 
         ca_update_acme_configuration(ca, fqdn)
         ca_initialize_hsm_state(ca)

@@ -160,7 +160,6 @@ DEFAULT_CONFIG = (
     ('container_locations', DN(('cn', 'locations'), ('cn', 'etc'))),
     ('container_ca', DN(('cn', 'cas'), ('cn', 'ca'))),
     ('container_dnsservers', DN(('cn', 'servers'), ('cn', 'dns'))),
-    ('container_custodia', DN(('cn', 'custodia'), ('cn', 'ipa'), ('cn', 'etc'))),
     ('container_sysaccounts', DN(('cn', 'sysaccounts'), ('cn', 'etc'))),
     ('container_certmap', DN(('cn', 'certmap'))),
     ('container_certmaprules', DN(('cn', 'certmaprules'), ('cn', 'certmap'))),

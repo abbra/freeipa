@@ -26,6 +26,7 @@ import os
 import shutil
 import tempfile
 
+from ipalib.install import sysrestore
 from ipalib.install.kinit import kinit_keytab
 from ipapython import ipautil
 
@@ -34,7 +35,7 @@ from ipaserver.install import installutils
 from ipaserver.install.installutils import check_creds, ReplicaConfig
 from ipaserver.install import dsinstance, ca
 from ipaserver.install import cainstance, service
-from ipaserver.install import custodiainstance
+from ipaserver.install import akamuinstance
 from ipaserver.masters import find_providing_server
 from ipapython import version
 from ipalib import api, x509
@@ -65,6 +66,9 @@ def parse_options():
                       default=False, help="skip connection check to remote master")
     parser.add_option("--skip-schema-check", dest="skip_schema_check", action="store_true",
                       default=False, help="skip check for updated CA DS schema on the remote master")
+    parser.add_option("--no-akamu", dest="no_akamu", action="store_true",
+                      default=False,
+                      help="Do not configure the integrated ACME RA (akamu)")
     parser.add_option("-U", "--unattended", dest="unattended", action="store_true",
                       default=False, help="unattended installation never prompts the user")
     parser.add_option("--external-ca", dest="external_ca", action="store_true",
@@ -227,6 +231,10 @@ def install_replica(safe_options, options):
             'CA', api.Backend.ldap2, [api.env.ca_host]
         )
 
+    # This host is already in cn=masters, so kuipad serves its keys now.
+    config.kuipa_keys = cainstance.fetch_kuipa_keys(
+        setup_ca=True, setup_kra=False, setup_akamu=not options.no_akamu)
+
     options.realm_name = config.realm_name
     options.domain_name = config.domain_name
     options.dm_password = config.dirman_password
@@ -239,9 +247,7 @@ def install_replica(safe_options, options):
 
     ca.install_check(True, config, options)
 
-    custodia = custodiainstance.get_custodia_instance(
-        options, custodiainstance.CustodiaModes.CA_PEER)
-    ca.install(True, config, options, custodia=custodia)
+    ca.install(True, config, options)
 
 
 def install_master(safe_options, options):
@@ -284,9 +290,7 @@ def install_master(safe_options, options):
             sys.exit("Installation aborted")
 
     # No CA peer available yet.
-    custodia = custodiainstance.get_custodia_instance(
-        options, custodiainstance.CustodiaModes.FIRST_MASTER)
-    ca.install(True, None, options, custodia=custodia)
+    ca.install(True, None, options)
 
     # Run ipa-certupdate to add the new CA certificate to
     # certificate databases on this server.
@@ -318,6 +322,15 @@ def install(safe_options, options):
                         "\nRandom serial numbers cannot be enabled in an "
                         "existing CA installation.\n")
             install_replica(safe_options, options)
+
+        if not options.no_akamu:
+            # The RA agent akamu runs as only exists once the CA does, so
+            # the service follows the CA install, as in ipa-replica-install.
+            akamu = akamuinstance.AkamuInstance(
+                sysrestore.FileStore(paths.SYSRESTORE))
+            akamu.configure_instance(
+                api.env.realm, api.env.host, api.env.domain,
+                ldap_suffix=ipautil.realm_to_suffix(api.env.realm))
 
 
 def main():

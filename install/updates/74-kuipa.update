@@ -12,6 +12,11 @@ default: objectClass: top
 default: objectClass: nsContainer
 default: cn: kuipa
 
+dn: cn=keys,cn=kuipa,cn=etc,$SUFFIX
+default: objectClass: top
+default: objectClass: nsContainer
+default: cn: keys
+
 dn: cn=seals,cn=kuipa,cn=etc,$SUFFIX
 default: objectClass: top
 default: objectClass: nsContainer

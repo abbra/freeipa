@@ -17,7 +17,7 @@ from ipaplatform import services
 from ipaplatform.constants import constants as platformconstants
 from ipaplatform.paths import paths
 from ipaplatform.tasks import tasks
-from ipaserver.install import certs, sysupgrade
+from ipaserver.install import certs, kuipadinstance, sysupgrade
 from ipaserver.install.service import SimpleServiceInstance
 from ipapython import dogtag, ipautil
 from ipapython.certdb import IPA_CA_TRUST_FLAGS, EMPTY_TRUST_FLAGS
@@ -199,10 +199,10 @@ def configure_agent_renewal():
             e)
 
 
-def import_ra_key(custodia):
-    """Fetch the shared akamu-ra PEM cert+key via Custodia."""
+def import_ra_key(value):
+    """Install the Akamu RA PEM cert+key fetched through kuipa."""
     _ensure_akamu_state_dir()
-    custodia.import_akamu_ra_key()
+    kuipadinstance.import_key('ipa-custodia-akamu-ra-agent', value)
     _set_akamu_ra_cert_perms()
     configure_agent_renewal()
 
@@ -388,14 +388,11 @@ class AkamuInstance(SimpleServiceInstance):
 
         sysupgrade.set_upgrade_state('akamu', 'installed', False)
 
-    def upgrade_instance(self, ca=None, custodia=None):
+    def upgrade_instance(self, ca=None):
         """Bring Akamu onto a pre-existing CA-enabled server (UC5).
 
         :param ca: a configured CAInstance for this host, or None if this
             host doesn't have the CA role
-        :param custodia: a CustodiaInstance constructed with a peer (the
-            CA renewal master), used to fetch the RA cert when this host
-            isn't the renewal master and doesn't have a local copy yet
         """
         if ca is None or not ca.is_configured():
             return  # not (or no longer) a CA host: nothing to do
@@ -414,12 +411,10 @@ class AkamuInstance(SimpleServiceInstance):
             if not os.path.isfile(paths.AKAMU_RA_AGENT_PEM):
                 if ca.is_renewal_master():
                     request_ra_certificate(ca)
-                elif custodia is not None:
-                    import_ra_key(custodia)
                 else:
                     logger.warning(
-                        "No Custodia peer available; deferring Akamu "
-                        "deployment to the next upgrade run")
+                        "Akamu RA key is not shared with replicas; "
+                        "deferring Akamu deployment on this host")
                     return
 
             self.configure_instance(self.realm, self.fqdn, self.domain)

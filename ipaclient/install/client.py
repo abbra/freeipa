@@ -116,6 +116,8 @@ def cleanup(func):
         tdict['ccache_dir'] = ccache_dir
 
         func(options, tdict)
+        if 'kuipa_dir' in tdict:
+            shutil.rmtree(tdict['kuipa_dir'], ignore_errors=True)
 
         os.environ.pop('KRB5_CONFIG', None)
 
@@ -2900,7 +2902,7 @@ def configure_selinux_for_client(statestore):
 
 
 def enroll_with_kuipa(enrollment_string, servers, realm, domain, host, env):
-    """Enroll using the credential on stdin, without falling back to ipa-join."""
+    """Enroll using the credential on stdin, with no fallback to ipa-join."""
     args = [
         paths.KUIPA, '--json', 'enroll', '--enrollment-file', '-',
         '--realm', realm, '--domain', domain, '--hostname', host, '--ldap-otp',
@@ -3024,20 +3026,20 @@ def _install(options, tdict):
             join_args.append("-f")
 
         if options.principal is not None:
-            stdin = None
+            # Admin route: kuipa realm-info (trust on first use), admin kinit,
+            # then create the host through the API to get its enrollment string.
             principal = options.principal
             if principal.find('@') == -1:
                 principal = '%s@%s' % (principal, cli_realm)
-            if options.password is not None:
-                stdin = options.password
-            else:
+            password = options.password
+            if password is None:
                 if not options.unattended:
                     try:
-                        stdin = getpass.getpass(
+                        password = getpass.getpass(
                             "Password for %s: " % principal)
                     except EOFError:
-                        stdin = None
-                    if not stdin:
+                        password = None
+                    if not password:
                         raise ScriptError(
                             "Password must be provided for {}.".format(
                                 principal),
@@ -3052,16 +3054,71 @@ def _install(options, tdict):
                             "echo password | ipa-client-install ... "
                             "or with the -w option.")
                         raise ScriptError(rval=CLIENT_INSTALL_ERROR)
-                    else:
-                        stdin = sys.stdin.readline()
-
+                    password = sys.stdin.readline().rstrip('\r\n')
+            kuipa_dir = tempfile.mkdtemp(prefix='kuipa')
+            tdict['kuipa_dir'] = kuipa_dir
+            args = [paths.KUIPA, '--json', 'realm-info',
+                    '--krb5-dir', kuipa_dir, '--trust-first-use']
+            for server in cli_server:
+                args.extend(('--server', server))
             try:
-                kinit_password(principal, stdin, ccache_name,
-                               config=krb_name)
+                result = run(args, raiseonerr=False, capture_output=True,
+                             capture_error=True)
+                if result.returncode != 0:
+                    raise ValueError(result.error_log.strip())
+                info = json.loads(result.output_log)
+                kuipa_krb5, kuipa_ca = info['krb5_conf'], info['ca']
+            except (OSError, ValueError, KeyError) as e:
+                raise ScriptError(
+                    "Unable to fetch the realm information from kuipa: "
+                    "{}".format(e),
+                    rval=CLIENT_INSTALL_ERROR)
+            # The server delegates the admin TGT to LDAP (S4U2proxy), which
+            # needs it forwardable; the kuipa-generated file does not say so.
+            with open(kuipa_krb5, 'a') as f:
+                f.write('\n[libdefaults]\n    forwardable = true\n')
+            os.environ['KRB5_CONFIG'] = kuipa_krb5
+            os.environ['KRB5CCNAME'] = ccache_name
+            try:
+                kinit_password(principal, password, ccache_name,
+                               config=kuipa_krb5)
             except RuntimeError as e:
                 print_port_conf_info()
                 raise ScriptError(
                     "Kerberos authentication failed: {}".format(e),
+                    rval=CLIENT_INSTALL_ERROR)
+            # Pre-join API session: the host entry is created with the admin
+            # credentials; the post-join block reuses this bootstrap.
+            configure_ipa_conf(fstore, cli_basedn, cli_realm, cli_domain,
+                               cli_server, hostname)
+            api.bootstrap(context='cli_installer',
+                          confdir=paths.ETC_IPA,
+                          debug=options.debug,
+                          delegate=False,
+                          tls_ca_cert=kuipa_ca)
+            if 'config_loaded' not in api.env:
+                raise ScriptError(
+                    "Failed to initialize IPA API.",
+                    rval=CLIENT_INSTALL_ERROR)
+            api.finalize()
+            api.Backend.rpcclient.connect()
+            try:
+                try:
+                    result = api.Command.host_add(
+                        hostname, random=True, force=True)['result']
+                except errors.DuplicateEntry:
+                    # Pre-created host: issue a fresh one-time secret.
+                    result = api.Command.host_mod(
+                        hostname, random=True)['result']
+            except errors.PublicError as e:
+                raise ScriptError(
+                    "Failed to add host {}: {}".format(hostname, e),
+                    rval=CLIENT_INSTALL_ERROR)
+            kuipa_enrollment = result.get('enrollmentstring')
+            if kuipa_enrollment is None:
+                raise ScriptError(
+                    "The IPA server returned no enrollment string; "
+                    "kuipa is not configured on the server.",
                     rval=CLIENT_INSTALL_ERROR)
         elif options.keytab:
             join_args.append("-f")
@@ -3130,7 +3187,8 @@ def _install(options, tdict):
             if password.startswith('ipa-ku'):
                 if options.force_join:
                     raise ScriptError(
-                        "An enrollment string cannot be used with --force-join.",
+                        "An enrollment string cannot be used with "
+                        "--force-join.",
                         rval=CLIENT_INSTALL_ERROR)
                 kuipa_enrollment = password
             else:
@@ -3158,7 +3216,8 @@ def _install(options, tdict):
                             paths.IPA_CA_CRT)
                         if not set(supplied_ca).issubset(received_ca):
                             raise ValueError(
-                                "Verified realm CA does not match --ca-cert-file")
+                                "Verified realm CA does not match "
+                                "--ca-cert-file")
             except (OSError, ValueError, KeyError, TypeError) as e:
                 logger.error("Post-quantum enrollment failed: %s", e)
                 raise ScriptError(rval=CLIENT_INSTALL_ERROR)
@@ -3211,17 +3270,18 @@ def _install(options, tdict):
             raise ScriptError(rval=CLIENT_INSTALL_ERROR)
 
     # Configure ipa.conf
-    if not options.on_master:
+    if not options.on_master and not api.isdone('bootstrap'):
         configure_ipa_conf(fstore, cli_basedn, cli_realm, cli_domain,
                            cli_server, hostname)
         logger.info("Created /etc/ipa/default.conf")
 
     with certdb.NSSDatabase() as tmp_db:
-        api.bootstrap(context='cli_installer',
-                      confdir=paths.ETC_IPA,
-                      debug=options.debug,
-                      delegate=False,
-                      nss_dir=tmp_db.secdir)
+        if not api.isdone('bootstrap'):
+            api.bootstrap(context='cli_installer',
+                          confdir=paths.ETC_IPA,
+                          debug=options.debug,
+                          delegate=False,
+                          nss_dir=tmp_db.secdir)
         if 'config_loaded' not in api.env:
             raise ScriptError(
                 "Failed to initialize IPA API.",
@@ -3266,7 +3326,13 @@ def _install(options, tdict):
                 "Failed to add CA to temporary NSS database.",
                 rval=CLIENT_INSTALL_ERROR)
 
-        api.finalize()
+        if not api.isdone('finalize'):
+            api.finalize()
+
+        # Path 2 connected with the admin credentials to create the host;
+        # reconnect with the host credentials.
+        if api.Backend.rpcclient.isconnected():
+            api.Backend.rpcclient.disconnect()
 
         # Now, let's try to connect to the server's RPC interface
         connected = False

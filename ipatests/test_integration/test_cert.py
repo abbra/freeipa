@@ -610,14 +610,12 @@ class TestCAShowErrorHandling(IntegrationTest):
 
         Test Steps:
         1. Setup a freeipa server and a replica
-        2. Stop ipa-custodia service on replica
-        3. Create a LWCA on the replica
-        4. Verify LWCA is recognized on the server
-        5. Run `ipa ca-show <LWCA>`
+        2. Create a LWCA on the replica
+        3. Verify LWCA is recognized on the server
+        4. Run `ipa ca-show <LWCA>`
 
         PKI GitHub Link: https://github.com/dogtagpki/pki/pull/3605/
         """
-        self.replicas[0].run_command(['systemctl', 'stop', 'ipa-custodia'])
         lwca = 'lwca1'
         result = self.replicas[0].run_command([
             'ipa', 'ca-add', lwca, '--subject', 'CN=LWCA 1'

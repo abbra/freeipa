@@ -145,7 +145,6 @@ class HTTPInstance(service.Service):
             FONTS_OPENSANS_DIR=paths.FONTS_OPENSANS_DIR,
             FONTS_FONTAWESOME_DIR=paths.FONTS_FONTAWESOME_DIR,
             GSSAPI_SESSION_KEY=paths.GSSAPI_SESSION_KEY,
-            IPA_CUSTODIA_SOCKET=paths.IPA_CUSTODIA_SOCKET,
             IPA_CCACHES=paths.IPA_CCACHES,
             WSGI_PREFIX_DIR=paths.WSGI_PREFIX_DIR,
             WSGI_PROCESSES=constants.WSGI_PROCESSES,

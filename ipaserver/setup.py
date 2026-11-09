@@ -37,10 +37,6 @@ if __name__ == '__main__':
             'ipaserver',
             'ipaserver.advise',
             'ipaserver.advise.plugins',
-            'ipaserver.custodia',
-            'ipaserver.custodia.httpd',
-            'ipaserver.custodia.message',
-            'ipaserver.custodia.server',
             'ipaserver.dnssec',
             'ipaserver.plugins',
             'ipaserver.secrets',
@@ -69,24 +65,6 @@ if __name__ == '__main__':
             "python-augeas",
             "python-ldap",
         ],
-        entry_points={
-            'ipaserver.custodia.authenticators': [
-                ('SimpleCredsAuth = '
-                 'ipaserver.custodia.httpd.authenticators:SimpleCredsAuth'),
-                ('SimpleHeaderAuth = '
-                 'custodia.httpd.authenticators:SimpleHeaderAuth'),
-            ],
-            'ipaserver.custodia.authorizers': [
-                'IPAKEMKeys = ipaserver.secrets.kem:IPAKEMKeys',
-            ],
-            'ipaserver.custodia.consumers': [
-                'Secrets = ipaserver.custodia.secrets:Secrets',
-                'Root = ipaserver.custodia.root:Root',
-            ],
-            'ipaserver.custodia.stores': [
-                'IPASecStore = ipaserver.secrets.store:IPASecStore',
-            ],
-        },
         extras_require={
             # These packages are currently not available on PyPI.
             "dcerpc": ["samba", "pysss", "pysss_nss_idmap"],

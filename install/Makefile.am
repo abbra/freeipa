@@ -20,7 +20,6 @@ SUBDIRS =			\
 	$(NULL)
 
 install-exec-local:
-	$(INSTALL) -d -m 700 $(DESTDIR)$(IPA_SYSCONF_DIR)/custodia
 	$(INSTALL) -d -m 700 $(DESTDIR)$(localstatedir)/lib/ipa/backup
 	$(INSTALL) -d -m 700 $(DESTDIR)$(localstatedir)/lib/ipa/gssproxy
 	$(INSTALL) -d -m 700 $(DESTDIR)$(localstatedir)/lib/ipa/sysrestore

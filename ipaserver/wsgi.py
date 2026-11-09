@@ -8,7 +8,7 @@ import logging
 import os
 import sys
 
-# Some dependencies like Dogtag's pki.client library and custodia use
+# Some dependencies like Dogtag's pki.client library use
 # python-requsts to make HTTPS connection. python-requests prefers
 # PyOpenSSL over Python's stdlib ssl module. PyOpenSSL is build on top
 # of python-cryptography which trigger a execmem SELinux violation

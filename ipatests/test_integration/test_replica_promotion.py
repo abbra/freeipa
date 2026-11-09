@@ -830,37 +830,6 @@ class TestSubCAkeyReplication(IntegrationTest):
             self.del_subca(replica, name)
 
 
-class TestReplicaInstallCustodia(IntegrationTest):
-    """
-    Codeberg Reference: https://codeberg.org/freeipa/freeipa/issues/7518
-    """
-
-    topology = 'line'
-    num_replicas = 2
-    domain_level = DOMAIN_LEVEL_1
-
-    @classmethod
-    def install(cls, mh):
-        tasks.install_master(cls.master, domain_level=cls.domain_level)
-
-    def test_replica_install_for_custodia(self):
-        master = self.master
-        replica1 = self.replicas[0]
-        replica2 = self.replicas[1]
-
-        # Install Replica1 without CA and stop ipa-custodia
-        tasks.install_replica(master, replica1, setup_ca=False)
-        replica1.run_command(['ipactl', 'status'])
-        replica1.run_command(['systemctl', 'stop', 'ipa-custodia'])
-        replica1.run_command(['ipactl', 'status'], raiseonerr=False)
-
-        # Install Replica2 with CA with source as Replica1.
-        tasks.install_replica(replica1, replica2, setup_ca=True,
-                              nameservers='master')
-        result = replica2.run_command(['ipactl', 'status'])
-        assert 'ipa-custodia Service: RUNNING' in result.stdout_text
-
-
 def update_etc_hosts(host, ip, old_hostname, new_hostname):
     '''Adds or update /etc/hosts
 

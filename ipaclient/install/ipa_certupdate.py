@@ -146,7 +146,7 @@ def run_with_args(api, options=None):
         update_server(certs)
 
         # pylint: disable=ipa-forbidden-import
-        from ipaserver.install import cainstance, custodiainstance
+        from ipaserver.install import cainstance
         # pylint: enable=ipa-forbidden-import
 
         # Add LWCA tracking requests.  Only execute if *this server*
@@ -160,7 +160,7 @@ def run_with_args(api, options=None):
 
         try:
             update_server_ra_config(
-                cainstance, custodiainstance,
+                cainstance,
                 api.env.enable_ra, api.env.ca_host, ca_servers,
             )
         except Exception:
@@ -250,7 +250,7 @@ def update_server(certs):
 
 
 def update_server_ra_config(
-    cainstance, custodiainstance,
+    cainstance,
     enable_ra, ca_host, ca_servers,
 ):
     """
@@ -272,12 +272,7 @@ def update_server_ra_config(
         # RA is not enabled, but deployment is CA-ful.
         # Retrieve IPA RA credential and update ipa.conf.
         cainstance.CAInstance.configure_certmonger_renewal_helpers()
-        custodia = custodiainstance.CustodiaInstance(
-            host_name=api.env.host,
-            realm=api.env.realm,
-            custodia_peer=new_ca_host,
-        )
-        cainstance.import_ra_key(custodia)
+        cainstance.import_ra_key()
         cainstance.update_ipa_conf(new_ca_host)
 
     elif ca_host not in ca_servers:

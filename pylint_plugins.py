@@ -426,7 +426,6 @@ AstroidBuilder(MANAGER).string_build(textwrap.dedent(
     api.env.container_certprofile = DN()
     api.env.container_cifsdomains = DN()
     api.env.container_configs = DN()
-    api.env.container_custodia = DN()
     api.env.container_deleteuser = DN()
     api.env.container_dna = DN()
     api.env.container_dna_posix_ids = DN()

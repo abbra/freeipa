@@ -64,7 +64,6 @@ app_DATA =				\
 	71-idviews.update		\
 	71-idviews-sasl-mapping.update  \
 	72-domainlevels.update		\
-	73-custodia.update		\
 	73-subid.update		\
 	73-winsync.update		\
 	73-certmap.update		\

@@ -702,7 +702,7 @@ def get_pki_tomcatd_pid(host):
 
 def get_ipa_services_pids(host):
     ipa_services_name = [
-        "krb5kdc", "kadmin", "named", "httpd", "ipa-custodia",
+        "krb5kdc", "kadmin", "named", "httpd",
         "pki_tomcatd"
     ]
     pids_of_ipa_services = {}
@@ -822,7 +822,7 @@ class TestInstallMaster(IntegrationTest):
         """
         # listing all services
         ipa_services_name = [
-            "Directory", "krb5kdc", "kadmin", "named", "httpd", "ipa-custodia",
+            "Directory", "krb5kdc", "kadmin", "named", "httpd",
             "pki-tomcatd", "ipa-otpd", "ipa-dnskeysyncd"
         ]
 
@@ -1112,12 +1112,6 @@ class TestInstallMaster(IntegrationTest):
             raiseonerr=False
         )
         assert result.returncode != 0
-
-    def test_ipa_custodia_check(self):
-        # check local key retrieval
-        self.master.run_command(
-            [paths.IPA_CUSTODIA_CHECK, self.master.hostname]
-        )
 
     @pytest.mark.skipif(
         paths.SEMODULE is None, reason="test requires semodule command"
@@ -1800,7 +1794,7 @@ class TestInstallReplicaAgainstSpecificServer(IntegrationTest):
     """Installation of replica against a specific server
 
     Test to check replica install against specific server. It uses master and
-    replica1 without CA and having custodia service stopped. Then try to
+    replica1 without CA. Then try to
     install replica2 from replica1 and expect it to get fail as specified
     server is not providing all the services.
 
@@ -1825,13 +1819,6 @@ class TestInstallReplicaAgainstSpecificServer(IntegrationTest):
     def test_replica_install_against_server_without_ca(self):
         """Replica install will fail complaining about CA role
         and exit code 4"""
-
-        # stop custodia service on replica1
-        self.replicas[0].run_command('systemctl stop ipa-custodia.service')
-
-        # check if custodia service is stopped
-        cmd = self.replicas[0].run_command('ipactl status', raiseonerr=False)
-        assert 'ipa-custodia Service: STOPPED' in cmd.stdout_text
 
         try:
             # install replica2 against replica1, as CA is not installed on

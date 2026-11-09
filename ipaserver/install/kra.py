@@ -12,7 +12,6 @@ import logging
 import os
 
 from ipalib import api
-from ipalib.kinit import kinit_keytab
 from ipaplatform import services
 from ipaplatform.paths import paths
 from ipapython import ipautil
@@ -117,7 +116,7 @@ def install_check(api, replica_config, options):
         ca.hsm_validator(token_name, token_library_path, options.token_password)
 
 
-def install(api, replica_config, options, custodia):
+def install(api, replica_config, options):
     if replica_config is None:
         if not options.setup_kra:
             return
@@ -132,18 +131,12 @@ def install(api, replica_config, options, custodia):
     else:
         if not replica_config.setup_kra:
             return
-        cai = cainstance.CAInstance()
+        cai = cainstance.CAInstance(
+            realm=replica_config.realm_name, host_name=replica_config.host_name,
+            kuipa_keys=replica_config.kuipa_keys)
         if not cai.hsm_enabled:
             krafile = os.path.join(replica_config.dir, 'kracert.p12')
-            with ipautil.private_ccache():
-                ccache = os.environ['KRB5CCNAME']
-                kinit_keytab(
-                    'host/{env.host}@{env.realm}'.format(env=api.env),
-                    paths.KRB5_KEYTAB,
-                    ccache)
-                custodia.get_kra_keys(
-                    krafile,
-                    replica_config.dirman_password)
+            cai.get_kra_keys(krafile, replica_config.dirman_password)
         else:
             krafile = None
 

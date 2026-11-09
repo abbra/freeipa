@@ -65,7 +65,6 @@ SETUPTOOLS_VERSION = tuple(int(v) for v in setuptools.__version__.split("."))
 
 PACKAGE_VERSION = {
     'cryptography': 'cryptography >= 1.6',
-    'custodia': 'custodia >= 0.3.1',
     'dnspython': 'dnspython >= 1.15',
     'gssapi': 'gssapi >= 1.2.0',
     'ipaclient': 'ipaclient == {}'.format(VERSION),

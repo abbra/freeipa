@@ -40,7 +40,7 @@ from ipalib.facts import IPA_MODULES
 from ipaserver.install import (
     adtrust, adtrustinstance, bindinstance, ca, dns, dsinstance,
     httpinstance, installutils, kra, krbinstance,
-    otpdinstance, custodiainstance, ahdapainstance, akamuinstance,
+    otpdinstance, ahdapainstance, akamuinstance,
     kuipadinstance, replication, service, sysupgrade, cainstance)
 from ipaserver.install.installutils import (
     BadHostError, get_server_ip_address,
@@ -948,10 +948,6 @@ def install(installer):
                       setup_pkinit=not options.no_pkinit,
                       subject_base=options.subject_base)
 
-    custodia = custodiainstance.get_custodia_instance(
-        options, custodiainstance.CustodiaModes.FIRST_MASTER)
-    custodia.create_instance()
-
     if setup_ca:
         if not options.external_cert_files and options.external_ca:
             # stage 1 of external CA installation
@@ -966,7 +962,7 @@ def install(installer):
                           if n in options.__dict__}
             write_cache(cache_vars)
 
-        ca.install_step_0(False, None, options, custodia=custodia)
+        ca.install_step_0(False, None, options)
     else:
         # /etc/ipa/ca.crt is created as a side-effect of
         # dsinstance::enable_ssl() via export_ca_cert()
@@ -985,7 +981,7 @@ def install(installer):
     ds.enable_ssl()
 
     if setup_ca:
-        ca.install_step_1(False, None, options, custodia=custodia)
+        ca.install_step_1(False, None, options)
 
     otpd = otpdinstance.OtpdInstance()
     otpd.create_instance('OTPD', host_name,
@@ -1027,7 +1023,7 @@ def install(installer):
             ldap_suffix=ipautil.realm_to_suffix(realm_name))
 
     if options.setup_kra:
-        kra.install(api, None, options, custodia=custodia)
+        kra.install(api, None, options)
 
     if options.setup_dns:
         dns.install(False, False, options)
@@ -1299,9 +1295,6 @@ def uninstall(installer):
     krbinstance.KrbInstance(fstore).uninstall()
     dsinstance.DsInstance(fstore=fstore).uninstall()
     adtrustinstance.ADTRUSTInstance(fstore).uninstall()
-    # realm isn't used, but IPAKEMKeys parses /etc/ipa/default.conf
-    # otherwise, see https://codeberg.org/freeipa/freeipa/issues/7474 .
-    custodiainstance.CustodiaInstance(realm='REALM.INVALID').uninstall()
     ahdapainstance.AhdapaInstance(fstore).uninstall()
     akamuinstance.AkamuInstance(fstore).uninstall()
     kuipadinstance.KuipadInstance(fstore).uninstall()
