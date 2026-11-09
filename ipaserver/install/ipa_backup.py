@@ -22,6 +22,7 @@ from __future__ import absolute_import, print_function
 import logging
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -30,6 +31,7 @@ import time
 from ipaplatform.paths import paths
 from ipaplatform import services
 from ipalib import api, errors
+from ipalib.kinit import kinit_keytab
 from ipapython import version, config
 from ipapython.ipautil import run, write_tmp_file
 from ipapython import admintool, certdb
@@ -89,6 +91,75 @@ def encrypt_file(filename, remove_original=True):
         os.unlink(source)
 
     return dest
+
+
+def kuipa_check_recipient(recipient):
+    """Check that kuipa seals to the recipient file, before any work is done"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = subprocess.run(
+            [paths.KUIPA, 'backup', 'seal', '--recipient', recipient,
+             '-o', os.path.join(tmpdir, 'check')],
+            input=b'encryptme', stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE, check=False)
+    if result.returncode != 0:
+        raise admintool.ScriptError(
+            'kuipa cannot seal to %s: %s' %
+            (recipient, result.stderr.decode(errors='replace').strip()))
+
+
+def kuipa_seal(source_dir, recipient, dest):
+    """Tar source_dir and seal the stream to the recipient's recovery key
+
+    No plaintext tarball is written. If tar fails the sealed file would
+    hold a truncated archive, so it is removed.
+    """
+    tar = subprocess.Popen(
+        ['tar', '--xattrs', '--selinux', '-czf', '-', '.'],
+        cwd=source_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        seal = subprocess.run(
+            [paths.KUIPA, 'backup', 'seal', '--recipient', recipient,
+             '-o', dest],
+            stdin=tar.stdout, stderr=subprocess.PIPE, check=False)
+    finally:
+        tar.stdout.close()
+    tar_error = tar.stderr.read()
+    tar.stderr.close()
+    tar_rc = tar.wait()
+    if tar_rc != 0:
+        if os.path.exists(dest):
+            os.unlink(dest)
+        raise admintool.ScriptError(
+            'tar returned non-zero code %s: %s' %
+            (tar_rc, tar_error.decode(errors='replace')))
+    if seal.returncode != 0:
+        raise admintool.ScriptError(
+            'kuipa failed to seal the backup: %s' %
+            seal.stderr.decode(errors='replace').strip())
+
+
+def kuipa_sign(files):
+    """Have the realm sign the files as a backup, as this host
+
+    The statement is for the purpose ipa-backup, under the host's own
+    ticket; a bundle is written beside each file as FILE.kusig.
+    """
+    principal = 'host/%s@%s' % (api.env.host, api.env.realm)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ccache = os.path.join(tmpdir, 'ccache')
+        try:
+            kinit_keytab(principal, paths.KRB5_KEYTAB, ccache)
+        except Exception as e:
+            raise admintool.ScriptError(
+                'Cannot get a ticket as %s to sign the backup: %s' %
+                (principal, e))
+        env = dict(os.environ, KRB5CCNAME='FILE:%s' % ccache)
+        result = run(
+            [paths.KUIPA, 'sign', 'blob', '--purpose', 'ipa-backup'] + files,
+            env=env, raiseonerr=False)
+    if result.returncode != 0:
+        raise admintool.ScriptError(
+            'kuipa failed to sign the backup: %s' % result.error_log)
 
 
 class Backup(admintool.AdminTool):
@@ -199,6 +270,7 @@ class Backup(admintool.AdminTool):
         paths.AKAMU_GSSPROXY_CONF,
         paths.HTTPD_IPA_AKAMU_PROXY_CONF,
         paths.KUIPA_CONFIG,
+        paths.KUIPA_BACKUP_CONF,
         paths.KUIPA_KEYTAB,
         paths.KUIPA_GSSPROXY_CONF,
         paths.HTTPD_IPA_KUIPA_PROXY_CONF,
@@ -258,6 +330,16 @@ class Backup(admintool.AdminTool):
             "--gpg", dest="gpg", action="store_true",
             default=False, help="Encrypt the backup")
         parser.add_option(
+            "--kuipa", dest="kuipa", action="store_true",
+            default=False,
+            help="Seal the backup to a recovery key kept on paper and "
+                 "have the realm sign it, using kuipa")
+        parser.add_option(
+            "--kuipa-recipient", dest="kuipa_recipient", metavar="FILE",
+            help="The recovery key's recipient file made by "
+                 "'kuipa backup key create' (default: %s)" %
+                 paths.KUIPA_BACKUP_CONF)
+        parser.add_option(
             "--data", dest="data_only", action="store_true",
             default=False, help="Backup only the data")
         parser.add_option(
@@ -294,6 +376,22 @@ class Backup(admintool.AdminTool):
             self.option_parser.error("You cannot specify --online "
                 "without --data")
 
+        if options.kuipa_recipient and not options.kuipa:
+            self.option_parser.error(
+                "--kuipa-recipient needs --kuipa")
+
+        if options.kuipa:
+            if options.gpg:
+                self.option_parser.error(
+                    "You cannot specify both --gpg and --kuipa")
+            self.kuipa_recipient = (
+                options.kuipa_recipient or paths.KUIPA_BACKUP_CONF)
+            if not os.path.isfile(self.kuipa_recipient):
+                self.option_parser.error(
+                    "recipient file %s not found: make one with "
+                    "'kuipa backup key create'" % self.kuipa_recipient)
+            kuipa_check_recipient(self.kuipa_recipient)
+
         if options.gpg:
             tmpfd = write_tmp_file('encryptme')
             newfile = encrypt_file(tmpfd.name, False)
@@ -311,6 +409,18 @@ class Backup(admintool.AdminTool):
         api.finalize()
 
         logger.info("Preparing backup on %s", api.env.host)
+
+        if options.kuipa:
+            # The recipient file is part of the backup, so a restored
+            # server keeps sealing to the same recovery key.
+            installed = os.path.abspath(paths.KUIPA_BACKUP_CONF)
+            if os.path.abspath(self.kuipa_recipient) != installed:
+                shutil.copyfile(self.kuipa_recipient, paths.KUIPA_BACKUP_CONF)
+                os.chmod(paths.KUIPA_BACKUP_CONF, 0o644)
+        elif not options.gpg and os.path.isdir(paths.KUIPA_STATE_DIR):
+            logger.warning(
+                "This backup holds kuipad's anchor and escrow keys and is "
+                "not encrypted: use --kuipa or --gpg")
 
         self.top_dir = tempfile.mkdtemp("ipa")
         constants.DS_USER.chown(self.top_dir)
@@ -387,7 +497,7 @@ class Backup(admintool.AdminTool):
                 self.compress_file_backup()
 
             self.finalize_backup(options.data_only, options.gpg,
-                                 options.gpg_keyring)
+                                 options.gpg_keyring, options.kuipa)
 
         finally:
             shutil.rmtree(self.top_dir)
@@ -752,7 +862,8 @@ class Backup(admintool.AdminTool):
         with open(self.header, 'w') as fd:
             config.write(fd)
 
-    def finalize_backup(self, data_only=False, encrypt=False, keyring=None):
+    def finalize_backup(self, data_only=False, encrypt=False, keyring=None,
+                        kuipa=False):
         '''
         Create the final location of the backup files and move the files
         we've backed up there, optionally encrypting them.
@@ -789,18 +900,23 @@ class Backup(admintool.AdminTool):
                 'Unexpected error: %s' % e
             )
 
-        args = [
-            'tar', '--xattrs', '--selinux', '-czf', filename, '.'
-        ]
-        result = run(args, raiseonerr=False, cwd=self.dir)
-        if result.returncode != 0:
-            raise admintool.ScriptError(
-                'tar returned non-zero code %s: %s' %
-                (result.returncode, result.error_log)
-            )
-        if encrypt:
-            logger.info('Encrypting %s', filename)
-            filename = encrypt_file(filename)
+        if kuipa:
+            filename += '.kuipa'
+            logger.info('Sealing %s', filename)
+            kuipa_seal(self.dir, self.kuipa_recipient, filename)
+        else:
+            args = [
+                'tar', '--xattrs', '--selinux', '-czf', filename, '.'
+            ]
+            result = run(args, raiseonerr=False, cwd=self.dir)
+            if result.returncode != 0:
+                raise admintool.ScriptError(
+                    'tar returned non-zero code %s: %s' %
+                    (result.returncode, result.error_log)
+                )
+            if encrypt:
+                logger.info('Encrypting %s', filename)
+                filename = encrypt_file(filename)
         try:
             shutil.move(self.header, backup_dir)
         except (IOError, OSError) as e:
@@ -812,5 +928,11 @@ class Backup(admintool.AdminTool):
             raise admintool.ScriptError(
                 'Unexpected error: %s' % e
             )
+
+        if kuipa:
+            # Sign the sealed file and the header together; a backup left
+            # unsigned is one ipa-restore refuses, so a failure is an error.
+            logger.info('Signing %s', filename)
+            kuipa_sign([filename, os.path.join(backup_dir, 'header')])
 
         logger.info('Backed up to %s', backup_dir)

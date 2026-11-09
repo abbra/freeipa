@@ -22,6 +22,7 @@ from __future__ import absolute_import, print_function
 import logging
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -123,6 +124,35 @@ def decrypt_file(tmpdir, filename):
     return dest
 
 
+def kuipa_open(backup_dir, tmpdir, filename, options):
+    """Verify the realm's signature and open a sealed backup
+
+    The papers of the recovery key are read from standard input by
+    kuipa, and the passphrase from the terminal or --kuipa-recovery-file.
+    Nothing contacts the realm: the anchors come from the realm card.
+    """
+    dest = os.path.join(tmpdir, os.path.basename(filename)[:-len('.kuipa')])
+    args = [paths.KUIPA, 'backup', 'open', filename, '--out', dest]
+    if options.kuipa_no_verify:
+        args.append('--no-verify')
+    else:
+        args.extend(['--also', os.path.join(backup_dir, 'header')])
+        if options.kuipa_realm:
+            args.extend(['--realm', options.kuipa_realm])
+        for anchor in options.kuipa_anchor or []:
+            args.extend(['--anchor', anchor])
+        if options.kuipa_signer:
+            args.extend(['--signer', options.kuipa_signer])
+    if options.kuipa_recovery_file:
+        args.extend(['--recovery-file', options.kuipa_recovery_file])
+    # No capture: kuipa reads the papers from, and prompts on, this terminal
+    result = subprocess.run(args, check=False)
+    if result.returncode != 0:
+        raise admintool.ScriptError(
+            'kuipa could not open %s' % filename)
+    return dest
+
+
 class RemoveRUVParser(ldif.LDIFParser):
     def __init__(self, input_file, writer):
         ldif.LDIFParser.__init__(self, input_file)
@@ -191,6 +221,29 @@ class Restore(admintool.AdminTool):
             "--gpg-keyring", dest="gpg_keyring",
             help=config.SUPPRESS_HELP)
         parser.add_option(
+            "--kuipa-realm", dest="kuipa_realm", metavar="REALM",
+            help="The realm a kuipa-sealed backup is signed for, with "
+                 "--kuipa-anchor")
+        parser.add_option(
+            "--kuipa-anchor", dest="kuipa_anchor", metavar="THUMBPRINT",
+            action="append",
+            help="Trust this realm anchor, from the realm card, to verify "
+                 "a kuipa-sealed backup (repeatable); without it this "
+                 "host's own anchors are used")
+        parser.add_option(
+            "--kuipa-signer", dest="kuipa_signer", metavar="PRINCIPAL",
+            help="Require the backup to be signed by this principal, "
+                 "for example host/ipa1.example.test")
+        parser.add_option(
+            "--kuipa-recovery-file", dest="kuipa_recovery_file",
+            metavar="FILE",
+            help="Read the recovery passphrase from this file")
+        parser.add_option(
+            "--kuipa-no-verify", dest="kuipa_no_verify",
+            action="store_true", default=False,
+            help="Open a kuipa-sealed backup without checking its "
+                 "signature")
+        parser.add_option(
             "--data", dest="data_only", action="store_true",
             default=False, help="Restore only the data")
         parser.add_option(
@@ -238,6 +291,9 @@ class Restore(admintool.AdminTool):
                 "environment variable to use a custom GnuPG2 directory.",
                 file=sys.stderr
             )
+
+        if bool(options.kuipa_realm) != bool(options.kuipa_anchor):
+            parser.error("--kuipa-realm and --kuipa-anchor go together")
 
 
     def ask_for_options(self):
@@ -845,14 +901,19 @@ class Restore(admintool.AdminTool):
             filename = os.path.join(self.backup_dir, 'ipa-full.tar')
         else:
             filename = os.path.join(self.backup_dir, 'ipa-data.tar')
-        if not os.path.exists(filename):
+        if os.path.exists(filename + '.kuipa'):
+            logger.info('Opening %s', filename + '.kuipa')
+            filename = kuipa_open(
+                self.backup_dir, self.dir, filename + '.kuipa', self.options)
+            encrypt = True
+        elif not os.path.exists(filename):
             if not os.path.exists(filename + '.gpg'):
                 raise admintool.ScriptError('Unable to find backup file in %s' % self.backup_dir)
             else:
                 filename = filename + '.gpg'
                 encrypt = True
 
-        if encrypt:
+        if encrypt and filename.endswith('.gpg'):
             logger.info('Decrypting %s', filename)
             filename = decrypt_file(self.dir, filename)
 
