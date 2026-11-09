@@ -1099,10 +1099,6 @@ class TestHSMBackupRestore(BaseHSMTest):
         self.master.run_command(['ipa-server-install',
                                  '--uninstall',
                                  '-U'])
-        assert not self.master.transport.file_exists(
-            paths.IPA_CUSTODIA_KEYS)
-        assert not self.master.transport.file_exists(
-            paths.IPA_CUSTODIA_CONF)
 
         self.master.run_command(
             ['ipa-restore', backup_path],

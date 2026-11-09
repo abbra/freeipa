@@ -117,7 +117,6 @@ metaservices_checks = [
     "dirsrv",
     "gssproxy",
     "httpd",
-    "ipa_custodia",
     "ipa_dnskeysyncd",
     "ipa_otpd",
     "kadmin",
@@ -487,7 +486,7 @@ class TestIpaHealthCheck(IntegrationTest):
         ipahealthcheck.meta.services when service is stopped and started
         respectively
         """
-        svc_list = ('certmonger', 'gssproxy', 'httpd', 'ipa_custodia',
+        svc_list = ('certmonger', 'gssproxy', 'httpd',
                     'ipa_dnskeysyncd', 'kadmin', 'krb5kdc',
                     'named', 'pki_tomcatd', 'sssd', 'dirsrv')
 

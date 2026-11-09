@@ -68,10 +68,6 @@ miscfiles_cert_type(ipa_cert_t)
 type ipa_tmp_t;
 files_tmp_file(ipa_tmp_t)
 
-type ipa_custodia_t;
-type ipa_custodia_exec_t;
-init_daemon_domain(ipa_custodia_t, ipa_custodia_exec_t)
-
 type ipa_custodia_dmldap_exec_t;
 init_script_file(ipa_custodia_dmldap_exec_t)
 
@@ -83,11 +79,14 @@ type ipa_custodia_pki_tomcat_t;
 type ipa_custodia_ra_agent_exec_t;
 init_script_file(ipa_custodia_ra_agent_exec_t)
 
-type ipa_custodia_log_t;
-logging_log_file(ipa_custodia_log_t)
+type kuipad_t;
+type kuipad_exec_t;
+init_daemon_domain(kuipad_t, kuipad_exec_t)
 
-type ipa_custodia_tmp_t;
-files_tmp_file(ipa_custodia_tmp_t)
+# kuipad executes the custodia key handlers
+can_exec(kuipad_t, ipa_custodia_dmldap_exec_t)
+can_exec(kuipad_t, ipa_custodia_pki_tomcat_exec_t)
+can_exec(kuipad_t, ipa_custodia_ra_agent_exec_t)
 
 type ipa_pki_retrieve_key_exec_t;
 type ipa_pki_retrieve_key_t;
@@ -170,6 +169,9 @@ corenet_tcp_connect_http_port(sssd_mfa_t)
 kernel_dgram_send(sssd_mfa_t)
 allow sssd_mfa_t self:unix_dgram_socket { create getopt setopt };
 allow sssd_mfa_t sssd_mfa_exec_t:file execute_no_trans;
+gen_require(`
+    type fs_t;
+')
 allow sssd_mfa_exec_t fs_t:filesystem associate;
 #============= setfiles_t ==============
 # allow relabel of the older files during upgrade
@@ -538,118 +540,12 @@ optional_policy(`
     ldap_stream_connect(ipa_ods_exporter_t)
 ')
 
-########################################
-#
-# ipa_custodia local policy
-#
-allow ipa_custodia_t self:capability { setgid setuid };
-allow ipa_custodia_t self:fifo_file rw_fifo_file_perms;
-allow ipa_custodia_t self:netlink_route_socket { create_socket_perms nlmsg_read };
-allow ipa_custodia_t self:process execmem;
-allow ipa_custodia_t self:unix_stream_socket create_stream_socket_perms;
-allow ipa_custodia_t self:unix_dgram_socket create_socket_perms;
-allow ipa_custodia_t self:tcp_socket { bind create setopt };
-allow ipa_custodia_t self:udp_socket create_socket_perms;
-
-manage_dirs_pattern(ipa_custodia_t,ipa_custodia_log_t,ipa_custodia_log_t)
-manage_files_pattern(ipa_custodia_t, ipa_custodia_log_t, ipa_custodia_log_t)
-logging_log_filetrans(ipa_custodia_t, ipa_custodia_log_t, { dir file })
-
-manage_dirs_pattern(ipa_custodia_t, ipa_custodia_tmp_t, ipa_custodia_tmp_t)
-manage_files_pattern(ipa_custodia_t, ipa_custodia_tmp_t, ipa_custodia_tmp_t)
-mmap_exec_files_pattern(ipa_custodia_t, ipa_custodia_tmp_t, ipa_custodia_tmp_t)
-files_tmp_filetrans(ipa_custodia_t, ipa_custodia_tmp_t, { dir file })
-
-kernel_dgram_send(ipa_custodia_t)
-kernel_read_network_state(ipa_custodia_t)
-kernel_read_system_state(ipa_custodia_t)
-
-auth_read_passwd(ipa_custodia_t)
-
-can_exec(ipa_custodia_t, ipa_custodia_dmldap_exec_t)
-can_exec(ipa_custodia_t, ipa_custodia_pki_tomcat_exec_t)
-can_exec(ipa_custodia_t, ipa_custodia_ra_agent_exec_t)
-
-corecmd_exec_bin(ipa_custodia_t)
-corecmd_mmap_bin_files(ipa_custodia_t)
-
-dev_read_urand(ipa_custodia_t)
-dev_read_rand(ipa_custodia_t)
-dev_read_sysfs(ipa_custodia_t)
-
-domain_use_interactive_fds(ipa_custodia_t)
-
-files_mmap_usr_files(ipa_custodia_t)
-
-fs_getattr_xattr_fs(ipa_custodia_t)
-
-files_read_etc_files(ipa_custodia_t)
-
-libs_exec_ldconfig(ipa_custodia_t)
-libs_ldconfig_exec_entry_type(ipa_custodia_t)
-
-logging_send_syslog_msg(ipa_custodia_t)
-
-miscfiles_read_generic_certs(ipa_custodia_t)
-miscfiles_read_localization(ipa_custodia_t)
-
-sysnet_read_config(ipa_custodia_t)
-
-optional_policy(`
-	apache_search_config(ipa_custodia_t)
-	apache_systemctl(ipa_custodia_t)
-	apache_manage_pid_files(ipa_custodia_t)
-')
-
-optional_policy(`
-	dirsrv_manage_var_run(ipa_custodia_t)
-	dirsrv_stream_connect(ipa_custodia_t)
-')
-
-optional_policy(`
-	ipa_read_lib(ipa_custodia_t)
-	ipa_search_lib(ipa_custodia_t)
-        ipa_read_public_pki(ipa_custodia_t)
-')
-
-optional_policy(`
-    gen_require(` #selint-disable:S-001
-        type httpd_t;
-    ')
-    ipa_custodia_stream_connect(httpd_t)
-')
-
-optional_policy(`
-	pki_manage_tomcat_etc_rw(ipa_custodia_t)
-	pki_read_tomcat_cert(ipa_custodia_t)
-	pki_rw_tomcat_cert(ipa_custodia_t)
-')
-
-optional_policy(`
-	sssd_read_public_files(ipa_custodia_t)
-	sssd_run_stream_connect(ipa_custodia_t)
-	sssd_search_lib(ipa_custodia_t)
-	sssd_stream_connect(ipa_custodia_t)
-')
-
-optional_policy(`
-       systemd_private_tmp(ipa_custodia_tmp_t)
-')
-
 optional_policy(`
     gen_require(` #selint-disable:S-001
         type tomcat_t;
     ')
     can_exec(tomcat_t, ipa_pki_retrieve_key_exec_t)
     pki_manage_tomcat_etc_rw(ipa_pki_retrieve_key_t)
-')
-
-optional_policy(`
-    gen_require(` #selint-disable:S-001
-        type devlog_t;
-    ')
-
-    dontaudit ipa_custodia_t devlog_t:lnk_file read_lnk_file_perms;
 ')
 
 optional_policy(`
@@ -663,22 +559,6 @@ optional_policy(`
     ')
     kerberos_read_config(tomcat_t)
     kerberos_read_keytab(tomcat_t)
-')
-
-optional_policy(`
-    gen_require(` #selint-disable:S-001
-        type node_t;
-    ')
-    allow ipa_custodia_t node_t:tcp_socket node_bind;
-')
-
-optional_policy(`
-    gen_require(` #selint-disable:S-001
-        type pki_tomcat_cert_t;
-    ')
-    allow ipa_custodia_t pki_tomcat_cert_t:dir remove_name;
-    allow ipa_custodia_t pki_tomcat_cert_t:file create;
-    allow ipa_custodia_t pki_tomcat_cert_t:file unlink;
 ')
 
 optional_policy(`

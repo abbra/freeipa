@@ -33,6 +33,16 @@ class CompatServerReplicaInstall(ServerReplicaInstall):
         cli_metavar='PASSWORD',
     )
 
+    enrollment_string = knob(
+        str, None,
+        description="kuipa enrollment string (ipa-ku1:...) for joining this "
+                    "host, created on the master with 'ipa host-add <host> "
+                    "--random'. The join uses no admin credentials.",
+        sensitive=True,
+        cli_names=['--enrollment-string'],
+        cli_metavar='ENROLLMENT_STRING',
+    )
+
     @property
     def dm_password(self):
         try:

@@ -113,13 +113,6 @@ def check_kinit(host):
     return result
 
 
-def check_custodia_files(host):
-    """regression test for https://codeberg.org/freeipa/freeipa/issues/7247"""
-    assert host.transport.file_exists(paths.IPA_CUSTODIA_KEYS)
-    assert host.transport.file_exists(paths.IPA_CUSTODIA_CONF)
-    return True
-
-
 def check_pkcs11_modules(host):
     """regression test for https://codeberg.org/freeipa/freeipa/issues/8073"""
     # Return a dictionary with key = filename, value = file content
@@ -138,7 +131,6 @@ CHECKS = [
     (check_certs, assert_results_equal),
     (check_dns, assert_results_equal),
     (check_kinit, assert_results_equal),
-    (check_custodia_files, assert_deepequal),
     (check_pkcs11_modules, assert_deepequal)
 ]
 
@@ -194,10 +186,6 @@ class TestBackupAndRestore(IntegrationTest):
             self.master.run_command(['ipa-server-install',
                                      '--uninstall',
                                      '-U'])
-            assert not self.master.transport.file_exists(
-                paths.IPA_CUSTODIA_KEYS)
-            assert not self.master.transport.file_exists(
-                paths.IPA_CUSTODIA_CONF)
 
             dirman_password = self.master.config.dirman_password
             self.master.run_command(['ipa-restore', backup_path],
@@ -863,8 +851,7 @@ class TestReplicaInstallAfterRestore(IntegrationTest):
 
     When master is restored from backup and replica1 is re-initialize,
     second replica installation was failing. The issue was with ipa-backup
-    tool which was not backing up the /etc/ipa/custodia/custodia.conf and
-    /etc/ipa/custodia/server.keys.
+    tool which was not backing up the Custodia key store files.
 
     related ticket: https://codeberg.org/freeipa/freeipa/issues/7247
     """

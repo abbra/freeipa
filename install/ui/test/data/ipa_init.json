@@ -183,7 +183,6 @@
                "delegate" : false,
                "container_hbacservicegroup" : "cn=hbacservicegroups,cn=hbac",
                "container_dns" : "cn=dns",
-               "container_custodia" : "cn=custodia,cn=ipa,cn=etc",
                "container_caacl" : "cn=caacls,cn=ca",
                "container_ca" : "cn=cas,cn=ca",
                "ca_install_port" : null,

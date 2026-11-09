@@ -37,7 +37,6 @@ SERVICES = [
     service_definition('kadmin', 20, 'KPASSWD'),
     service_definition('named', 30, 'DNS'),
     service_definition('httpd', 40, 'HTTP'),
-    service_definition('ipa-custodia', 41, 'KEYS'),
     service_definition('ahdapa', 42, 'IDP'),
     service_definition('kuipad', 43, 'KU'),
     service_definition('pki-tomcatd', 50, 'CA'),

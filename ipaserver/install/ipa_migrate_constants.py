@@ -1105,7 +1105,6 @@ DB_OBJECTS = {
 
 DB_EXCLUDE_TREES = [
     'cn=sec,cn=dns,$SUFFIX',
-    'cn=custodia,cn=ipa,cn=etc,$SUFFIX',
 ]
 
 #

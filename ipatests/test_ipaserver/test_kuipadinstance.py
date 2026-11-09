@@ -17,7 +17,8 @@ def test_upgrade_configures_directory_suffix(monkeypatch):
     monkeypatch.setattr(kuipadinstance.os.path, 'isfile', lambda path: True)
     instance = kuipadinstance.KuipadInstance()
     seen = []
-    monkeypatch.setattr(instance, '_configure_kuipad', lambda: seen.append(instance.suffix))
+    monkeypatch.setattr(instance, '_configure_kuipad',
+                        lambda: seen.append(instance.suffix))
     monkeypatch.setattr(instance, '_configure_gssproxy', Mock())
     monkeypatch.setattr(instance, 'stop', Mock())
     monkeypatch.setattr(instance, '_configure_httpd_proxy', Mock())
@@ -31,9 +32,11 @@ def test_upgrade_configures_directory_suffix(monkeypatch):
 
 def test_existing_host_enrollment_is_not_rotated(monkeypatch, tmp_path):
     state = tmp_path / 'state.json'
-    state.write_text(json.dumps({'realm': 'EXAMPLE.TEST', 'fqdn': 'server.example.test'}))
+    state.write_text(json.dumps(
+        {'realm': 'EXAMPLE.TEST', 'fqdn': 'server.example.test'}))
     instance = kuipadinstance.KuipadInstance()
-    monkeypatch.setattr(kuipadinstance, 'paths', SimpleNamespace(KUIPA_CLIENT_STATE=str(state)))
+    monkeypatch.setattr(kuipadinstance, 'paths',
+                        SimpleNamespace(KUIPA_CLIENT_STATE=str(state)))
     kinit = Mock()
     monkeypatch.setattr(kuipadinstance, 'kinit_keytab', kinit)
     instance.realm = 'EXAMPLE.TEST'
@@ -44,9 +47,11 @@ def test_existing_host_enrollment_is_not_rotated(monkeypatch, tmp_path):
 
 def test_enrollment_from_another_host_is_refused(monkeypatch, tmp_path):
     state = tmp_path / 'state.json'
-    state.write_text(json.dumps({'realm': 'EXAMPLE.TEST', 'fqdn': 'other.example.test'}))
+    state.write_text(json.dumps(
+        {'realm': 'EXAMPLE.TEST', 'fqdn': 'other.example.test'}))
     instance = kuipadinstance.KuipadInstance()
-    monkeypatch.setattr(kuipadinstance, 'paths', SimpleNamespace(KUIPA_CLIENT_STATE=str(state)))
+    monkeypatch.setattr(kuipadinstance, 'paths',
+                        SimpleNamespace(KUIPA_CLIENT_STATE=str(state)))
     instance.realm = 'EXAMPLE.TEST'
     instance.fqdn = 'server.example.test'
     with pytest.raises(RuntimeError, match='another host or realm'):
@@ -108,7 +113,6 @@ def test_reconfigure_migrates_legacy_keytab_and_preserves_keys(
     chown.assert_any_call(str(config), 0, 456)
 
 
-
 def test_unsafe_legacy_keytab_is_rejected(monkeypatch, tmp_path):
     state = tmp_path / 'state'
     state.mkdir()
@@ -154,3 +158,33 @@ def test_reconfigure_does_not_walk_daemon_owned_state(monkeypatch, tmp_path):
     instance._configure_kuipad()
     assert (state / 'untrusted').is_symlink()
     assert outside.read_text() == 'preserved'
+
+
+def _fake_run(outcomes):
+    calls = []
+
+    def run(argv, capture_output=True):
+        calls.append(argv)
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return SimpleNamespace(output=outcome)
+    return run, calls
+
+
+def test_fetch_key_waits_for_registration(monkeypatch):
+    refused = kuipadinstance.ipautil.CalledProcessError(1, 'kuipa', '', '')
+    run, calls = _fake_run([refused, refused, b'secret'])
+    monkeypatch.setattr(kuipadinstance.ipautil, 'run', run)
+    monkeypatch.setattr(kuipadinstance.time, 'sleep', lambda s: None)
+    assert kuipadinstance.fetch_key('dm/DMHash', wait=300) == b'secret'
+    assert len(calls) == 3
+
+
+def test_fetch_key_without_wait_fails_at_once(monkeypatch):
+    refused = kuipadinstance.ipautil.CalledProcessError(1, 'kuipa', '', '')
+    run, calls = _fake_run([refused, b'secret'])
+    monkeypatch.setattr(kuipadinstance.ipautil, 'run', run)
+    with pytest.raises(kuipadinstance.ipautil.CalledProcessError):
+        kuipadinstance.fetch_key('dm/DMHash')
+    assert len(calls) == 1

@@ -24,6 +24,7 @@ from __future__ import print_function, absolute_import
 import base64
 import binascii
 import enum
+import json
 import logging
 
 import dbus
@@ -52,11 +53,12 @@ from ipapython import ipautil
 from ipapython.certdb import (
     get_ca_nickname,
     IPA_CA_TRUST_FLAGS,
-    EMPTY_TRUST_FLAGS)
+    EMPTY_TRUST_FLAGS,
+    NSSDatabase)
 from ipapython.dn import DN, RDN
-from ipaserver.secrets.kem import IPAKEMKeys
 
 from ipaserver.install import certs
+from ipaserver.install import kuipadinstance
 from ipaserver.install import installutils
 from ipaserver.install import replication
 from ipaserver.install import sysupgrade
@@ -340,7 +342,7 @@ class CAInstance(DogtagInstance):
         "op=getCRL&crlIssuingPoint=MasterCRL " \
         "[L,R=301,NC]"
 
-    def __init__(self, realm=None, host_name=None, custodia=None):
+    def __init__(self, realm=None, host_name=None, kuipa_keys=None):
         super(CAInstance, self).__init__(
             realm=realm,
             subsystem="CA",
@@ -366,8 +368,7 @@ class CAInstance(DogtagInstance):
         self.no_db_setup = False
         self.keytab = os.path.join(
             paths.PKI_TOMCAT, self.service_prefix + '.keytab')
-        # Custodia instance for RA key retrieval
-        self._custodia = custodia
+        self._kuipa_keys = kuipa_keys or {}
 
     def configure_instance(self, host_name, dm_password, admin_password,
                            pkcs12_info=None, master_host=None, csr_file=None,
@@ -531,7 +532,7 @@ class CAInstance(DogtagInstance):
                     if not self.clone:
                         self.step("requesting Akamu RA certificate from CA",
                                   self.__request_akamu_ra_certificate)
-                    elif promote:
+                    else:
                         self.step("Importing Akamu RA key",
                                   self.__import_akamu_ra_key)
                 self.step("configure certificate renewals", self.configure_renewal)
@@ -1001,7 +1002,7 @@ class CAInstance(DogtagInstance):
         self.configure_agent_renewal()
 
     def __import_ra_key(self):
-        import_ra_key(self._custodia)
+        import_ra_key(self._kuipa_keys['ra/ipaCert'])
 
     def __request_akamu_ra_certificate(self):
         # deferred import: akamuinstance imports cainstance for
@@ -1014,7 +1015,52 @@ class CAInstance(DogtagInstance):
     def __import_akamu_ra_key(self):
         # pylint: disable-next=cyclic-import
         from ipaserver.install import akamuinstance
-        akamuinstance.import_ra_key(self._custodia)
+        akamuinstance.import_ra_key(self._kuipa_keys[AKAMU_KEY])
+
+    def _get_pkcs12_keys(self, cacerts_file, cacerts_pwd, certlist):
+        # Fetch each PKCS#12 blob from kuipa, then combine them with the CA
+        # certificates into a single PKCS#12 file
+        self.suffix = ipautil.realm_to_suffix(self.realm)
+        with NSSDatabase(None) as tmpdb:
+            tmpdb.create_db()
+            # Cert file password
+            crtpwfile = os.path.join(tmpdb.secdir, 'crtpwfile')
+            with open(crtpwfile, 'w+') as f:
+                f.write(cacerts_pwd)
+
+            for nickname in certlist:
+                value = self._kuipa_keys['ca/' + nickname]
+                v = json.loads(value)
+                pk12pwfile = os.path.join(tmpdb.secdir, 'pk12pwfile')
+                with open(pk12pwfile, 'w+') as f:
+                    f.write(v['export password'])
+                pk12file = os.path.join(tmpdb.secdir, 'pk12file')
+                with open(pk12file, 'wb') as f:
+                    f.write(base64.b64decode(v['pkcs12 data']))
+                tmpdb.run_pk12util([
+                    '-k', tmpdb.pwd_file,
+                    '-n', nickname,
+                    '-i', pk12file,
+                    '-w', pk12pwfile
+                ])
+
+            # Add CA certificates
+            self.export_ca_certs_nssdb(tmpdb, True)
+
+            # Now that we gathered all certs, re-export
+            ipautil.run([
+                paths.PKCS12EXPORT,
+                '-d', tmpdb.secdir,
+                '-p', tmpdb.pwd_file,
+                '-w', crtpwfile,
+                '-o', cacerts_file
+            ])
+
+    def get_ca_keys(self, cacerts_file, cacerts_pwd):
+        self._get_pkcs12_keys(cacerts_file, cacerts_pwd, CA_PKCS12_NICKNAMES)
+
+    def get_kra_keys(self, cacerts_file, cacerts_pwd):
+        self._get_pkcs12_keys(cacerts_file, cacerts_pwd, KRA_PKCS12_NICKNAMES)
 
     @staticmethod
     def _set_ra_cert_perms():
@@ -1526,7 +1572,6 @@ class CAInstance(DogtagInstance):
         logger.debug('Set up lightweight CA key retrieval')
 
         self.__setup_lightweight_ca_key_retrieval_kerberos()
-        self.__setup_lightweight_ca_key_retrieval_custodia()
 
         logger.debug('Configuring key retriever')
         directives = [
@@ -1551,26 +1596,6 @@ class CAInstance(DogtagInstance):
         installutils.create_keytab(self.keytab, self.principal)
         os.chmod(self.keytab, 0o600)
         self.service_user.chown(self.keytab)
-
-    def __setup_lightweight_ca_key_retrieval_custodia(self):
-        logger.debug('Creating Custodia keys')
-        custodia_basedn = DN(
-            ('cn', 'custodia'), ('cn', 'ipa'), ('cn', 'etc'), api.env.basedn)
-        ensure_entry(
-            custodia_basedn,
-            objectclass=['top', 'nsContainer'],
-            cn=['custodia'],
-        )
-        ensure_entry(
-            DN(('cn', 'dogtag'), custodia_basedn),
-            objectclass=['top', 'nsContainer'],
-            cn=['dogtag'],
-        )
-        keyfile = os.path.join(paths.PKI_TOMCAT, self.service_prefix + '.keys')
-        keystore = IPAKEMKeys({'server_keys': keyfile})
-        keystore.generate_keys(self.service_prefix)
-        os.chmod(keyfile, 0o600)
-        self.service_user.chown(keyfile)
 
     def add_lightweight_ca_tracking_requests(self):
         try:
@@ -2677,8 +2702,39 @@ def update_ipa_conf(ca_host=None):
         parser.write(f)
 
 
-def import_ra_key(custodia):
-    custodia.import_ra_key()
+CA_PKCS12_NICKNAMES = [
+    'caSigningCert cert-pki-ca',
+    'ocspSigningCert cert-pki-ca',
+    'auditSigningCert cert-pki-ca',
+    'subsystemCert cert-pki-ca']
+KRA_PKCS12_NICKNAMES = [
+    'auditSigningCert cert-pki-kra',
+    'storageCert cert-pki-kra',
+    'subsystemCert cert-pki-ca',
+    'transportCert cert-pki-kra']
+
+
+AKAMU_KEY = 'akamu/raAgent'
+
+
+def fetch_kuipa_keys(setup_ca, setup_kra, setup_akamu=False):
+    """Fetch kuipa secrets once the replica is a server."""
+    names = []
+    if setup_ca:
+        names.append('ra/ipaCert')
+        if setup_akamu:
+            names.append(AKAMU_KEY)
+        names.extend('ca/' + n for n in CA_PKCS12_NICKNAMES)
+    if setup_kra:
+        names.extend('ca/' + n for n in KRA_PKCS12_NICKNAMES)
+    return {name: kuipadinstance.fetch_key(name, wait=300)
+            for name in set(names)}
+
+
+def import_ra_key(value=None):
+    if value is None:
+        value = kuipadinstance.fetch_key('ra/ipaCert')
+    kuipadinstance.import_key('ipa-custodia-ra-agent', value)
     CAInstance._set_ra_cert_perms()
     CAInstance.configure_agent_renewal()
 

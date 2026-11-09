@@ -538,12 +538,12 @@ def install_check(standalone, replica_config, options):
                         "cannot continue." % (subject, db.secdir))
 
 
-def install(standalone, replica_config, options, custodia):
-    install_step_0(standalone, replica_config, options, custodia=custodia)
-    install_step_1(standalone, replica_config, options, custodia=custodia)
+def install(standalone, replica_config, options):
+    install_step_0(standalone, replica_config, options)
+    install_step_1(standalone, replica_config, options)
 
 
-def install_step_0(standalone, replica_config, options, custodia):
+def install_step_0(standalone, replica_config, options):
     realm_name = options.realm_name
     dm_password = options.dm_password
     host_name = options.host_name
@@ -583,9 +583,10 @@ def install_step_0(standalone, replica_config, options, custodia):
         if not token_name:
             cafile = os.path.join(replica_config.dir, 'cacert.p12')
             if replica_config.setup_ca:
-                custodia.get_ca_keys(
-                    cafile,
-                    replica_config.dirman_password)
+                cainstance.CAInstance(
+                    realm=realm_name, host_name=host_name,
+                    kuipa_keys=replica_config.kuipa_keys,
+                ).get_ca_keys(cafile, replica_config.dirman_password)
         else:
             cafile = None
 
@@ -615,9 +616,10 @@ def install_step_0(standalone, replica_config, options, custodia):
     # In both cases, 389-DS is already configured to have a trusted cert.
     use_ldaps = standalone or replica_config is not None
 
-    ca = cainstance.CAInstance(
-        realm=realm_name, host_name=host_name, custodia=custodia
-    )
+    kuipa_keys = (replica_config.kuipa_keys
+                  if replica_config is not None else None)
+    ca = cainstance.CAInstance(realm=realm_name, host_name=host_name,
+                               kuipa_keys=kuipa_keys)
     ca.configure_instance(
         host_name, dm_password, dm_password,
         subject_base=subject_base,
@@ -645,7 +647,7 @@ def install_step_0(standalone, replica_config, options, custodia):
     )
 
 
-def install_step_1(standalone, replica_config, options, custodia):
+def install_step_1(standalone, replica_config, options):
     if replica_config is not None and not replica_config.setup_ca:
         return
 
@@ -654,9 +656,7 @@ def install_step_1(standalone, replica_config, options, custodia):
     subject_base = options._subject_base
     basedn = ipautil.realm_to_suffix(realm_name)
 
-    ca = cainstance.CAInstance(
-        realm=realm_name, host_name=host_name, custodia=custodia
-    )
+    ca = cainstance.CAInstance(realm=realm_name, host_name=host_name)
 
     ca.stop('pki-tomcat')
 

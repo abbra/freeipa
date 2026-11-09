@@ -31,8 +31,6 @@ dist_noinst_DATA =		\
 	ipa-crlgen-manage.in	\
 	ipa-cert-fix.in		\
 	ipa-idrange-fix.in  \
-	ipa-custodia.in		\
-	ipa-custodia-check.in	\
 	ipa-httpd-kdcproxy.in	\
 	ipa-httpd-pwdreader.in	\
 	ipa-pki-retrieve-key.in	\
@@ -75,8 +73,6 @@ nodist_sbin_SCRIPTS =		\
 appdir = $(libexecdir)/ipa/
 nodist_app_SCRIPTS =		\
 	ipa-ccache-sweeper	\
-	ipa-custodia		\
-	ipa-custodia-check	\
 	ipa-httpd-kdcproxy	\
 	ipa-httpd-pwdreader	\
 	ipa-pki-retrieve-key	\

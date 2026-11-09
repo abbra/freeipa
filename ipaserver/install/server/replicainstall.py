@@ -36,11 +36,11 @@ from ipalib import api, constants, create_api, errors, rpc
 from ipalib.config import Env
 from ipalib.facts import is_ipa_configured, is_ipa_client_configured
 from ipalib.util import no_matching_interface_for_ip_address_warning
-from ipaclient.install.client import configure_krb5_conf, purge_host_keytab
+from ipaclient.install.client import configure_krb5_conf
 from ipaserver.install import (
     adtrust, bindinstance, ca, cainstance, dns, dsinstance, httpinstance,
     installutils, kra, krainstance, krbinstance, otpdinstance,
-    custodiainstance, ahdapainstance, akamuinstance, kuipadinstance, service,)
+    ahdapainstance, akamuinstance, kuipadinstance, service,)
 from ipaserver.install import certs
 from ipaserver.install.installutils import (
     ReplicaConfig, load_pkcs12, validate_mask)
@@ -615,59 +615,6 @@ def check_domain_level_is_supported(current):
         raise ScriptError(message, rval=3)
 
 
-def enroll_dl0_replica(installer, fstore, remote_api, debug=False):
-    """
-    Do partial host enrollment in DL0:
-        * add host entry to remote master
-        * request host keytab from remote master
-        * configure client-like /etc/krb5.conf to enable GSSAPI auth further
-          down the replica installation
-    """
-    logger.info("Enrolling host to IPA domain")
-    config = installer._config
-    hostname = config.host_name
-
-    try:
-        installer._enrollment_performed = True
-        host_result = remote_api.Command.host_add(
-            str(config.host_name), force=installer.no_host_dns
-        )['result']
-        # pylint: enable=E0606
-
-        host_princ = str(host_result['krbcanonicalname'][0])
-        purge_host_keytab(config.realm_name)
-
-        getkeytab_args = [
-            paths.IPA_GETKEYTAB,
-            '-s', config.master_host_name,
-            '-p', host_princ,
-            '-D', str(ipaldap.DIRMAN_DN),
-            '-w', config.dirman_password,
-            '-k', paths.KRB5_KEYTAB,
-            '--cacert', os.path.join(config.dir, 'ca.crt')
-        ]
-        ipautil.run(getkeytab_args, nolog=(config.dirman_password,))
-
-        _hostname, _sep, host_domain = hostname.partition('.')
-
-        fstore.backup_file(paths.KRB5_CONF)
-        configure_krb5_conf(
-            config.realm_name,
-            config.domain_name,
-            [config.master_host_name],
-            [config.master_host_name],
-            False,
-            paths.KRB5_CONF,
-            host_domain,
-            hostname,
-            configure_sssd=False,
-            fstore=fstore
-        )
-
-    except CalledProcessError as e:
-        raise RuntimeError("Failed to fetch host keytab: {}".format(e))
-
-
 def ensure_enrolled(installer):
     args = [paths.IPA_CLIENT_INSTALL, "--unattended"]
     stdin = None
@@ -677,12 +624,24 @@ def ensure_enrolled(installer):
         args.extend(["--domain", installer.domain_name])
     if installer.server:
         args.extend(["--server", installer.server])
-    if installer.realm_name:
-        args.extend(["--realm", installer.realm_name])
+    realm = installer.realm_name
+    if installer.enrollment_string:
+        # The string names the realm the host must discover
+        string_realm = installer.enrollment_string.split(":")[1]
+        if realm and realm != string_realm:
+            raise ScriptError("--realm does not match the realm in the "
+                              "enrollment string")
+        realm = string_realm
+    if realm:
+        args.extend(["--realm", realm])
     if installer.host_name:
         args.extend(["--hostname", installer.host_name])
 
-    if installer.password:
+    if installer.enrollment_string:
+        # Operator-issued string joins the host; no admin credentials are used
+        args.extend(["-w", installer.enrollment_string])
+        nolog.append(installer.enrollment_string)
+    elif installer.password:
         args.extend(["--password", installer.password])
         nolog.append(installer.password)
     else:
@@ -854,19 +813,27 @@ def promote_check(installer):
         raise ScriptError("--setup-ca and --*-cert-file options are "
                           "mutually exclusive")
 
+    if (options.enrollment_string is not None
+            and not options.enrollment_string.startswith('ipa-ku1:')):
+        raise ScriptError("--enrollment-string must start with 'ipa-ku1:'")
+
     ipa_client_installed = is_ipa_client_configured(on_master=True)
     if not ipa_client_installed:
         # One-step replica installation
         if options.password and options.admin_password:
             raise ScriptError("--password and --admin-password options are "
                               "mutually exclusive")
+        if options.enrollment_string and options.password:
+            raise ScriptError("--enrollment-string and --password options "
+                              "are mutually exclusive")
         ensure_enrolled(installer)
     else:
         if (options.domain_name or options.server or options.realm_name or
-                options.host_name or options.password or options.keytab):
+                options.host_name or options.password
+                or options.enrollment_string or options.keytab):
             print("IPA client is already configured on this system, ignoring "
-                  "the --domain, --server, --realm, --hostname, --password "
-                  "and --keytab options.")
+                  "the --domain, --server, --realm, --hostname, --password, "
+                  "--enrollment-string and --keytab options.")
             # Make sure options.server is not used
             options.server = None
 
@@ -1045,7 +1012,8 @@ def promote_check(installer):
         add_to_ipaservers = not result
 
         if add_to_ipaservers:
-            if options.password and not options.admin_password:
+            if ((options.password or options.enrollment_string)
+                    and not options.admin_password):
                 raise errors.ACIError(info="Not authorized")
 
             if installer._ccache is None:
@@ -1374,6 +1342,13 @@ def install(installer):
         pkcs12_info=pkinit_pkcs12_info,
         fstore=fstore)
 
+    # kuipad serves keys only to servers in cn=masters, which install_krb()
+    # has just registered; wait for it to reach the master. The CA and KRA
+    # installers consume these keys.
+    config.kuipa_keys = cainstance.fetch_kuipa_keys(
+        setup_ca=ca_enabled, setup_kra=kra_enabled,
+        setup_akamu=not options.no_akamu)
+
     # We need to point to the master when certmonger asks for
     # a DS or HTTP certificate.
     # During http installation, the <service>/hostname principal is
@@ -1418,15 +1393,12 @@ def install(installer):
             admin_principal=options.principal or 'admin',
             admin_password=options.admin_password)
 
-    if options.setup_kra and kra_enabled:
-        # A KRA peer always provides a CA, too.
-        mode = custodiainstance.CustodiaModes.KRA_PEER
-    elif options.setup_ca and ca_enabled:
-        mode = custodiainstance.CustodiaModes.CA_PEER
-    else:
-        mode = custodiainstance.CustodiaModes.MASTER_PEER
-    custodia = custodiainstance.get_custodia_instance(config, mode)
-    custodia.create_instance()
+    # kuipad's containers, keytab, keys and httpd proxy must exist before the
+    # CA is installed; the daemon itself is started after the LDAP updates.
+    kuipad = kuipadinstance.KuipadInstance(fstore)
+    kuipad.prepare_instance(
+        config.realm_name, config.host_name, config.domain_name,
+        ldap_suffix=ipautil.realm_to_suffix(config.realm_name))
 
     if ca_enabled:
         options.realm_name = config.realm_name
@@ -1435,12 +1407,12 @@ def install(installer):
         options.dm_password = config.dirman_password
         # Always call ca.install() if there is a CA in the topology
         # to ensure the RA agent is present.
-        ca.install(False, config, options, custodia=custodia)
+        ca.install(False, config, options)
 
     if ca_enabled and options.setup_ca and not options.no_akamu:
         # Unlike Ahdapa, Akamu's service step must come after ca.install()
-        # above: its RA agent PEM files are only materialized there (either
-        # freshly requested or imported via Custodia on promotion).
+        # its RA agent PEM files are only materialized there (either
+        # freshly requested or fetched through kuipa on promotion).
         akamu = akamuinstance.AkamuInstance(fstore)
         akamu.configure_instance(
             config.realm_name, config.host_name, config.domain_name,
@@ -1455,22 +1427,23 @@ def install(installer):
     service.print_msg("Finalize replication settings")
     ds.finalize_replica_config()
 
-    # The kuipa schema and containers only exist after the update run above,
-    # so the daemon can be configured no earlier than here; enable_services()
-    # below is what turns the service on.
-    kuipad = kuipadinstance.KuipadInstance(fstore)
-    kuipad.configure_instance(
-        config.realm_name, config.host_name, config.domain_name,
-        ldap_suffix=ipautil.realm_to_suffix(config.realm_name))
+    # The daemon starts after the LDAP updates; prepare_instance() above
+    # already loaded the kuipa schema and containers. enable_services() below
+    # is what turns the service on.
+    kuipad.start_instance()
 
     if kra_enabled:
         # The KRA installer checks for itself the status of setup_kra
-        kra.install(api, config, options, custodia=custodia)
+        kra.install(api, config, options)
+
+    # Last: the master's DM hash replaces the one the installer generated,
+    # which the CA and KRA installers above still bind with.
+    kuipadinstance.import_key(
+        'ipa-custodia-dmldap', kuipadinstance.fetch_key('dm/DMHash', wait=300))
 
     service.print_msg("Restarting the KDC")
     krb.restart()
 
-    custodia.import_dm_password()
     promote_sssd(config.host_name)
     promote_openldap_conf(config.host_name, config.master_host_name)
 

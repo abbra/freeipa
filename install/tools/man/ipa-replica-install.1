@@ -43,6 +43,9 @@ for further details about these options.
 \fB\-p\fR \fIPASSWORD\fR, \fB\-\-password\fR=\fIPASSWORD\fR
 One Time Password for joining a machine to the IPA realm.
 .TP
+\fB\-\-enrollment\-string\fR=\fIENROLLMENT_STRING\fR
+Operator-provided kuipa enrollment string (starting with \fIipa-ku1:\fR), created on the master with \fIipa host-add <host> \-\-random\fR. The host joins without admin credentials; the realm is taken from the string.
+.TP
 \fB\-k\fR, \fB\-\-keytab\fR
 Path to host keytab.
 .TP

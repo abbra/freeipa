@@ -110,6 +110,7 @@ class ReplicaConfig:
         self.dir = ""
         self.subject_base = None
         self.setup_ca = False
+        self.kuipa_keys = {}
         self.version = 0
         self.top_dir = top_dir
 

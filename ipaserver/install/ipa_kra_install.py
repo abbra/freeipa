@@ -30,7 +30,6 @@ from ipaplatform.paths import paths
 from ipapython import admintool, config
 from ipaserver.install import service
 from ipaserver.install import cainstance
-from ipaserver.install import custodiainstance
 from ipaserver.install import krainstance
 from ipaserver.install import dsinstance
 from ipaserver.install import installutils
@@ -210,6 +209,9 @@ class KRAInstaller(KRAInstall):
             config.dir = config.top_dir
 
             config.setup_kra = True
+            # This host is already in cn=masters, so kuipad serves its keys.
+            config.kuipa_keys = cainstance.fetch_kuipa_keys(
+                setup_ca=False, setup_kra=True)
 
             if config.subject_base is None:
                 attrs = api.Backend.ldap2.get_ipa_config()
@@ -224,11 +226,8 @@ class KRAInstaller(KRAInstall):
                     raise admintool.ScriptError(
                         "Failed to find an active KRA server!"
                     )
-            custodia = custodiainstance.get_custodia_instance(
-                config, custodiainstance.CustodiaModes.KRA_PEER)
         else:
             config = None
-            custodia = None
 
         try:
             kra.install_check(api, config, self.options)
@@ -238,7 +237,7 @@ class KRAInstaller(KRAInstall):
         print(dedent(self.INSTALLER_START_MESSAGE))
 
         try:
-            kra.install(api, config, self.options, custodia=custodia)
+            kra.install(api, config, self.options)
         except BaseException:
             logger.error('%s', dedent(self.FAIL_MESSAGE))
             raise

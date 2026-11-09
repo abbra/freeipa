@@ -38,7 +38,6 @@ dist_app_DATA =				\
 	akamu-gssproxy.conf.template	\
 	kuipad.json.template		\
 	kuipad-gssproxy.conf.template	\
-	custodia.conf.template		\
 	default-aci.ldif		\
 	default-hbac.ldif		\
 	default-smb-group.ldif		\

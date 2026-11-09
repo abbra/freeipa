@@ -50,7 +50,7 @@ wellknownservices = [
     'rpcbind', 'kadmin', 'sshd', 'autofs', 'rpcgssd',
     'rpcidmapd', 'pki_tomcatd', 'chronyd', 'domainname',
     'named', 'ods_enforcerd', 'ods_signerd', 'gssproxy',
-    'nfs-utils', 'sssd', 'NetworkManager', 'ipa-custodia',
+    'nfs-utils', 'sssd', 'NetworkManager',
     'ipa-dnskeysyncd', 'ipa-otpd', 'ipa-ods-exporter',
     'systemd-resolved', 'unbound', 'dnsconfd',
 ]
