@@ -49,6 +49,24 @@ ISO8601_DATETIME_FMT = '%Y-%m-%dT%H:%M:%S'
 
 logger = logging.getLogger(__name__)
 
+
+def tar_changed_only(result):
+    """True if tar exited 1 only because a file changed while it was read
+
+    The archive is complete then, and a directory whose timestamp moves
+    (/etc/sysconfig/pki, with every service stopped) is not worth failing
+    a backup for. Any other message, or any other exit code, is an error.
+    """
+    if result.returncode != 1:
+        return False
+    benign = ('Removing leading', 'file changed as we read it')
+    lines = [ln for ln in result.error_log.splitlines() if ln.strip()]
+    if not all(any(b in ln for b in benign) for ln in lines):
+        return False
+    logger.warning('tar reported: %s', result.error_log.strip())
+    return True
+
+
 """
 A test GnuPG key can be generated like this:
 
@@ -783,7 +801,7 @@ class Backup(admintool.AdminTool):
             args.extend(verify_directories(self.logs))
 
         result = run(args, raiseonerr=False)
-        if result.returncode != 0:
+        if result.returncode != 0 and not tar_changed_only(result):
             raise admintool.ScriptError('tar returned non-zero code %d: %s' %
                                         (result.returncode, result.error_log))
 
