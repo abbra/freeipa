@@ -45,6 +45,12 @@ Back up data only. The default is to back up all IPA files plus data.
 \fB\-\-gpg\fR
 Encrypt the back up file. Set \fBGNUPGHOME\fR environment variable to use a custom keyring and gpg2 configuration.
 .TP
+\fB\-\-kuipa\fR
+Seal the back up to a recovery key kept on paper, and have the realm sign it, using kuipa. Only the recovery public key is on the server, so the back up can be opened after every server is lost, with at least the threshold of papers and the recovery passphrase. The back up file is ipa\-full.tar.kuipa (ipa\-data.tar.kuipa), signed for the purpose ipa\-backup as the host: a .kusig file is written beside it and beside header. A back up that cannot be signed is an error. Cannot be used with \fB\-\-gpg\fR.
+.TP
+\fB\-\-kuipa\-recipient\fR=\fIFILE\fR
+The recipient file made by \fBkuipa backup key create\fR. It is installed as /etc/ipa/kuipa\-backup.json and is part of the back up; later runs need only \fB\-\-kuipa\fR.
+.TP
 \fB\-\-logs\fR
 Include the IPA service log files in the backup.
 .TP

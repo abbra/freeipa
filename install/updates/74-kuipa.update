@@ -52,6 +52,7 @@ default: objectClass: top
 default: objectClass: nsContainer
 default: objectClass: ipaKURealmConfig
 default: cn: sign-policy
+default: ipaKUSignPolicy: {"purposes": {"ipa-backup": {"groups": ["ipaservers"]}}}
 
 dn: cn=KUIPA Seal Administrators,cn=privileges,cn=pbac,$SUFFIX
 default: objectClass: top

@@ -454,6 +454,7 @@ class BasePathNamespace:
     KUIPA_GSSPROXY_CONF = '/etc/gssproxy/20-kuipad.conf'
     KUIPA_KEYS_SOCKET = '/run/ipa/kuipad-keys.sock'
     KUIPA_STATE_DIR = '/var/lib/ipa/ku'
+    KUIPA_BACKUP_CONF = '/etc/ipa/kuipa-backup.json'
     KUIPA_SOCKET = '/run/ipa/kuipad.sock'
     HTTPD_IPA_KUIPA_PROXY_CONF = '/etc/httpd/conf.d/ipa-kuipa-proxy.conf'
     IPA_GETKEYTAB = '/usr/sbin/ipa-getkeytab'

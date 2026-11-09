@@ -34,6 +34,8 @@ The type of backup is automatically detected. A data restore can be done from ei
 .TP
 An encrypted backup is also automatically detected and the root keyring and gpg-agent is used by default. Set \fBGNUPGHOME\fR environment variable to use a custom keyring and gpg2 configuration.
 .TP
+A backup sealed with kuipa (ipa\-full.tar.kuipa) is also detected. Its signature, for the purpose ipa\-backup, is verified before anything is decrypted, then the papers of the recovery key are read from standard input (a blank line between papers, ? for a word that cannot be read) and the recovery passphrase from the terminal. Nothing contacts the realm, so this works after every server is lost: give the realm and its anchors from the realm card made by \fBkuipa backup card\fR.
+.TP
 Within the subdirectory is file, header, that describes the back up including the type, system, date of backup, the version of IPA, the version of the backup and the services on the master.
 .TP
 A backup can not be restored on another host.
@@ -57,6 +59,18 @@ If you have older masters you should consider re\-creating them rather than tryi
 .TP
 \fB\-p\fR, \fB\-\-password\fR=\fIPASSWORD\fR
 The Directory Manager password.
+.TP
+\fB\-\-kuipa\-realm\fR=\fIREALM\fR, \fB\-\-kuipa\-anchor\fR=\fITHUMBPRINT\fR
+The realm a kuipa\-sealed backup is signed for and an anchor to trust, from the realm card (the option may be repeated). Both are needed together; without them this host's own kuipa anchors are used.
+.TP
+\fB\-\-kuipa\-signer\fR=\fIPRINCIPAL\fR
+Require the backup to be signed by this principal, for example host/ipa1.example.test.
+.TP
+\fB\-\-kuipa\-recovery\-file\fR=\fIFILE\fR
+Read the recovery passphrase from this file.
+.TP
+\fB\-\-kuipa\-no\-verify\fR
+Open a kuipa\-sealed backup without checking its signature. Use only to read a backup whose signature is lost.
 .TP
 \fB\-\-data\fR
 Restore the data only. The default is to restore everything in the backup.
