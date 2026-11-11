@@ -22,6 +22,7 @@
 
 /var/lib/ipa/pki(/.*)?        gen_context(system_u:object_r:ipa_public_pki_t,s0)
 /var/lib/ipa(/.*)?            gen_context(system_u:object_r:ipa_var_lib_t,s0)
+/var/lib/ipa/ku(/.*)?          gen_context(system_u:object_r:kuipad_var_lib_t,s0)
 
 /var/lib/ipa/gssproxy/http.keytab -- gen_context(system_u:object_r:ipa_http_keytab_t,s0)
 /etc/ipa/kuipad\.keytab -- gen_context(system_u:object_r:ipa_http_keytab_t,s0)
@@ -58,6 +59,7 @@
 /usr/libexec/ipa/custodia/ipa-custodia-pki-tomcat		--	gen_context(system_u:object_r:ipa_custodia_pki_tomcat_exec_t,s0)
 /usr/libexec/ipa/custodia/ipa-custodia-pki-tomcat-wrapped	--	gen_context(system_u:object_r:ipa_custodia_pki_tomcat_exec_t,s0)
 /usr/libexec/ipa/custodia/ipa-custodia-ra-agent		--	gen_context(system_u:object_r:ipa_custodia_ra_agent_exec_t,s0)
+/usr/libexec/ipa/custodia/ipa-custodia-akamu-ra-agent	--	gen_context(system_u:object_r:ipa_custodia_ra_agent_exec_t,s0)
 /usr/libexec/kuipad			--	gen_context(system_u:object_r:kuipad_exec_t,s0)
 /usr/libexec/ipa/ipa-pki-retrieve-key				--	gen_context(system_u:object_r:ipa_pki_retrieve_key_exec_t,s0)
 

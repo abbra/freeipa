@@ -180,6 +180,8 @@ class KuipadInstance(SimpleServiceInstance):
         """Secure existing state and configure the unprivileged daemon."""
         user = _get_kuipa_user()
         os.makedirs(paths.KUIPA_STATE_DIR, mode=0o700, exist_ok=True)
+        # label it kuipad_var_lib_t before kuipad creates files inside
+        tasks.restore_context(paths.KUIPA_STATE_DIR)
         state = os.open(paths.KUIPA_STATE_DIR,
                         os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:

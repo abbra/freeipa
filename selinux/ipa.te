@@ -88,6 +88,103 @@ can_exec(kuipad_t, ipa_custodia_dmldap_exec_t)
 can_exec(kuipad_t, ipa_custodia_pki_tomcat_exec_t)
 can_exec(kuipad_t, ipa_custodia_ra_agent_exec_t)
 
+# kuipad state: /var/lib/ipa/ku (transparency log, peers, signing key)
+type kuipad_var_lib_t;
+files_type(kuipad_var_lib_t)
+manage_dirs_pattern(kuipad_t, kuipad_var_lib_t, kuipad_var_lib_t)
+manage_files_pattern(kuipad_t, kuipad_var_lib_t, kuipad_var_lib_t)
+
+# the handlers read the RA agent key and the IPA state around it
+allow kuipad_t ipa_var_lib_t:dir search;
+read_files_pattern(kuipad_t, ipa_var_lib_t, ipa_var_lib_t)
+
+# its own sockets in /run/ipa (kuipad.sock, kuipad-keys.sock)
+allow kuipad_t ipa_var_run_t:dir search;
+allow kuipad_t ipa_var_run_t:sock_file write;
+
+# the handlers run as kuipad_t: python scripts, tempfile, NSS, getpwnam, DNS
+allow kuipad_t self:capability { dac_read_search setgid setuid };
+allow kuipad_t self:netlink_route_socket { bind create getattr nlmsg_read };
+allow kuipad_t self:tcp_socket { bind connect create getattr getopt read setopt shutdown write };
+allow kuipad_t self:unix_dgram_socket create_socket_perms;
+allow kuipad_t self:unix_stream_socket { create_stream_socket_perms connectto };
+corecmd_exec_bin(kuipad_t)
+libs_exec_ldconfig(kuipad_t)
+corenet_tcp_bind_generic_node(kuipad_t)
+# the anchor exchange posts to the other servers' /ipa/ku/peer/sync over https
+corenet_tcp_connect_http_port(kuipad_t)
+corenet_tcp_sendrecv_generic_node(kuipad_t)
+logging_send_syslog_msg(kuipad_t)
+miscfiles_read_generic_certs(kuipad_t)
+sysnet_read_config(kuipad_t)
+auth_read_passwd(kuipad_t)
+files_manage_generic_tmp_dirs(kuipad_t)
+files_manage_generic_tmp_files(kuipad_t)
+
+# tokio and jemalloc probe /sys/fs/cgroup for memory limits
+gen_require(`
+    type cgroup_t;
+    type fs_t;
+')
+allow kuipad_t cgroup_t:dir search;
+allow kuipad_t cgroup_t:file { getattr open read };
+allow kuipad_t fs_t:filesystem getattr;
+
+# the web server proxies /ku to kuipad's socket; ipa-helper runs kuipad
+can_exec(ipa_helper_t, kuipad_exec_t)
+optional_policy(`
+  gen_require(`
+    type httpd_t;
+  ')
+  allow httpd_t ipa_var_run_t:sock_file write;
+  allow httpd_t kuipad_t:unix_stream_socket connectto;
+')
+
+optional_policy(`
+  kerberos_read_config(kuipad_t)
+')
+
+optional_policy(`
+  sssd_stream_connect(kuipad_t)
+  sssd_read_public_files(kuipad_t)
+  sssd_search_lib(kuipad_t)
+')
+
+optional_policy(`
+  dirsrv_stream_connect(kuipad_t)
+')
+
+optional_policy(`
+  gssproxy_stream_connect(kuipad_t)
+')
+
+# the CA, RA agent and ACME RA material the key handlers export
+optional_policy(`
+  gen_require(`
+    type pki_tomcat_cert_t, pki_tomcat_etc_rw_t;
+  ')
+  allow kuipad_t pki_tomcat_etc_rw_t:dir { getattr search };
+  allow kuipad_t pki_tomcat_cert_t:dir { getattr search };
+  allow kuipad_t pki_tomcat_cert_t:file { getattr lock open read write };
+')
+
+optional_policy(`
+  gen_require(`
+    type akamu_ra_cert_t, akamu_var_lib_t;
+  ')
+  allow kuipad_t akamu_var_lib_t:dir search;
+  allow kuipad_t akamu_ra_cert_t:file { getattr open read };
+')
+
+# the IPA client's CA bundle sits in /var/lib/ipa-client, labeled realmd
+optional_policy(`
+  gen_require(`
+    type realmd_var_lib_t;
+  ')
+  allow kuipad_t realmd_var_lib_t:dir search;
+  allow kuipad_t realmd_var_lib_t:file { getattr open read };
+')
+
 type ipa_pki_retrieve_key_exec_t;
 type ipa_pki_retrieve_key_t;
 domain_type(ipa_pki_retrieve_key_t)
