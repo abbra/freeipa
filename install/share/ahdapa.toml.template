@@ -20,6 +20,8 @@ ccache               = "FILE:$AHDAPA_CCACHE"
 
 [ipa]
 uri            = "$LDAPI_SOCKET"
+# explicit: rootDSE discovery fails when anonymous access is disabled
+base_dn        = "$SUFFIX"
 cache_ttl_secs = 60
 
 [clients]

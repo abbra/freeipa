@@ -128,6 +128,7 @@ class AhdapaInstance(SimpleServiceInstance):
             AHDAPA_STATE_DIR=paths.AHDAPA_STATE_DIR,
             AHDAPA_CCACHE=paths.AHDAPA_CCACHE,
             LDAPI_SOCKET=ldapi_socket,
+            SUFFIX=ipautil.realm_to_suffix(self.realm),
             HTTP_KEYTAB=paths.HTTP_KEYTAB,
             IDP_CLIENT_ID=idp_client_id(self.fqdn),
         )
