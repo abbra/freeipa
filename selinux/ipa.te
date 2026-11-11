@@ -145,9 +145,14 @@ optional_policy(`
 ')
 
 optional_policy(`
+  gen_require(`
+    type sssd_var_run_t;
+  ')
   sssd_stream_connect(kuipad_t)
   sssd_read_public_files(kuipad_t)
   sssd_search_lib(kuipad_t)
+  # the Heimdal KCM socket (/run/.heim_org.h5l.kcm-socket)
+  allow kuipad_t sssd_var_run_t:sock_file write;
 ')
 
 optional_policy(`
