@@ -131,7 +131,14 @@ allow kuipad_t cgroup_t:file { getattr open read };
 allow kuipad_t fs_t:filesystem getattr;
 
 # the web server proxies /ku to kuipad's socket; ipa-helper runs kuipad
+# through runuser (host-add asks it for the kuipa enrollment string), in
+# its own domain, and reads the anchor key in kuipad's state directory
 can_exec(ipa_helper_t, kuipad_exec_t)
+allow ipa_helper_t self:capability { setgid setuid };
+allow ipa_helper_t self:process setsched;
+logging_send_audit_msgs(ipa_helper_t)
+allow ipa_helper_t kuipad_var_lib_t:dir search;
+read_files_pattern(ipa_helper_t, kuipad_var_lib_t, kuipad_var_lib_t)
 optional_policy(`
   gen_require(`
     type httpd_t;
