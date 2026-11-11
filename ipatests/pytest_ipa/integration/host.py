@@ -174,11 +174,209 @@ class Host(pytest_multihost.host.Host):
         return self.transport.spawn_expect(argv, default_timeout, encoding,
                                            extra_ssh_options)
 
+
 class WinHost(pytest_multihost.host.WinHost):
     """
     Representation of a remote Windows host.
 
-    This serves as a sketch class once we move from manual preparation of
-    Active Directory to the automated setup.
+    Active Directory operations that the tests need are methods of the AD
+    host classes, so that a test does not care whether the AD domain
+    controller is Windows (PowerShell, dnscmd) or Samba (samba-tool);
+    SambaADHost has the same interface.
     """
     transport_class = IPAOpenSSHTransport
+    ad_flavor = 'windows'
+
+    def powershell(self, command, **kwargs):
+        """Run a PowerShell command, quietly and without the IPA env"""
+        kwargs.setdefault('set_env', False)
+        return self.run_command(
+            ['powershell', '-c',
+             '$ProgressPreference = "SilentlyContinue"; ' + command],
+            **kwargs)
+
+    def dns_forwarder_add(self, zone, forwarder):
+        """Make the AD DNS server forward queries for zone to forwarder"""
+        self.run_command(['dnscmd', '/zoneadd', zone, '/Forwarder',
+                          forwarder])
+
+    def dns_forwarder_del(self, zone):
+        self.run_command(['dnscmd', '/zonedelete', zone, '/f'])
+
+    def group_add_member(self, group, user):
+        self.powershell('Add-ADGroupMember -Identity "{}" -Members "{}"'
+                        .format(group, user))
+
+    def group_has_member(self, group, user):
+        result = self.powershell(
+            'Get-ADGroupMember -Identity "{}" | '
+            'Where-Object {{$_.SamAccountName -eq "{}"}}'.format(group, user),
+            raiseonerr=False)
+        return bool(result.stdout_text.strip())
+
+    def upn_suffix_add(self, suffix):
+        self.powershell('Set-ADForest -Identity {} -UPNSuffixes @{{add="{}"}}'
+                        .format(self.domain.name, suffix))
+
+    def upn_suffix_del(self, suffix):
+        self.powershell(
+            'Set-ADForest -Identity {} -UPNSuffixes @{{Remove="{}"}}'
+            .format(self.domain.name, suffix))
+
+    def upn_suffixes(self):
+        result = self.powershell(
+            '(Get-ADForest -Identity {}).UPNSuffixes'.format(self.domain.name))
+        return result.stdout_text.split()
+
+    def user_set_upn(self, user, upn):
+        self.powershell('Set-Aduser -UserPrincipalName {} -Identity {}'
+                        .format(upn, user))
+
+    def password_min_age_set(self, days, **kwargs):
+        """Set the domain's minimum password age, in days"""
+        self.powershell(
+            'Set-ADDefaultDomainPasswordPolicy -Identity "{}" '
+            '-MinPasswordAge {}.00:00:00'.format(self.domain.name, days),
+            **kwargs)
+
+    def user_reset_password(self, user, password, **kwargs):
+        self.powershell(
+            'Set-ADAccountPassword -Identity "{}" -Reset -NewPassword '
+            '(ConvertTo-SecureString "{}" -AsPlainText -Force)'
+            .format(user, password), **kwargs)
+
+    def trust_local_side_create(self, remote_domain, secret):
+        """Create this side of an inbound forest trust with a shared secret"""
+        self.powershell(
+            '[System.DirectoryServices.ActiveDirectory.Forest]'
+            '::getCurrentForest()'
+            '.CreateLocalSideOfTrustRelationship("{}", 1, "{}")'
+            .format(remote_domain, secret))
+
+    def trust_local_side_delete(self, remote_domain):
+        self.powershell(
+            '[System.DirectoryServices.ActiveDirectory.Forest]'
+            '::getCurrentForest()'
+            '.DeleteLocalSideOfTrustRelationship("{}")'.format(remote_domain))
+
+
+class SambaADHost(Host):
+    """A Samba AD domain controller, driven with samba-tool and ldb tools.
+
+    It has the interface of WinHost. What Samba cannot do is documented at
+    the method: its internal DNS server has one global forwarder, not one
+    per zone.
+    """
+    ad_flavor = 'samba'
+    sam_ldb = '/var/lib/samba/private/sam.ldb'
+
+    def run_command(self, argv, set_env=False, **kwargs):
+        # a Samba DC has no IPA test environment (env.sh) to source
+        return super().run_command(argv, set_env=set_env, **kwargs)
+
+    @property
+    def _basedn(self):
+        return ','.join('DC=' + p for p in self.domain.name.split('.'))
+
+    def _ldb(self, tool, *args, **kwargs):
+        return self.run_command([tool, '-H', self.sam_ldb, *args], **kwargs)
+
+    def _user_dn(self, user):
+        result = self._ldb('ldbsearch', '-b', self._basedn,
+                           '(sAMAccountName={})'.format(user), 'dn')
+        for line in result.stdout_text.splitlines():
+            if line.startswith('dn: '):
+                return line[4:].strip()
+        raise ValueError('no user {} in {}'.format(user, self.domain.name))
+
+    def dns_forwarder_add(self, zone, forwarder):
+        """Forward to the forwarder: for every name not in this domain.
+
+        The internal DNS server of Samba knows one forwarder, not one per
+        zone, so the zone is not used; the previous value is kept for
+        dns_forwarder_del().
+        """
+        self.run_command([
+            'sh', '-c',
+            "cp -n /etc/samba/smb.conf /etc/samba/smb.conf.ipatests; "
+            "sed -i -E 's/^[[:space:]]*dns forwarder[[:space:]]*=.*/"
+            "\tdns forwarder = {}/' /etc/samba/smb.conf; "
+            "systemctl restart samba".format(forwarder)])
+
+    def dns_forwarder_del(self, zone):
+        self.run_command([
+            'sh', '-c',
+            "mv -f /etc/samba/smb.conf.ipatests /etc/samba/smb.conf; "
+            "systemctl restart samba"])
+
+    def group_add_member(self, group, user):
+        self.run_command(['samba-tool', 'group', 'addmembers', group, user])
+
+    def group_has_member(self, group, user):
+        result = self.run_command(
+            ['samba-tool', 'group', 'listmembers', group], raiseonerr=False)
+        return user.lower() in [
+            m.strip().lower() for m in result.stdout_text.splitlines()]
+
+    def _upn_suffixes_ldif(self, op, suffix):
+        return ('dn: CN=Partitions,CN=Configuration,{}\n'
+                'changetype: modify\n{}: uPNSuffixes\n'
+                'uPNSuffixes: {}\n'.format(self._basedn, op, suffix))
+
+    def upn_suffix_add(self, suffix):
+        self._ldb('ldbmodify', stdin_text=self._upn_suffixes_ldif(
+            'add', suffix))
+
+    def upn_suffix_del(self, suffix):
+        self._ldb('ldbmodify', stdin_text=self._upn_suffixes_ldif(
+            'delete', suffix))
+
+    def upn_suffixes(self):
+        result = self._ldb(
+            'ldbsearch', '-b',
+            'CN=Partitions,CN=Configuration,' + self._basedn,
+            '-s', 'base', 'uPNSuffixes')
+        return [line.split(':', 1)[1].strip()
+                for line in result.stdout_text.splitlines()
+                if line.startswith('uPNSuffixes:')]
+
+    def user_set_upn(self, user, upn):
+        self._ldb('ldbmodify', stdin_text=(
+            'dn: {}\nchangetype: modify\nreplace: userPrincipalName\n'
+            'userPrincipalName: {}\n'.format(self._user_dn(user), upn)))
+
+    def password_min_age_set(self, days, **kwargs):
+        self.run_command(['samba-tool', 'domain', 'passwordsettings', 'set',
+                          '--min-pwd-age={}'.format(days)], **kwargs)
+
+    def user_reset_password(self, user, password, **kwargs):
+        self.run_command(['samba-tool', 'user', 'setpassword', user,
+                          '--newpassword={}'.format(password)], **kwargs)
+
+    def trust_local_side_create(self, remote_domain, secret):
+        """Create this side of an incoming forest trust, shared secret.
+
+        Unlike the .Net call used on Windows, samba-tool reads the remote
+        domain from its DC: it needs the address and an administrator of
+        the IPA domain. The last step, forest trust information of the
+        remote domain, fails until the remote side of the trust exists, so
+        the exit status is not used: the trust object is checked.
+        """
+        remote = next(d for d in self.config.domains
+                      if d.name == remote_domain)
+        netbios = remote_domain.split('.')[0].upper()
+        self.run_command(
+            ['samba-tool', 'domain', 'trust', 'create', remote_domain,
+             '--type=forest', '--direction=incoming',
+             '--create-location=local',
+             '--ipaddress={}'.format(remote.master.ip),
+             '-U', '{}\\{}%{}'.format(netbios, self.config.admin_name,
+                                      self.config.admin_password)],
+            stdin_text='{0}\n{0}\n'.format(secret), raiseonerr=False)
+        trusts = self.run_command(['samba-tool', 'domain', 'trust', 'list'])
+        assert remote_domain.lower() in trusts.stdout_text.lower(), (
+            'samba-tool did not create the trust to ' + remote_domain)
+
+    def trust_local_side_delete(self, remote_domain):
+        self.run_command(['samba-tool', 'domain', 'trust', 'delete',
+                          remote_domain, '--delete-location=local'])
