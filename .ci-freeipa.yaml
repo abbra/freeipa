@@ -1,0 +1,6 @@
+# TEMP: first run of the ci-freeipa workflow on a fork. Drop this commit.
+# One qemu VM from the published Fedora 45 image, FreeIPA from the
+# distribution: checks /dev/kvm, apt, the VM boot and a server install.
+build: true
+presets:
+  - presets/qemu-smoke.yaml
