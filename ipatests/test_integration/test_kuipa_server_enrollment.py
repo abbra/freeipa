@@ -38,6 +38,11 @@ class TestKuipaServerEnrollment(IntegrationTest):
             assert host.run_command([
                 'stat', '-c', '%U:%G %a', '/etc/ipa/kuipad.json',
             ]).stdout_text.strip() == 'root:kuipad 640'
+            gssproxy = host.get_file_contents(
+                '/etc/gssproxy/20-kuipad.conf', encoding='utf-8')
+            # the custody broker accepts custody callers' tokens itself
+            assert '[service/kuipad-keys]' in gssproxy
+            assert 'program = /usr/libexec/kuipad' in gssproxy
             host.run_command([
                 'su', '-s', '/bin/sh', '-c',
                 'test ! -r /etc/ipa/kuipad.keytab && '

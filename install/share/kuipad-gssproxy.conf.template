@@ -7,3 +7,14 @@
   allow_constrained_delegation = true
   cred_usage = both
   euid = $KUIPA_USER
+
+# The custody broker (kuipad-keys.service, root) is the only process that
+# accepts a custody caller's token; the daemon hands it over.  `program`
+# keeps this section apart from other root ones (nfs-client matches euid 0).
+[service/kuipad-keys]
+  mechs = krb5
+  cred_store = keytab:$KUIPA_KEYTAB
+  cred_store = client_keytab:$KUIPA_KEYTAB
+  cred_usage = both
+  euid = 0
+  program = /usr/libexec/kuipad
