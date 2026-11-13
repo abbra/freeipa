@@ -138,6 +138,12 @@ add:aci:(target = "ldap:///cn=*,cn=kuipa,cn=etc,$SUFFIX")(targetattr = "ipaKURec
 remove:aci:(target = "ldap:///cn=*,cn=*,cn=topology,cn=ipa,cn=etc,$SUFFIX")(targetfilter = "(objectClass=ipaReplTopoSegment)")(targetattr = "objectClass || cn || ipaReplTopoSegmentLeftNode || ipaReplTopoSegmentRightNode")(version 3.0; acl "kuipa daemons read topology segments"; allow (read, search, compare) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
 add:aci:(target = "ldap:///cn=*,cn=*,cn=topology,cn=ipa,cn=etc,$SUFFIX")(targetfilter = "(objectClass=ipaReplTopoSegment)")(targetattr = "objectClass || cn || ipaReplTopoSegmentLeftNode || ipaReplTopoSegmentRightNode")(version 3.0; acl "kuipa daemons read topology segments"; allow (read, search, compare) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
 
+# One entry per spent voucher salt under cn=vouchers: only the voucher's home
+# server adds it, a redeemer releases it through the home server, and any daemon
+# purges it after the voucher expired.
+remove:aci:(target = "ldap:///cn=*,cn=vouchers,cn=kuipa,cn=etc,$SUFFIX")(targetattr = "objectClass || cn || ipaKUVoucherSpent || ipaKUVoucherHost || ipaKUVoucherRedeemer || ipaKULease")(version 3.0; acl "kuipa daemons record and purge spent voucher salts"; allow (add, delete, read, search, compare) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+add:aci:(target = "ldap:///cn=*,cn=vouchers,cn=kuipa,cn=etc,$SUFFIX")(targetattr = "objectClass || cn || ipaKUVoucherSpent || ipaKUVoucherHost || ipaKUVoucherRedeemer || ipaKULease")(version 3.0; acl "kuipa daemons record and purge spent voucher salts"; allow (add, delete, read, search, compare) groupdn = "ldap:///cn=kuipa servers,cn=groups,cn=accounts,$SUFFIX";)
+
 # Registration (protect --keytab/--file) arrives as the principal itself,
 # proxied by the daemon's delegated ticket, so it writes its own bindings.
 # Staging runs as the admin who stages and is a framework permission instead.
