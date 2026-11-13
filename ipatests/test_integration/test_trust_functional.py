@@ -1134,7 +1134,6 @@ class TestTrustFunctionalHttp(BaseTestTrust):
         ]
         for aduser, domain in users:
             tasks.kdestroy_all(self.clients[0])
-            # pylint: disable=use-maxsplit-arg
             principal = f"{aduser.split('@')[0]}@{domain.upper()}"
             tasks.kinit_as_user(
                 self.clients[0], principal, self.ad_user_password
@@ -1158,7 +1157,6 @@ class TestTrustFunctionalHttp(BaseTestTrust):
         ]
         for aduser, domain in users:
             tasks.kdestroy_all(self.clients[0])
-            # pylint: disable=use-maxsplit-arg
             principal = f"{aduser.split('@')[0]}@{domain.upper()}"
             self._configure_webapp(domain.upper())
             tasks.kinit_as_user(
