@@ -45,7 +45,9 @@ IPA API Commands
    automountmap_show.md
    batch.md
    ca_add.md
+   ca_add_revoke_approval.md
    ca_del.md
+   ca_del_revoke_approval.md
    ca_disable.md
    ca_enable.md
    ca_find.md
@@ -85,7 +87,9 @@ IPA API Commands
    certmaprule_find.md
    certmaprule_mod.md
    certmaprule_show.md
+   certprofile_add_approval.md
    certprofile_del.md
+   certprofile_del_approval.md
    certprofile_find.md
    certprofile_import.md
    certprofile_mod.md

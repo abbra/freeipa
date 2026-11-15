@@ -51,6 +51,8 @@ from ipalib.plugable import Registry
 from .virtual import VirtualCommand, check_operation_access
 from .baseldap import pkey_to_value
 from .certprofile import validate_profile_id
+from .certapproval import (
+    approval_seal, create_approval, redeem_approval, revocation_gate)
 from ipalib.text import _
 from ipalib.request import context
 from ipalib import output
@@ -583,6 +585,12 @@ class certreq(BaseCertObject):
             flags={'no_update', 'no_search'},
         ),
         Str(
+            'approval_id?',
+            label=_("Approval ID"),
+            doc=_("ID of an approved request (see approval-find)"),
+            flags={'no_update', 'no_search'},
+        ),
+        Str(
             'cert_request_status',
             label=_('Request status'),
             flags={'no_create', 'no_update', 'no_search'},
@@ -1032,6 +1040,26 @@ class cert_request(Create, BaseCertMethod, VirtualCommand):
 
         if san_ipaddrs:
             _validate_san_ips(san_ipaddrs, san_dnsnames)
+
+        # Profiles tied to a kuipa approvals seal issue only what was approved
+        approval_seal_id = approval_seal(profile_id)
+        if approval_seal_id:
+            csr_pem = csr.public_bytes(
+                serialization.Encoding.PEM).decode('utf-8')
+            approval_id = kw.get('approval_id')
+            if approval_id:
+                redeem_approval(
+                    approval_id, approval_seal_id, str(op_account),
+                    profile_id, ca_id, principal_string, csr_pem)
+            else:
+                approval_id = create_approval(
+                    approval_seal_id, str(op_account), profile_id, ca_id,
+                    principal_string, csr_pem, csr.subject.rfc4514_string())
+                raise errors.CertificateOperationError(
+                    error=_("Profile '%(profile)s' needs approval. Once "
+                            "approved, repeat the request with "
+                            "--approval-id %(id)s") % {
+                                'profile': profile_id, 'id': approval_id})
 
         # Request the certificate
         try:
@@ -1550,6 +1578,12 @@ class cert_revoke(PKQuery, CertMethod, VirtualCommand):
             autofill=True,
         )
 
+        yield Str(
+            'approval_id?',
+            label=_("Approval ID"),
+            doc=_("ID of an approved request (see approval-find)"),
+        )
+
         yield from super(cert_revoke, self).get_options()
 
     def execute(self, serial_number, **kw):
@@ -1574,6 +1608,10 @@ class cert_revoke(PKQuery, CertMethod, VirtualCommand):
         revocation_reason = kw['revocation_reason']
         if revocation_reason == 7:
             raise errors.CertificateOperationError(error=_('7 is not a valid revocation reason'))
+        # A CA tied to a kuipa seal revokes only what was approved
+        revocation_gate(
+            api.Command.ca_show(kw['cacn'])['result']['dn'],
+            serial_number, revocation_reason, kw.get('approval_id'))
         return dict(
             # Dogtag lightweight CAs have shared serial number domain, so
             # we don't tell Dogtag the issuer (but we already checked that

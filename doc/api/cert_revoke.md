@@ -10,6 +10,7 @@ Revoke a certificate.
 ### Options
 * revocation_reason : :ref:`Int<Int>` **(Required)**
  * Default: 0
+* approval_id : :ref:`Str<Str>`
 * cacn : :ref:`Str<Str>`
  * Default: ipa
 * version : :ref:`Str<Str>`

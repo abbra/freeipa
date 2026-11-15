@@ -159,6 +159,7 @@ class ca(LDAPObject):
                 'ipacasubjectdn',
                 'ipacarandomserialnumberversion',
                 'ipacahsmconfiguration',
+                'ipakuapprovalseal',
                 'objectclass',
             },
         },
@@ -181,6 +182,7 @@ class ca(LDAPObject):
             'ipapermdefaultattr': {
                 'cn',
                 'description',
+                'ipakuapprovalseal',
             },
             'replaces': [
                 '(targetattr = "cn || description")(target = "ldap:///cn=*,cn=cas,cn=ca,$SUFFIX")(version 3.0;acl "permission:Modify CA";allow (write) groupdn = "ldap:///cn=Modify CA,cn=permissions,cn=pbac,$SUFFIX";)',

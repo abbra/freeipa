@@ -27,9 +27,9 @@ aci: (targetfilter = "(objectclass=ipaca)")(version 3.0;acl "permission:System: 
 dn: cn=cas,cn=ca,dc=ipa,dc=example
 aci: (targetfilter = "(objectclass=ipaca)")(version 3.0;acl "permission:System: Delete CA";allow (delete) groupdn = "ldap:///cn=System: Delete CA,cn=permissions,cn=pbac,dc=ipa,dc=example";)
 dn: cn=cas,cn=ca,dc=ipa,dc=example
-aci: (targetattr = "cn || description")(targetfilter = "(objectclass=ipaca)")(version 3.0;acl "permission:System: Modify CA";allow (write) groupdn = "ldap:///cn=System: Modify CA,cn=permissions,cn=pbac,dc=ipa,dc=example";)
+aci: (targetattr = "cn || description || ipakuapprovalseal")(targetfilter = "(objectclass=ipaca)")(version 3.0;acl "permission:System: Modify CA";allow (write) groupdn = "ldap:///cn=System: Modify CA,cn=permissions,cn=pbac,dc=ipa,dc=example";)
 dn: cn=cas,cn=ca,dc=ipa,dc=example
-aci: (targetattr = "cn || createtimestamp || description || entryusn || ipacahsmconfiguration || ipacaid || ipacaissuerdn || ipacarandomserialnumberversion || ipacasubjectdn || modifytimestamp || objectclass")(targetfilter = "(objectclass=ipaca)")(version 3.0;acl "permission:System: Read CAs";allow (compare,read,search) userdn = "ldap:///all";)
+aci: (targetattr = "cn || createtimestamp || description || entryusn || ipacahsmconfiguration || ipacaid || ipacaissuerdn || ipacarandomserialnumberversion || ipacasubjectdn || ipakuapprovalseal || modifytimestamp || objectclass")(targetfilter = "(objectclass=ipaca)")(version 3.0;acl "permission:System: Read CAs";allow (compare,read,search) userdn = "ldap:///all";)
 dn: cn=caacls,cn=ca,dc=ipa,dc=example
 aci: (targetfilter = "(objectclass=ipacaacl)")(version 3.0;acl "permission:System: Add CA ACL";allow (add) groupdn = "ldap:///cn=System: Add CA ACL,cn=permissions,cn=pbac,dc=ipa,dc=example";)
 dn: cn=caacls,cn=ca,dc=ipa,dc=example
@@ -57,9 +57,9 @@ aci: (targetfilter = "(objectclass=ipacertprofile)")(version 3.0;acl "permission
 dn: cn=certprofiles,cn=ca,dc=ipa,dc=example
 aci: (targetfilter = "(objectclass=ipacertprofile)")(version 3.0;acl "permission:System: Import Certificate Profile";allow (add) groupdn = "ldap:///cn=System: Import Certificate Profile,cn=permissions,cn=pbac,dc=ipa,dc=example";)
 dn: cn=certprofiles,cn=ca,dc=ipa,dc=example
-aci: (targetattr = "cn || description || ipacertprofilestoreissued")(targetfilter = "(objectclass=ipacertprofile)")(version 3.0;acl "permission:System: Modify Certificate Profile";allow (write) groupdn = "ldap:///cn=System: Modify Certificate Profile,cn=permissions,cn=pbac,dc=ipa,dc=example";)
+aci: (targetattr = "cn || description || ipacertprofilestoreissued || ipakuapprovalseal")(targetfilter = "(objectclass=ipacertprofile)")(version 3.0;acl "permission:System: Modify Certificate Profile";allow (write) groupdn = "ldap:///cn=System: Modify Certificate Profile,cn=permissions,cn=pbac,dc=ipa,dc=example";)
 dn: cn=certprofiles,cn=ca,dc=ipa,dc=example
-aci: (targetattr = "cn || createtimestamp || description || entryusn || ipacertprofilestoreissued || modifytimestamp || objectclass")(targetfilter = "(objectclass=ipacertprofile)")(version 3.0;acl "permission:System: Read Certificate Profiles";allow (compare,read,search) userdn = "ldap:///all";)
+aci: (targetattr = "cn || createtimestamp || description || entryusn || ipacertprofilestoreissued || ipakuapprovalseal || modifytimestamp || objectclass")(targetfilter = "(objectclass=ipacertprofile)")(version 3.0;acl "permission:System: Read Certificate Profiles";allow (compare,read,search) userdn = "ldap:///all";)
 dn: cn=ipaconfig,cn=etc,dc=ipa,dc=example
 aci: (targetattr = "cn || createtimestamp || entryusn || ipacertificatesubjectbase || ipaconfigstring || ipacustomfields || ipadefaultemaildomain || ipadefaultloginshell || ipadefaultprimarygroup || ipadomainresolutionorder || ipagroupobjectclasses || ipagroupsearchfields || ipahomesrootdir || ipakrbauthzdata || ipamaxhostnamelength || ipamaxusernamelength || ipamigrationenabled || ipapwdexpadvnotify || ipasearchrecordslimit || ipasearchtimelimit || ipaselinuxusermapdefault || ipaselinuxusermaporder || ipaservicekeytypesize || ipauserauthtype || ipauserdefaultsubordinateid || ipauserobjectclasses || ipausersearchfields || modifytimestamp || objectclass")(targetfilter = "(objectclass=ipaguiconfig)")(version 3.0;acl "permission:System: Read Global Configuration";allow (compare,read,search) userdn = "ldap:///all";)
 dn: cn=costemplates,cn=accounts,dc=ipa,dc=example

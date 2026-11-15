@@ -20,6 +20,7 @@ Submit a certificate signing request.
 * raw : :ref:`Flag<Flag>` **(Required)**
  * Default: False
 * profile_id : :ref:`Str<Str>`
+* approval_id : :ref:`Str<Str>`
 * cacn : :ref:`Str<Str>`
  * Default: ipa
 * version : :ref:`Str<Str>`

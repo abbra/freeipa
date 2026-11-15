@@ -155,6 +155,7 @@ class certprofile(LDAPObject):
                 'cn',
                 'description',
                 'ipacertprofilestoreissued',
+                'ipakuapprovalseal',
                 'objectclass',
             },
         },
@@ -178,6 +179,7 @@ class certprofile(LDAPObject):
                 'cn',
                 'description',
                 'ipacertprofilestoreissued',
+                'ipakuapprovalseal',
             },
             'replaces': [
                 '(targetattr = "cn || description || ipacertprofilestoreissued")(target = "ldap:///cn=*,cn=certprofiles,cn=ca,$SUFFIX")(version 3.0;acl "permission:Modify Certificate Profile";allow (write) groupdn = "ldap:///cn=Modify Certificate Profile,cn=permissions,cn=pbac,$SUFFIX";)',

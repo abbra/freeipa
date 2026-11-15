@@ -512,6 +512,14 @@ option: Str('version?')
 output: Entry('result')
 output: Output('summary', type=[<type 'str'>, <type 'NoneType'>])
 output: PrimaryKey('value')
+command: ca_add_revoke_approval/1
+args: 1,2,3
+arg: Str('cn', cli_name='name')
+option: Str('seal', cli_name='seal')
+option: Str('version?')
+output: Output('result', type=[<type 'bool'>])
+output: Output('summary', type=[<type 'str'>, <type 'NoneType'>])
+output: PrimaryKey('value')
 command: ca_del/1
 args: 1,2,3
 arg: Str('cn+', cli_name='name')
@@ -520,6 +528,13 @@ option: Str('version?')
 output: Output('result', type=[<type 'dict'>])
 output: Output('summary', type=[<type 'str'>, <type 'NoneType'>])
 output: ListOfPrimaryKeys('value')
+command: ca_del_revoke_approval/1
+args: 1,1,3
+arg: Str('cn', cli_name='name')
+option: Str('version?')
+output: Output('result', type=[<type 'bool'>])
+output: Output('summary', type=[<type 'str'>, <type 'NoneType'>])
+output: PrimaryKey('value')
 command: ca_disable/1
 args: 1,1,3
 arg: Str('cn', cli_name='name')
@@ -838,10 +853,11 @@ option: Str('cacn?', autofill=True, cli_name='ca', default='ipa')
 option: Str('version?')
 output: Output('result')
 command: cert_request/1
-args: 1,9,3
+args: 1,10,3
 arg: CertificateSigningRequest('csr', cli_name='csr_file')
 option: Flag('add', autofill=True, default=False)
 option: Flag('all', autofill=True, cli_name='all', default=False)
+option: Str('approval_id?')
 option: Str('cacn?', autofill=True, cli_name='ca', default='ipa')
 option: Flag('chain', autofill=True, default=False)
 option: Principal('principal')
@@ -853,8 +869,9 @@ output: Entry('result')
 output: Output('summary', type=[<type 'str'>, <type 'NoneType'>])
 output: PrimaryKey('value')
 command: cert_revoke/1
-args: 1,3,1
+args: 1,4,1
 arg: SerialNumber('serial_number')
+option: Str('approval_id?')
 option: Str('cacn?', autofill=True, cli_name='ca', default='ipa')
 option: Int('revocation_reason', autofill=True, default=0)
 option: Str('version?')
@@ -1002,6 +1019,14 @@ option: Str('version?')
 output: Entry('result')
 output: Output('summary', type=[<type 'str'>, <type 'NoneType'>])
 output: PrimaryKey('value')
+command: certprofile_add_approval/1
+args: 1,2,3
+arg: Str('cn', cli_name='id')
+option: Str('seal', cli_name='seal')
+option: Str('version?')
+output: Output('result', type=[<type 'bool'>])
+output: Output('summary', type=[<type 'str'>, <type 'NoneType'>])
+output: PrimaryKey('value')
 command: certprofile_del/1
 args: 1,2,3
 arg: Str('cn+', cli_name='id')
@@ -1010,6 +1035,13 @@ option: Str('version?')
 output: Output('result', type=[<type 'dict'>])
 output: Output('summary', type=[<type 'str'>, <type 'NoneType'>])
 output: ListOfPrimaryKeys('value')
+command: certprofile_del_approval/1
+args: 1,1,3
+arg: Str('cn', cli_name='id')
+option: Str('version?')
+output: Output('result', type=[<type 'bool'>])
+output: Output('summary', type=[<type 'str'>, <type 'NoneType'>])
+output: PrimaryKey('value')
 command: certprofile_find/1
 args: 1,9,4
 arg: Str('criteria?')
@@ -7293,7 +7325,9 @@ default: automountmap_show/1
 default: batch/1
 default: ca/1
 default: ca_add/1
+default: ca_add_revoke_approval/1
 default: ca_del/1
+default: ca_del_revoke_approval/1
 default: ca_disable/1
 default: ca_enable/1
 default: ca_find/1
@@ -7339,7 +7373,9 @@ default: certmaprule_find/1
 default: certmaprule_mod/1
 default: certmaprule_show/1
 default: certprofile/1
+default: certprofile_add_approval/1
 default: certprofile_del/1
+default: certprofile_del_approval/1
 default: certprofile_find/1
 default: certprofile_import/1
 default: certprofile_mod/1
