@@ -3077,6 +3077,14 @@ def _install(options, tdict):
             # needs it forwardable; the kuipa-generated file does not say so.
             with open(kuipa_krb5, 'a') as f:
                 f.write('\n[libdefaults]\n    forwardable = true\n')
+            if principal.rpartition('@')[2].upper() != cli_realm.upper():
+                # A user of a trusted realm (an ID override): its KDC is
+                # not in the generated file, the DNS knows it.
+                with open(kuipa_krb5) as f:
+                    conf = f.read()
+                with open(kuipa_krb5, 'w') as f:
+                    f.write(conf.replace('dns_lookup_kdc = false',
+                                         'dns_lookup_kdc = true'))
             os.environ['KRB5_CONFIG'] = kuipa_krb5
             os.environ['KRB5CCNAME'] = ccache_name
             try:
