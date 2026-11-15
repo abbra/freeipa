@@ -49,6 +49,7 @@ else:
     DES_EDE3_CBC_OID = "{1 2 840 113549 3 7}"
     AES_128_CBC_OID = "{2 16 840 1 101 3 4 1 2}"
     PKIException = Exception
+    pki = None
 
 
 __doc__ = _("""
