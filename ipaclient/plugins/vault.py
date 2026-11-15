@@ -1150,6 +1150,9 @@ class vault_retrieve(ModVaultData):
         if not backend.isconnected():
             backend.connect()
 
+        # for the server's retrieval, not for vault_show
+        approval_id = options.pop('approval_id', None)
+
         # retrieve vault info
         vault = self.api.Command.vault_show(*args, **options)['result']
         vault_type = vault['ipavaulttype'][0]
@@ -1165,6 +1168,8 @@ class vault_retrieve(ModVaultData):
 
         # generate session key
         algo = self._generate_session_key(wrapping_algo)
+        if approval_id:
+            options['approval_id'] = approval_id
         # send retrieval request to server
         response = self.internal(algo, transport_cert, *args, **options)
         # unwrap data with session key

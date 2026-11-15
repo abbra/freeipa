@@ -18,6 +18,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
+import json
+
 from ipalib.frontend import Command, Object
 from ipalib import api, errors
 from ipalib import Bytes, Flag, Str, StrEnum
@@ -31,8 +33,9 @@ from ipalib.parameters import Principal
 from ipalib.plugable import Registry
 from .baseldap import LDAPObject, LDAPCreate, LDAPDelete,\
     LDAPSearch, LDAPUpdate, LDAPRetrieve, LDAPAddMember, LDAPRemoveMember,\
-    LDAPModMember, pkey_to_value
+    LDAPModMember, LDAPQuery, pkey_to_value
 from ipalib.request import context
+from .approval import clear_gate, gate_seal, require_approval, set_gate
 from .service import normalize_principal, validate_realm
 from ipalib import _, ngettext
 from ipapython import kerberos
@@ -533,7 +536,7 @@ class vault(LDAPObject):
             'ipapermdefaultattr': {
                 'objectclass', 'cn', 'description', 'ipavaulttype',
                 'ipavaultsalt', 'ipavaultpublickey', 'owner', 'member',
-                'memberuser', 'memberhost',
+                'memberuser', 'memberhost', 'ipakuapprovalseal',
             },
             'default_privileges': {'Vault Administrators'},
         },
@@ -555,7 +558,7 @@ class vault(LDAPObject):
             'ipapermright': {'write'},
             'ipapermdefaultattr': {
                 'objectclass', 'cn', 'description', 'ipavaulttype',
-                'ipavaultsalt', 'ipavaultpublickey',
+                'ipavaultsalt', 'ipavaultpublickey', 'ipakuapprovalseal',
             },
             'default_privileges': {'Vault Administrators'},
         },
@@ -1152,6 +1155,10 @@ class vault_retrieve_internal(PKQuery):
             default=VAULT_WRAPPING_3DES,
             autofill=True,
         ),
+        Str(
+            'approval_id?',
+            doc=_('ID of an approved request (see approval-find)'),
+        ),
     )
 
     has_output = output.standard_entry
@@ -1169,8 +1176,18 @@ class vault_retrieve_internal(PKQuery):
         wrapping_algo = options.pop('wrapping_algo', None)
         algorithm_oid = self.obj._translate_algorithm(wrapping_algo)
 
+        approval_id = options.pop('approval_id', None)
+
         # retrieve vault info
         vault = self.api.Command.vault_show(*args, **options)['result']
+
+        # A vault tied to a kuipa seal gives its data only once approved
+        seal = gate_seal(vault['dn'])
+        if seal:
+            require_approval(
+                'vault-retrieve', seal,
+                json.dumps({'vault': str(vault['dn'])}, sort_keys=True),
+                approval_id, 'retrieve vault %s' % vault['dn'])
 
         # connect to KRA
         with self.api.Backend.kra.get_client() as kra_client:
@@ -1217,6 +1234,41 @@ class vault_retrieve_internal(PKQuery):
         response['summary'] = self.msg_summary % response
 
         return response
+
+
+@register()
+class vault_add_approval(LDAPQuery):
+    __doc__ = _('Require approval by a kuipa seal to retrieve a vault.')
+    has_output = output.standard_value
+    msg_summary = _('Retrieving vault "%(value)s" needs approval')
+    takes_options = vault_options + (
+        Str('seal', cli_name='seal',
+            label=_('Seal'),
+            doc=_('kuipa approvals seal, OWNER/NAME')),
+    )
+
+    def execute(self, cn, **options):
+        try:
+            set_gate(self.obj.backend, self.obj.get_dn(cn, **options),
+                     options['seal'])
+        except errors.NotFound:
+            raise self.obj.handle_not_found(cn)
+        return dict(result=True, value=cn)
+
+
+@register()
+class vault_del_approval(LDAPQuery):
+    __doc__ = _('Stop requiring approval to retrieve a vault.')
+    has_output = output.standard_value
+    msg_summary = _('Retrieving vault "%(value)s" needs no approval')
+    takes_options = vault_options
+
+    def execute(self, cn, **options):
+        try:
+            clear_gate(self.obj.backend, self.obj.get_dn(cn, **options), cn)
+        except errors.NotFound:
+            raise self.obj.handle_not_found(cn)
+        return dict(result=True, value=cn)
 
 
 @register()

@@ -506,11 +506,13 @@ IPA API Commands
    user_status.md
    user_undel.md
    user_unlock.md
+   vault_add_approval.md
    vault_add_internal.md
    vault_add_member.md
    vault_add_owner.md
    vault_archive_internal.md
    vault_del.md
+   vault_del_approval.md
    vault_find.md
    vault_mod_internal.md
    vault_remove_member.md

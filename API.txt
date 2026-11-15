@@ -7026,6 +7026,17 @@ option: Str('version?')
 output: Output('result', type=[<type 'bool'>])
 output: Output('summary', type=[<type 'str'>, <type 'NoneType'>])
 output: PrimaryKey('value')
+command: vault_add_approval/1
+args: 1,5,3
+arg: Str('cn', cli_name='name')
+option: Str('seal', cli_name='seal')
+option: Principal('service?')
+option: Flag('shared?', autofill=True, default=False)
+option: Str('username?', cli_name='user')
+option: Str('version?')
+output: Output('result', type=[<type 'bool'>])
+output: Output('summary', type=[<type 'str'>, <type 'NoneType'>])
+output: PrimaryKey('value')
 command: vault_add_internal/1
 args: 1,13,3
 arg: Str('cn', cli_name='name')
@@ -7104,6 +7115,16 @@ option: Str('version?')
 output: Output('result', type=[<type 'dict'>])
 output: Output('summary', type=[<type 'str'>, <type 'NoneType'>])
 output: ListOfPrimaryKeys('value')
+command: vault_del_approval/1
+args: 1,4,3
+arg: Str('cn', cli_name='name')
+option: Principal('service?')
+option: Flag('shared?', autofill=True, default=False)
+option: Str('username?', cli_name='user')
+option: Str('version?')
+output: Output('result', type=[<type 'bool'>])
+output: Output('summary', type=[<type 'str'>, <type 'NoneType'>])
+output: PrimaryKey('value')
 command: vault_find/1
 args: 1,15,4
 arg: Str('criteria?')
@@ -7180,9 +7201,10 @@ output: Output('completed', type=[<type 'int'>])
 output: Output('failed', type=[<type 'dict'>])
 output: Entry('result')
 command: vault_retrieve_internal/1
-args: 1,8,3
+args: 1,9,3
 arg: Str('cn', cli_name='name')
 option: Flag('all', autofill=True, cli_name='all', default=False)
+option: Str('approval_id?')
 option: Flag('raw', autofill=True, cli_name='raw', default=False)
 option: Principal('service?')
 option: Bytes('session_key')
@@ -7886,11 +7908,13 @@ default: user_undel/1
 default: user_unlock/1
 default: userstatus/1
 default: vault/1
+default: vault_add_approval/1
 default: vault_add_internal/1
 default: vault_add_member/1
 default: vault_add_owner/1
 default: vault_archive_internal/1
 default: vault_del/1
+default: vault_del_approval/1
 default: vault_find/1
 default: vault_mod_internal/1
 default: vault_remove_member/1

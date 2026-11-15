@@ -20,6 +20,7 @@ Retrieve data from a vault.
 * wrapping_algo : :ref:`StrEnum<StrEnum>`
  * Default: des-ede3-cbc
  * Values: ('aes-128-cbc', 'des-ede3-cbc')
+* approval_id : :ref:`Str<Str>`
 * version : :ref:`Str<Str>`
 
 ### Output
