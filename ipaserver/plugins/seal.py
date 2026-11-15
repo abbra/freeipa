@@ -1,6 +1,7 @@
 # Copyright (C) 2026 FreeIPA Contributors. See COPYING for license.
 
 from datetime import datetime, timezone
+from contextlib import contextmanager
 import json
 import os
 import tempfile
@@ -68,6 +69,41 @@ for user seal operations.
 """)
 
 register = Registry()
+
+
+@contextmanager
+def kuipa_session():
+    """Yield (scratch dir, run) to call kuipa with the caller's delegated
+    credentials against this server; run(*args) returns the ipautil result.
+    """
+    credential = getattr(context, 'ccache_name', None)
+    anchor = kuipa_enrollment_string(api.env.realm)
+    if not credential or not anchor:
+        raise errors.ExecutionError(
+            message=_('kuipa delegated credentials or local anchor '
+                      'unavailable'))
+    with tempfile.TemporaryDirectory(prefix='ipa-kuipa-') as root:
+        etc = os.path.join(root, 'etc', 'ipa')
+        public_dir = os.path.join(etc, 'ku')
+        os.makedirs(public_dir)
+        with open(os.path.join(etc, 'ku-anchors'), 'w') as f:
+            f.write(anchor.split(':')[2] + '\n')
+        os.symlink(paths.IPA_CA_CRT, os.path.join(etc, 'ca.crt'))
+        with open(os.path.join(public_dir, 'realm.json'), 'w') as f:
+            json.dump({'realm': api.env.realm, 'fqdn': api.env.host,
+                       'servers': [api.env.host]}, f)
+        env = os.environ.copy()
+        env.update(KRB5CCNAME=credential, GSS_USE_PROXY='1',
+                   KUIPA_ROOT=root,
+                   KUIPA_USER_DIR=os.path.join(root, 'user'))
+
+        def run(*args):
+            return ipautil.run([paths.KUIPA, *args], env=env,
+                               raiseonerr=False, capture_output=True,
+                               capture_error=True)
+
+        yield root, run
+
 
 _SEALS = DN(('cn', 'seals'), ('cn', 'kuipa'), ('cn', 'etc'))
 _LIMITS = DN(('cn', 'seal-limits'), ('cn', 'kuipa'), ('cn', 'etc'))
@@ -336,33 +372,10 @@ class seal_revoke(LDAPQuery):
                 cn), ['ipakusealowner', 'ipakusealname'])
         except errors.NotFound:
             raise self.obj.handle_not_found(cn)
-        credential = getattr(context, 'ccache_name', None)
-        anchor = kuipa_enrollment_string(self.api.env.realm)
-        if not credential or not anchor:
-            raise errors.ExecutionError(
-                message=_('kuipa delegated credentials or local anchor '
-                          'unavailable'))
-        with tempfile.TemporaryDirectory(prefix='ipa-kuipa-') as root:
-            etc = os.path.join(root, 'etc', 'ipa')
-            public_dir = os.path.join(etc, 'ku')
-            os.makedirs(public_dir)
-            with open(os.path.join(etc, 'ku-anchors'), 'w') as f:
-                f.write(anchor.split(':')[2] + '\n')
-            os.symlink(paths.IPA_CA_CRT, os.path.join(etc, 'ca.crt'))
-            with open(os.path.join(public_dir, 'realm.json'), 'w') as f:
-                json.dump({'realm': self.api.env.realm,
-                           'fqdn': self.api.env.host,
-                           'servers': [self.api.env.host]}, f)
-            env = os.environ.copy()
-            env.update(KRB5CCNAME=credential, GSS_USE_PROXY='1',
-                       KUIPA_ROOT=root,
-                       KUIPA_USER_DIR=os.path.join(root, 'user'))
-            result = ipautil.run(
-                [paths.KUIPA, 'seal', 'admin-revoke',
-                 entry.single_value['ipakusealowner'],
-                 entry.single_value['ipakusealname']],
-                env=env, raiseonerr=False, capture_output=True,
-                capture_error=True)
+        with kuipa_session() as (_root, run):
+            result = run('seal', 'admin-revoke',
+                         entry.single_value['ipakusealowner'],
+                         entry.single_value['ipakusealname'])
             if result.returncode:
                 raise errors.ExecutionError(
                     message=_('Audited kuipa revocation failed: '
