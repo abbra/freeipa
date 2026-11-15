@@ -92,8 +92,9 @@ depositor, and in the signing policy as `user@AD.REALM`, or reached through
 an IPA group that holds the override
 (`ipa group-add-member pki-approvers --idoverrideusers user@ad.example`).
 They may be requesters and approvers here, and seal administrators through a
-group in a role. They own no seal. A trusted realm's user with no override
-is refused. `TestKuipaCertApprovalTrustedUser` runs this on a Samba AD DC.
+group in a role. They own seals only where the realm's `trusted_owners` limit allows it
+(`ipa sealconfig-mod --trusted-owners-allow`). A trusted realm's user with no
+override is refused. `TestKuipaCertApprovalTrustedUser` runs this on a Samba AD DC.
 
 ## What stays out
 

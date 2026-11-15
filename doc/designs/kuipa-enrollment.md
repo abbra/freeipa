@@ -110,7 +110,11 @@ incomplete — its realm configuration and anchor pins arrive on the first conta
 A host with a human or a service account vouching for it needs no password at all: the caller
 authenticates with its own Kerberos credential and the realm issues keys on that authority. Nothing
 is added to the directory and no credential is carried to the host, which is what makes it usable
-from a build pipeline.
+from a build pipeline. A user of a trusted (Active Directory) realm with an ID override in the
+default trust view qualifies too: kuipad acts with the ticket the caller presented
+(S4U2Proxy, as the IPA API does), because a trust's KDC does not let it impersonate the user by
+S4U2Self. `ipa-client-install -p user@AD.REALM` uses this path;
+`TestKuipaTrustedUserEnrollment` runs it against a Samba AD DC with a two-way trust.
 
 ### UC5: Retiring recovery registrations, and disabling a host
 
@@ -251,7 +255,8 @@ $ ipa seal-find --owner=alice@EXAMPLE.TEST
 $ ipa seal-show SEAL_ID
 $ ipa seal-revoke SEAL_ID
 $ ipa sealconfig-show
-$ ipa sealconfig-mod --limits='{"max_lifetime":34560000,"max_seals":16,"max_devices":8,"max_reauth":43200,"without_device":true,"descriptor_age":2592000}'
+$ ipa sealconfig-mod --max-seals=16 --max-devices=8 --max-reauth=43200 --without-device=true
+$ ipa sealconfig-mod --trusted-owners-allow=AD.EXAMPLE --trusted-owners-deny='*.OLD.EXAMPLE'
 ```
 
 `seal-find` and `seal-show` display policy factors, expiry, sessions, sealing
@@ -259,10 +264,23 @@ and approval settings as labeled fields. Use `--raw` to retrieve the
 original `ipaKUSealPolicy` JSON, including when scripting against the LDAP
 representation. Unknown future policy fields remain visible as raw JSON.
 
-Limits are a complete JSON object, with optional group overrides and factors
-as defined in kuipa's seal-limits documentation. An empty `--limits=` restores
-the daemon defaults. Policy changes affect existing seals according to the
-daemon's limits rules.
+Limits are individual options (`--max-lifetime`, `--max-seals`,
+`--trusted-owners-allow`, ...); options not given keep their stored value, and
+the JSON in `ipaKUSealLimits` stays the storage format, validated on write.
+Group overrides and factors are preserved but not editable here. `--reset`
+restores the daemon defaults. Policy changes affect existing seals according
+to the daemon's limits rules.
+
+By default only the realm's own users own seals. `--trusted-owners-allow` and
+`--trusted-owners-deny` take realms, `*.SUFFIX` wildcards (not `SUFFIX` itself),
+`*`, or single principals (`user@REALM`), repeated as needed; a user of a
+trusted realm with an ID override owns seals when an allow entry matches and no
+deny entry does. The daemon checks this when the seal is created and whenever
+it is used, so denying an owner, or removing or locking their override, shuts
+their seals; seal administrators can still revoke them. A foreign owner's seal
+is named `user@REALM/name`. Active Directory holds the real lock state, so a
+disabled AD user keeps their seals until their ticket expires: give such owners
+a short `max_lifetime` through a group override (set by JSON for now).
 
 Revocation is sent to the local kuipad as the authenticated IPA caller using
 constrained Kerberos delegation. The daemon independently checks the privilege,
@@ -601,7 +619,7 @@ The later entries are proposals and are not implemented.
 | `kuipa prepare`, `kuipa enroll --bundle` | | Run on the host, these commands create a key pair and open a staged bundle with no network. |
 | `kuipa status`, `kuipa check` | | Host-side diagnosis of enrollment state, anchors and seals; not framework commands and not intended to become one. |
 | `ipa seal-find`, `ipa seal-show`, `ipa seal-revoke` | `--owner` (find) | Inspect and revoke seals using delegated authorization and an audited daemon operation. |
-| `ipa sealconfig-show`, `ipa sealconfig-mod` | `--limits JSON` | Inspect and set realm-wide seal limits; an empty value restores defaults. |
+| `ipa sealconfig-show`, `ipa sealconfig-mod` | `--max-*`, `--descriptor-age`, `--offline-sessions`, `--without-device`, `--trusted-owners-allow/deny`, `--reset` | Inspect and set realm-wide seal limits, including which users of trusted realms may own seals; `--reset` restores defaults. |
 | **Planned on the server** | | |
 | `ipa host-add`, `ipa host-mod` | `--enrollment-days N` | Choose the lifetime of the enrollment string; `host-mod` string output is also planned. |
 | `ipa host-add`, `ipa host-mod` | `--stage` | This command stages a host: the server generates the shared secret, the string carries it, and the host's keys are created before its first contact. |
@@ -674,6 +692,11 @@ Integration: the forced client re-enrollment suite gains the counterpart of its 
 — disable, re-enrol fails; enable, re-enrol succeeds — and the CA-less suite's host-disable test
 must still pass. The backup-and-restore suite disables a host with recovery registrations,
 restores, and asserts it stays locked until `host-enable` runs.
+
+A Samba AD trust (`TestKuipaTrustedUserEnrollment`): an AD user with an ID override enrolls a
+client with `ipa-client-install -p` and with `kuipa enroll --use-ccache`, and owns seals only as
+`--trusted-owners-allow/deny` say: refused by default, allowed, a file sealed and opened, refused
+once denied, revoked by an administrator. The test also logs the LDAP size of the kuipa data.
 
 End-to-end, in the kuipa deployment: hosts prepared by `host-add --random --enrollment-days 14` and by
 `--stage` enroll against a real server, and after the join `host-show --all --raw` shows no
