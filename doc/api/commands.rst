@@ -11,6 +11,10 @@ IPA API Commands
    aci_rename.md
    aci_show.md
    adtrust_is_enabled.md
+   approval_approve.md
+   approval_deny.md
+   approval_find.md
+   approval_show.md
    automember_add.md
    automember_add_condition.md
    automember_default_group_remove.md

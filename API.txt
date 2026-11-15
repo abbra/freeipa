@@ -106,6 +106,47 @@ command: adtrust_is_enabled/1
 args: 0,1,1
 option: Str('version?')
 output: Output('result')
+command: approval_approve/1
+args: 1,1,3
+arg: Str('cn', cli_name='id')
+option: Str('version?')
+output: Output('result', type=[<type 'bool'>])
+output: Output('summary', type=[<type 'str'>, <type 'NoneType'>])
+output: PrimaryKey('value')
+command: approval_deny/1
+args: 1,1,3
+arg: Str('cn', cli_name='id')
+option: Str('version?')
+output: Output('result', type=[<type 'bool'>])
+output: Output('summary', type=[<type 'str'>, <type 'NoneType'>])
+output: PrimaryKey('value')
+command: approval_find/1
+args: 1,10,4
+arg: Str('criteria?')
+option: Flag('all', autofill=True, cli_name='all', default=False)
+option: Str('cn?', autofill=False, cli_name='id')
+option: Str('ipakuapprovalkind?', autofill=False, cli_name='kind')
+option: Str('ipakuapprovalrequester?', autofill=False, cli_name='requester')
+option: Str('ipakuapprovalseal?', autofill=False, cli_name='seal')
+option: Flag('pkey_only?', autofill=True, default=False)
+option: Flag('raw', autofill=True, cli_name='raw', default=False)
+option: Int('sizelimit?', autofill=False)
+option: Int('timelimit?', autofill=False)
+option: Str('version?')
+output: Output('count', type=[<type 'int'>])
+output: ListOfEntries('result')
+output: Output('summary', type=[<type 'str'>, <type 'NoneType'>])
+output: Output('truncated', type=[<type 'bool'>])
+command: approval_show/1
+args: 1,4,3
+arg: Str('cn', cli_name='id')
+option: Flag('all', autofill=True, cli_name='all', default=False)
+option: Flag('raw', autofill=True, cli_name='raw', default=False)
+option: Flag('rights', autofill=True, default=False)
+option: Str('version?')
+output: Entry('result')
+output: Output('summary', type=[<type 'str'>, <type 'NoneType'>])
+output: PrimaryKey('value')
 command: automember_add/1
 args: 1,7,3
 arg: Str('cn', cli_name='automember_rule')
@@ -7210,6 +7251,11 @@ default: aci_mod/1
 default: aci_rename/1
 default: aci_show/1
 default: adtrust_is_enabled/1
+default: approval/1
+default: approval_approve/1
+default: approval_deny/1
+default: approval_find/1
+default: approval_show/1
 default: automember/1
 default: automember_add/1
 default: automember_add_condition/1

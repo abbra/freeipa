@@ -55,6 +55,16 @@ default: objectClass: ipaKURealmConfig
 default: cn: sign-policy
 default: ipaKUSignPolicy: {"purposes": {"ipa-backup": {"groups": ["ipaservers"]}}}
 
+# Pending approval requests (any workflow). Anyone may add and read one; a
+# forged entry is harmless because a workflow re-opens the sealed request and
+# compares it with the entry and with what it is about to do (approval.py).
+dn: cn=approvals,cn=kuipa,cn=etc,$SUFFIX
+default: objectClass: top
+default: objectClass: nsContainer
+default: cn: approvals
+remove:aci:(targetattr = "objectClass || cn || ipaKUApprovalKind || ipaKUApprovalRequester || ipaKUApprovalSeal || ipaKUApprovalRelease || ipaKUApprovalSealed || ipaKUApprovalData")(version 3.0; acl "users add and read approval requests"; allow (add, read, search, compare) userdn = "ldap:///all";)
+add:aci:(targetattr = "objectClass || cn || ipaKUApprovalKind || ipaKUApprovalRequester || ipaKUApprovalSeal || ipaKUApprovalRelease || ipaKUApprovalSealed || ipaKUApprovalData")(version 3.0; acl "users add and read approval requests"; allow (add, read, search, compare) userdn = "ldap:///all";)
+
 dn: cn=KUIPA Seal Administrators,cn=privileges,cn=pbac,$SUFFIX
 default: objectClass: top
 default: objectClass: groupOfNames
