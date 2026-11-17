@@ -20,15 +20,17 @@ from ipatests.test_integration.test_kuipa_seal_admin import (
     KuipaSealAdminTests)
 from ipatests.test_integration.test_kuipa_server_enrollment import (
     KuipaServerEnrollmentTests)
+from ipatests.test_integration.test_kuipa_tpm_service import (
+    KuipaTpmServiceTests)
 
 
 # Run order: server enrollment, cert approval, seal administration,
-# enrollment, Clevis. pytest collects the bases in reverse, so they are listed
-# reversed.
-class TestKuipaRealm(KuipaClevisTests, KuipaEnrollmentTests,
-                     KuipaSealAdminTests, KuipaCertApprovalTests,
-                     KuipaServerEnrollmentTests, KuipaStages,
-                     IntegrationTest):
+# enrollment, Clevis, TPM service (last: it reboots client1 and clears its
+# TPM). pytest collects the bases in reverse, so they are listed reversed.
+class TestKuipaRealm(KuipaTpmServiceTests, KuipaClevisTests,
+                     KuipaEnrollmentTests, KuipaSealAdminTests,
+                     KuipaCertApprovalTests, KuipaServerEnrollmentTests,
+                     KuipaStages, IntegrationTest):
     topology = 'star'
     num_replicas = 1
     num_clients = 2
@@ -56,6 +58,7 @@ class TestKuipaRealm(KuipaClevisTests, KuipaEnrollmentTests,
     @classmethod
     def uninstall(cls, mh):
         cls.cleanup_clevis()
+        cls.cleanup_tpm()
         for client in cls.clients:
             tasks.uninstall_client(client)
         tasks.uninstall_master(cls.replicas[0])
