@@ -3460,6 +3460,10 @@ def _install(options, tdict):
     # Add the CA certificates to the platform-dependant systemwide CA store
     tasks.insert_ca_certs_into_systemwide_ca_store(ca_certs)
 
+    # gssproxy of a client needs the same unit drop-in as a server's
+    if not options.on_master:
+        tasks.configure_gssproxy_service_ipa_conf()
+
     if not options.on_master:
         client_dns(cli_server[0], hostname, options, statestore)
 
@@ -4111,6 +4115,7 @@ def uninstall(options):
 
     # Remove the CA cert from the systemwide certificate store
     tasks.remove_ca_certs_from_systemwide_ca_store()
+    tasks.remove_gssproxy_service_ipa_conf()
 
     # Remove the CA cert
     remove_file(paths.IPA_CA_CRT)

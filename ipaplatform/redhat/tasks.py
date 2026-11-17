@@ -506,9 +506,15 @@ class RedHatTaskNamespace(BaseTaskNamespace):
 
         os.chmod(paths.GSSPROXY_CONF, 0o600)
         self.restore_context(paths.GSSPROXY_CONF)
+        self.configure_gssproxy_service_ipa_conf()
 
-        # gssproxy 0.9.3 sandboxes itself so that IPA services cannot get
-        # their tickets: give them back what they need
+    def configure_gssproxy_service_ipa_conf(self):
+        """Install the systemd drop-in that lets gssproxy serve IPA hosts
+
+        gssproxy 0.9.3 sandboxes itself: no network, no devices, no
+        capability but CAP_DAC_OVERRIDE. Services that get their tickets from
+        a keytab through gssproxy need the KDC.
+        """
         if not os.path.exists(paths.SYSTEMD_SYSTEM_GSSPROXY_D_DIR):
             os.mkdir(paths.SYSTEMD_SYSTEM_GSSPROXY_D_DIR, 0o755)
         ipautil.copy_template_file(
@@ -518,6 +524,14 @@ class RedHatTaskNamespace(BaseTaskNamespace):
         )
         os.chmod(paths.SYSTEMD_SYSTEM_GSSPROXY_IPA_CONF, 0o644)
         self.restore_context(paths.SYSTEMD_SYSTEM_GSSPROXY_IPA_CONF)
+        self.systemd_daemon_reload()
+
+    def remove_gssproxy_service_ipa_conf(self):
+        """Remove the systemd drop-in of IPA for gssproxy"""
+        try:
+            os.unlink(paths.SYSTEMD_SYSTEM_GSSPROXY_IPA_CONF)
+        except FileNotFoundError:
+            return
         self.systemd_daemon_reload()
 
     def configure_httpd_wsgi_conf(self):

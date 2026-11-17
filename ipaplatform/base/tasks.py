@@ -338,6 +338,15 @@ class BaseTaskNamespace:
     def configure_http_gssproxy_conf(self, ipauser):
         raise NotImplementedError()
 
+    def configure_gssproxy_service_ipa_conf(self):
+        """Install the systemd drop-in of IPA for gssproxy, if needed
+
+        Platforms whose gssproxy needs none have nothing to do.
+        """
+
+    def remove_gssproxy_service_ipa_conf(self):
+        """Remove the systemd drop-in of IPA for gssproxy"""
+
     def remove_httpd_service_ipa_conf(self):
         """Remove configuration of httpd service of IPA"""
         raise NotImplementedError()
