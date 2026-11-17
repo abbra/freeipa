@@ -97,6 +97,7 @@ dist_app_DATA =				\
 	kdcproxy-disable.uldif		\
 	subid-generators.uldif		\
 	ipa-httpd.conf.template		\
+	ipa-gssproxy.conf.template	\
 	ipa-httpd-wsgi.conf.template	\
 	gssapi.login			\
 	gssproxy.conf.template		\

@@ -536,6 +536,7 @@ class HTTPInstance(service.Service):
             paths.HTTPD_IPA_KDCPROXY_CONF_SYMLINK,
             paths.HTTPD_IPA_KDCPROXY_CONF,
             paths.GSSPROXY_CONF,
+            paths.SYSTEMD_SYSTEM_GSSPROXY_IPA_CONF,
             paths.GSSAPI_SESSION_KEY,
             paths.HTTPD_PASSWORD_CONF,
             paths.SYSTEMD_SYSTEM_HTTPD_IPA_CONF,

@@ -1,0 +1,12 @@
+#Installed and maintained by ipa update tools, please do not modify
+# gssproxy 0.9.3 runs in a sandbox that hides the network and bounds the
+# capabilities to CAP_DAC_OVERRIDE. IPA services get their tickets from a
+# keytab through gssproxy, so it needs the KDC. Services that are matched by
+# `program` (kuipad-keys, for one) need /proc/PID/exe of a client with more
+# capabilities: realpath() fails with EACCES without CAP_SYS_PTRACE.
+[Service]
+PrivateNetwork=no
+IPAddressDeny=
+RestrictAddressFamilies=
+RestrictAddressFamilies=AF_UNIX AF_LOCAL AF_INET AF_INET6
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_SYS_PTRACE

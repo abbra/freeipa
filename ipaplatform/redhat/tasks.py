@@ -507,6 +507,19 @@ class RedHatTaskNamespace(BaseTaskNamespace):
         os.chmod(paths.GSSPROXY_CONF, 0o600)
         self.restore_context(paths.GSSPROXY_CONF)
 
+        # gssproxy 0.9.3 sandboxes itself so that IPA services cannot get
+        # their tickets: give them back what they need
+        if not os.path.exists(paths.SYSTEMD_SYSTEM_GSSPROXY_D_DIR):
+            os.mkdir(paths.SYSTEMD_SYSTEM_GSSPROXY_D_DIR, 0o755)
+        ipautil.copy_template_file(
+            os.path.join(paths.USR_SHARE_IPA_DIR, 'ipa-gssproxy.conf.template'),
+            paths.SYSTEMD_SYSTEM_GSSPROXY_IPA_CONF,
+            dict()
+        )
+        os.chmod(paths.SYSTEMD_SYSTEM_GSSPROXY_IPA_CONF, 0o644)
+        self.restore_context(paths.SYSTEMD_SYSTEM_GSSPROXY_IPA_CONF)
+        self.systemd_daemon_reload()
+
     def configure_httpd_wsgi_conf(self):
         """Configure WSGI for correct Python version (Fedora)
 

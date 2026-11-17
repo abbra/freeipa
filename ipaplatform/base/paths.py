@@ -172,6 +172,10 @@ class BasePathNamespace:
     ETC_SYSTEMD_SYSTEM_DIR = "/etc/systemd/system/"
     SYSTEMD_SYSTEM_HTTPD_D_DIR = "/etc/systemd/system/httpd.service.d/"
     SYSTEMD_SYSTEM_HTTPD_IPA_CONF = "/etc/systemd/system/httpd.service.d/ipa.conf"
+    SYSTEMD_SYSTEM_GSSPROXY_D_DIR = "/etc/systemd/system/gssproxy.service.d/"
+    SYSTEMD_SYSTEM_GSSPROXY_IPA_CONF = (
+        "/etc/systemd/system/gssproxy.service.d/ipa.conf"
+    )
     SYSTEMD_SYSTEM_SMB_D_DIR = "/etc/systemd/system/smb.service.d/"
     SYSTEMD_SYSTEM_SMB_IPA_CONF = "/etc/systemd/system/smb.service.d/ipa.conf"
     SYSTEMD_IPA_DCERPCD_SERVICE = "/etc/systemd/system/ipa-dcerpcd.service"
