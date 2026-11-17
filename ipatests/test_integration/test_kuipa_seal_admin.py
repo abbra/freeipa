@@ -3,24 +3,26 @@
 import json
 import re
 
+from pytest_sourceorder import ordered
+
 from ipatests.pytest_ipa.integration import tasks
-from ipatests.test_integration.base import IntegrationTest
+from ipatests.test_integration.kuipa_common import stage
 
 
-class TestKuipaSealAdministration(IntegrationTest):
-    num_clients = 1
+@ordered
+class KuipaSealAdminTests:
+    """Seal administration: revocation by administrators, realm limits."""
 
     @classmethod
-    def install(cls, mh):
+    @stage('seal_admin')
+    def stage_seal_admin(cls):
         master, client = cls.master, cls.clients[0]
-        tasks.install_master(master, setup_dns=True)
         config = json.loads(master.get_file_contents('/etc/ipa/kuipad.json',
                                                      encoding='utf-8'))
         config['tlog_head_interval'] = 0
         master.put_file_contents('/etc/ipa/kuipad.json', json.dumps(config))
         master.run_command(['systemctl', 'restart', 'kuipad.service'])
-        client.resolver.backup()
-        client.resolver.setup_resolver(master.ip)
+        cls.reset_client(client)
         tasks.kinit_admin(master)
         created = master.run_command(['env', 'LC_ALL=C', 'ipa', 'host-add',
                                       client.hostname, '--force', '--random'])
@@ -37,12 +39,8 @@ class TestKuipaSealAdministration(IntegrationTest):
                 'kinit', user,
             ], stdin_text='FirstPass123!\nSecondPass456!\nSecondPass456!\n')
 
-    @classmethod
-    def uninstall(cls, mh):
-        tasks.uninstall_client(cls.clients[0])
-        tasks.uninstall_master(cls.master)
-
     def test_administrative_revocation_and_limits(self):
+        self.stage_seal_admin()
         master, client = self.master, self.clients[0]
         owner = ['env', 'KRB5CCNAME=FILE:/tmp/seal-owner.ccache',
                  'KUIPA_USER_DIR=/tmp/seal-owner']

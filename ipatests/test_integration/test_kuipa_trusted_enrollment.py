@@ -4,62 +4,30 @@ import json
 import re
 from collections import Counter
 
+from pytest_sourceorder import ordered
+
 from ipatests.pytest_ipa.integration import tasks
-from ipatests.pytest_ipa.integration.env_config import get_global_config
-from ipatests.test_integration.base import IntegrationTest
-
-config = get_global_config()
+from ipatests.test_integration.kuipa_common import stage
 
 
-class TestKuipaTrustedUserEnrollment(IntegrationTest):
-    """An AD user with an ID override enrolls a client with kuipa."""
-    topology = 'line'
-    num_clients = 1
-    num_ad_domains = 1
+@ordered
+class KuipaTrustedEnrollmentTests:
+    """An AD user with an ID override enrolls a client with kuipa.
 
-    @classmethod
-    def install(cls, mh):
-        super().install(mh)
-        cls.ad = config.ad_domains[0].ads[0]
-        master = cls.master
-        tasks.install_adtrust(master)
-        tasks.sync_time(master, cls.ad)
-        tasks.configure_dns_for_trust(master, cls.ad)
-        # a two-way trust: the AD DC must find the IPA domain. Samba's
-        # DNS has one global forwarder, which becomes the IPA master.
-        cls.ad.run_command([
-            'sed', '-i', 's/dns forwarder = .*/dns forwarder = {}/'.format(
-                master.ip), '/etc/samba/smb.conf'])
-        cls.ad.run_command(['systemctl', 'restart', 'samba'])
-        tasks.establish_trust_with_ad(
-            master, cls.ad.domain.name,
-            extra_args=['--range-type', 'ipa-ad-trust',
-                        '--two-way=true'])
-        cls.aduser = 'testuser@{}'.format(cls.ad.domain.name)
-        tasks.kinit_admin(master)
-        master.run_command(['ipa', 'idoverrideuser-add',
-                            'Default Trust View', cls.aduser])
-        master.run_command(['ipa', 'group-add', 'enrollers'])
-        master.run_command(['ipa', 'group-add-member', 'enrollers',
-                            '--idoverrideusers', cls.aduser])
-        master.run_command(['ipa', 'role-add', 'AD enrollers'])
-        master.run_command(['ipa', 'role-add-privilege', 'AD enrollers',
-                            '--privileges', 'Host Enrollment'])
-        master.run_command(['ipa', 'role-add-privilege', 'AD enrollers',
-                            '--privileges', 'Host Administrators'])
-        master.run_command(['ipa', 'role-add-member', 'AD enrollers',
-                            '--groups', 'enrollers'])
-        # the default install enrolled the client already
-        client = cls.clients[0]
-        tasks.uninstall_client(client)
-        master.run_command(['ipa', 'host-del', client.hostname])
-        client.resolver.backup()
-        client.resolver.setup_resolver(master.ip)
+    A mixin of TestKuipaTrust, which installs the two-way trust, the
+    enrollers group and role, and sets `cls.ad`.
+    """
 
     @classmethod
-    def uninstall(cls, mh):
-        tasks.uninstall_client(cls.clients[0])
-        super().uninstall(mh)
+    @stage('trusted_enrollment')
+    def stage_trusted_enrollment(cls):
+        # the tests enroll client1 with a host entry of their own
+        cls.reset_client(cls.clients[0])
+
+    @classmethod
+    def cleanup_trusted_enrollment(cls):
+        cls.clients[0].run_command(['rm', '-rf', '/tmp/kuipa-krb5'],
+                                   raiseonerr=False)
 
     def measure_ldap(self, label):
         """Log how much of the LDAP database kuipa data takes.
@@ -118,6 +86,7 @@ class TestKuipaTrustedUserEnrollment(IntegrationTest):
         master.run_command(['echo', report])
 
     def test_client_install_with_a_trusted_realm_user(self):
+        self.stage_trusted_enrollment()
         self.measure_ldap('IPA installed, kuipa daemon running')
         client = self.clients[0]
         client.run_command([
@@ -133,10 +102,12 @@ class TestKuipaTrustedUserEnrollment(IntegrationTest):
                                 self.master.domain.realm)])
 
     def test_kuipa_enroll_with_a_trusted_realm_ticket(self):
+        self.stage_trusted_enrollment()
         self.enroll_with_ticket(
             'testuser@' + self.ad.domain.name.upper(), 'Secret123')
 
     def test_kuipa_enroll_with_a_realm_ticket(self):
+        self.stage_trusted_enrollment()
         self.enroll_with_ticket(
             'admin@' + self.master.domain.realm,
             self.master.config.admin_password)
@@ -173,6 +144,7 @@ class TestKuipaTrustedUserEnrollment(IntegrationTest):
         client.run_command(['test', '-s', '/etc/krb5.keytab'])
 
     def test_trusted_realm_user_owns_seals_only_as_the_realm_allows(self):
+        self.stage_trusted_enrollment()
         master, client = self.master, self.clients[0]
         principal = 'testuser@' + self.ad.domain.name.upper()
         env = ['env', 'KRB5_CONFIG=/tmp/kuipa-krb5/krb5.conf',

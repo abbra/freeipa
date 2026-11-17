@@ -3,17 +3,15 @@
 import json
 import re
 
-from ipatests.pytest_ipa.integration import tasks
-from ipatests.pytest_ipa.integration.env_config import get_global_config
-from ipatests.test_integration.base import IntegrationTest
+from pytest_sourceorder import ordered
 
-config = get_global_config()
+from ipatests.pytest_ipa.integration import tasks
 
 PROFILE = 'caIPAserviceCert'
 FIRST, SECOND = 'FirstPass123!', 'SecondPass456!'
 
 
-class KuipaCertApprovalBase(IntegrationTest):
+class KuipaCertApprovalBase:
     """Helpers: an admin requester, approvers, a service and its CSR."""
 
     @classmethod
@@ -119,23 +117,12 @@ class KuipaCertApprovalBase(IntegrationTest):
         assert self.request('--approval-id', approval_id).returncode != 0
 
 
-class TestKuipaCertApproval(KuipaCertApprovalBase):
-    """Certificates of a gated profile need two approvals."""
+@ordered
+class KuipaCertApprovalTests(KuipaCertApprovalBase):
+    """Certificates of a gated profile need two approvals.
 
-    @classmethod
-    def install(cls, mh):
-        tasks.install_master(cls.master, setup_dns=True)
-        cls.prepare()
-        tasks.user_add(cls.master, 'appr2', password=FIRST)
-        cls.master.run_command(['ipa', 'group-add-member', 'pki-approvers',
-                                '--users', 'appr2'])
-        cls.master.run_command(
-            ['env', 'KRB5CCNAME=FILE:/tmp/appr2.ccache', 'kinit', 'appr2'],
-            stdin_text='{0}\n{1}\n{1}\n'.format(FIRST, SECOND))
-
-    @classmethod
-    def uninstall(cls, mh):
-        tasks.uninstall_master(cls.master)
+    The deployment runs prepare() and adds the appr2 approver.
+    """
 
     def test_issuance_needs_two_approvals(self):
         self.issue_with_approvals('appr2')
@@ -171,31 +158,13 @@ class TestKuipaCertApproval(KuipaCertApprovalBase):
         assert 'Revoked' in shown.stdout_text
 
 
-class TestKuipaCertApprovalTrustedUser(KuipaCertApprovalBase):
-    """An AD user with an ID override in the default trust view approves."""
-    topology = 'line'
-    num_ad_domains = 1
+@ordered
+class KuipaCertApprovalTrustedTests(KuipaCertApprovalBase):
+    """An AD user with an ID override in the default trust view approves.
 
-    @classmethod
-    def install(cls, mh):
-        super().install(mh)
-        cls.ad = config.ad_domains[0].ads[0]
-        master = cls.master
-        tasks.install_adtrust(master)
-        tasks.sync_time(master, cls.ad)
-        tasks.configure_dns_for_trust(master, cls.ad)
-        tasks.establish_trust_with_ad(
-            master, cls.ad.domain.name,
-            extra_args=['--range-type', 'ipa-ad-trust'])
-        cls.prepare()
-        cls.aduser = 'testuser@{}'.format(cls.ad.domain.name)
-        master.run_command(['ipa', 'idoverrideuser-add',
-                            'Default Trust View', cls.aduser])
-        master.run_command(['ipa', 'group-add-member', 'pki-approvers',
-                            '--idoverrideusers', cls.aduser])
-        master.run_command(
-            ['env', 'KRB5CCNAME=FILE:/tmp/aduser.ccache', 'kinit',
-             cls.aduser], stdin_text='Secret123\n')
+    The deployment (test_kuipa_trust.py) sets up the trust, prepare(), the
+    override, the approver membership and the aduser ticket.
+    """
 
     def test_issuance_with_a_trusted_realm_approver(self):
         self.issue_with_approvals('aduser')

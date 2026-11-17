@@ -2,27 +2,21 @@
 
 import re
 
+from pytest_sourceorder import ordered
+
 from ipatests.pytest_ipa.integration import tasks
-from ipatests.test_integration.base import IntegrationTest
+from ipatests.test_integration.kuipa_common import stage
 
 
-class TestKuipaEnrollment(IntegrationTest):
+@ordered
+class KuipaEnrollmentTests:
     """A host-add credential enrolls through the normal client installer."""
 
-    num_clients = 2
-
     @classmethod
-    def install(cls, mh):
-        tasks.install_master(cls.master, setup_dns=True)
+    @stage('enrollment')
+    def stage_enrollment(cls):
         for client in cls.clients:
-            client.resolver.backup()
-            client.resolver.setup_resolver(cls.master.ip)
-
-    @classmethod
-    def uninstall(cls, mh):
-        for client in cls.clients:
-            tasks.uninstall_client(client)
-        tasks.uninstall_master(cls.master)
+            cls.reset_client(client)
 
     def enrollment_string(self, client):
         tasks.kinit_admin(self.master)
@@ -36,6 +30,7 @@ class TestKuipaEnrollment(IntegrationTest):
         return match.group(1)
 
     def test_otp_enrollment_string(self):
+        self.stage_enrollment()
         master, client = self.master, self.clients[0]
         enrollment = self.enrollment_string(client)
         parts = enrollment.split(':')
@@ -61,8 +56,12 @@ class TestKuipaEnrollment(IntegrationTest):
         client.run_command([
             'test', '!', '-e', '/var/lib/ipa-client/ku/state.json',
         ])
+        # the uninstall restored the resolver; later areas need the master
+        client.resolver.backup()
+        client.resolver.setup_resolver(master.ip)
 
     def test_wrong_anchor_does_not_fall_back_with_force(self):
+        self.stage_enrollment()
         client = self.clients[1]
         parts = self.enrollment_string(client).split(':')
         parts[2] = ('A' if parts[2][0] != 'A' else 'B') + parts[2][1:]

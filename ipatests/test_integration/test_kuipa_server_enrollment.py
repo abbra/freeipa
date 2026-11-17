@@ -2,28 +2,14 @@
 
 import json
 
+from pytest_sourceorder import ordered
+
 from ipatests.pytest_ipa.integration import tasks
-from ipatests.test_integration.base import IntegrationTest
 
 
-class TestKuipaServerEnrollment(IntegrationTest):
-    num_replicas = 1
-
-    @classmethod
-    def install(cls, mh):
-        tasks.install_master(cls.master, setup_dns=True)
-        cls.master.run_command([
-            'su', '-s', '/bin/sh', '-c',
-            'test -r /etc/ipa/ca.crt && test -r /etc/ipa/ku/realm.json',
-            'ipaapi',
-        ])
-        tasks.install_replica(cls.master, cls.replicas[0], setup_ca=False,
-                              promote=False, extra_args=['--no-ntp'])
-
-    @classmethod
-    def uninstall(cls, mh):
-        tasks.uninstall_master(cls.replicas[0])
-        tasks.uninstall_master(cls.master)
+@ordered
+class KuipaServerEnrollmentTests:
+    """The servers enroll during installation; the deployment installs them."""
 
     def test_daemon_keytab_is_brokered(self):
         for host in (self.master, self.replicas[0]):
